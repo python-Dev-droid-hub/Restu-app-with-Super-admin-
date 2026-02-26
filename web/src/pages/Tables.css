@@ -1,0 +1,20 @@
+.tables-page {
+  padding: 20px 0;
+}
+
+.tables-page .page-header {
+  margin-bottom: 24px;
+}
+
+.tables-page .page-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 4px 0;
+}
+
+.tables-page .page-subtitle {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0;
+}

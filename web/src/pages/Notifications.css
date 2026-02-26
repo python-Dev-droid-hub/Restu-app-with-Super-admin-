@@ -1,0 +1,18 @@
+.notifications-fullpage {
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.notifications-fullpage .dropdown-container {
+  position: relative !important;
+  width: 100% !important;
+  max-width: none !important;
+}
+
+.notifications-fullpage .dropdown-content {
+  max-height: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}

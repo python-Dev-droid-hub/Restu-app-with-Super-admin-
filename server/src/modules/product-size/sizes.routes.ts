@@ -1,0 +1,41 @@
+import { Router } from 'express';
+import { ProductSizeController } from './product-size.controller';
+import { authenticate, authorize } from '@/middleware/auth';
+import { validate } from '@/middleware/validation';
+import Joi from 'joi';
+
+const router = Router() as any;
+const productSizeController = new ProductSizeController();
+
+// Request logging middleware
+router.use((req: any, res: any, next: any) => {
+  console.log('🟣 [SIZES ROUTES] Incoming request:', req.method, req.path);
+  console.log('🟣 [SIZES ROUTES] Body:', JSON.stringify(req.body, null, 2));
+  console.log('🟣 [SIZES ROUTES] Params:', JSON.stringify(req.params, null, 2));
+  next();
+});
+
+// Validation schemas for Size CRUD
+const createSizeSchema = Joi.object({
+  size_name: Joi.string().min(1).max(50).required(),
+  description: Joi.string().max(200).optional(),
+  display_order: Joi.number().min(0).default(0),
+  is_active: Joi.boolean().default(true),
+});
+
+const updateSizeSchema = Joi.object({
+  size_name: Joi.string().min(1).max(50).optional(),
+  description: Joi.string().max(200).optional(),
+  display_order: Joi.number().min(0).optional(),
+  is_active: Joi.boolean().optional(),
+});
+
+// Public routes
+router.get('/', productSizeController.getAllSizes);
+
+// Admin routes - Size management
+router.post('/', authenticate, authorize('ADMIN'), validate(createSizeSchema), productSizeController.createSize);
+router.put('/:id', authenticate, authorize('ADMIN'), validate(updateSizeSchema), productSizeController.updateSize);
+router.delete('/:id', authenticate, authorize('ADMIN'), productSizeController.deleteSize);
+
+export default router;

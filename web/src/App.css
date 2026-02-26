@@ -1,0 +1,93 @@
+/* Loading state */
+.loading-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+}
+
+.loading-spinner {
+  font-size: 1.2rem;
+  color: rgba(255, 255, 255, 0.87);
+}
+
+/* App layout */
+.app-container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 2rem;
+  background: #1a1a1a;
+  border-bottom: 1px solid #333;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: rgba(255, 255, 255, 0.87);
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  color: rgba(255, 255, 255, 0.87);
+}
+
+.logout-button {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+}
+
+.app-main {
+  flex: 1;
+  padding: 2rem;
+}
+
+.dashboard {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.dashboard h2 {
+  margin-top: 0;
+  color: rgba(255, 255, 255, 0.87);
+}
+
+.dashboard p {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* Light mode */
+@media (prefers-color-scheme: light) {
+  .loading-spinner {
+    color: #213547;
+  }
+
+  .app-header {
+    background: #ffffff;
+    border-bottom-color: #ddd;
+  }
+
+  .app-header h1 {
+    color: #213547;
+  }
+
+  .user-info {
+    color: #213547;
+  }
+
+  .dashboard h2 {
+    color: #213547;
+  }
+
+  .dashboard p {
+    color: #666;
+  }
+}

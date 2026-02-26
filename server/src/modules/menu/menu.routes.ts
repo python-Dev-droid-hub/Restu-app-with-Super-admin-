@@ -1,0 +1,106 @@
+import { Router } from 'express';
+import { MenuController } from './menu.controller';
+import { authenticate, authorize } from '@/middleware/auth';
+import { validate, validateParams } from '@/middleware/validation';
+import Joi from 'joi';
+
+const router = Router() as any;
+const menuController = new MenuController();
+
+// Validation schemas
+const createCategorySchema = Joi.object({
+  name: Joi.string().min(2).max(50).required(),
+  description: Joi.string().max(200).optional(),
+  displayOrder: Joi.number().min(0).optional(),
+  isActive: Joi.boolean().optional(),
+  imageUrl: Joi.string().uri().optional().allow(''),
+});
+
+const updateCategorySchema = Joi.object({
+  name: Joi.string().min(2).max(50).optional(),
+  description: Joi.string().max(200).optional(),
+  displayOrder: Joi.number().min(0).optional(),
+  isActive: Joi.boolean().optional(),
+  imageUrl: Joi.string().uri().optional().allow(''),
+});
+
+const reorderCategoriesSchema = Joi.object({
+  categories: Joi.array().items(
+    Joi.object({
+      categoryId: Joi.string().required(),
+      displayOrder: Joi.number().min(0).required(),
+    })
+  ).required(),
+});
+
+const createMenuItemSchema = Joi.object({
+  name: Joi.string().min(2).max(100).required(),
+  description: Joi.string().min(10).max(500).required(),
+  price: Joi.number().min(0).required(),
+  category: Joi.string().required(),
+  images: Joi.array().items(Joi.string().uri()).optional(),
+  ingredients: Joi.array().items(Joi.string()).optional(),
+  allergens: Joi.array().items(Joi.string().valid('Gluten', 'Dairy', 'Nuts', 'Soy', 'Eggs', 'Shellfish', 'Fish', 'Peanuts', 'Sesame', 'Other')).optional(),
+  isVegetarian: Joi.boolean().optional(),
+  isVegan: Joi.boolean().optional(),
+  isGlutenFree: Joi.boolean().optional(),
+  isSpicy: Joi.boolean().optional(),
+  isAvailable: Joi.boolean().optional(),
+  preparationTime: Joi.number().min(1).required(),
+  nutritionInfo: Joi.object({
+    calories: Joi.number().min(0).optional(),
+    protein: Joi.number().min(0).optional(),
+    carbs: Joi.number().min(0).optional(),
+    fat: Joi.number().min(0).optional(),
+  }).optional(),
+});
+
+const updateMenuItemSchema = Joi.object({
+  name: Joi.string().min(2).max(100).optional(),
+  description: Joi.string().min(10).max(500).optional(),
+  price: Joi.number().min(0).optional(),
+  category: Joi.string().optional(),
+  images: Joi.array().items(Joi.string().uri()).optional(),
+  ingredients: Joi.array().items(Joi.string()).optional(),
+  allergens: Joi.array().items(Joi.string().valid('Gluten', 'Dairy', 'Nuts', 'Soy', 'Eggs', 'Shellfish', 'Fish', 'Peanuts', 'Sesame', 'Other')).optional(),
+  isVegetarian: Joi.boolean().optional(),
+  isVegan: Joi.boolean().optional(),
+  isGlutenFree: Joi.boolean().optional(),
+  isSpicy: Joi.boolean().optional(),
+  isAvailable: Joi.boolean().optional(),
+  preparationTime: Joi.number().min(1).optional(),
+  nutritionInfo: Joi.object({
+    calories: Joi.number().min(0).optional(),
+    protein: Joi.number().min(0).optional(),
+    carbs: Joi.number().min(0).optional(),
+    fat: Joi.number().min(0).optional(),
+  }).optional(),
+});
+
+const menuItemParamsSchema = Joi.object({
+  restaurantId: Joi.string().required(),
+  itemId: Joi.string().required(),
+});
+
+const categoryParamsSchema = Joi.object({
+  restaurantId: Joi.string().required(),
+  categoryId: Joi.string().required(),
+});
+
+// Admin routes - System wide menu management (MUST be before public routes)
+router.get('/admin/products', authenticate, authorize('ADMIN', 'BRANCH_MANAGER'), menuController.getAllProducts);
+router.post('/admin/products', authenticate, authorize('ADMIN', 'BRANCH_MANAGER'), menuController.createAdminProduct);
+router.put('/admin/products/:id', authenticate, authorize('ADMIN', 'BRANCH_MANAGER'), validate(updateMenuItemSchema), menuController.updateAdminProduct);
+router.get('/admin/categories', authenticate, authorize('ADMIN', 'BRANCH_MANAGER'), menuController.getAllCategories);
+router.post('/admin/categories', authenticate, authorize('ADMIN', 'BRANCH_MANAGER'), validate(createCategorySchema), menuController.createAdminCategory);
+router.put('/admin/categories/:id', authenticate, authorize('ADMIN', 'BRANCH_MANAGER'), validate(updateCategorySchema), menuController.updateAdminCategory);
+
+// Public routes
+router.get('/menu', menuController.getFullMenu);
+router.get('/:restaurantId/categories', menuController.getCategories);
+router.get('/:restaurantId/items', menuController.getMenuItems);
+router.get('/:restaurantId/items/:itemId', validateParams(menuItemParamsSchema), menuController.getMenuItemById);
+router.get('/:restaurantId/full-menu', menuController.getFullMenu);
+router.get('/:restaurantId/popular-items', menuController.getPopularItems);
+
+export default router;

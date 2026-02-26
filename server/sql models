@@ -1,0 +1,888 @@
+-- ============================================================================ 
+-- UPDATED RESTAURANT / FOOD DELIVERY PLATFORM SCHEMA
+-- WITH: Product Sizes, Multi-Branch Support, Branch Manager Role, Coupon-Deal Rules
+-- PostgreSQL + Redis Friendly
+-- ============================================================================
+
+-- EXTENSIONS
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS postgis;
+
+-- ============================================================================ 
+-- BRANCHES (NEW - Multi-Branch Support)
+-- ============================================================================ 
+CREATE TABLE branches (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    branch_code VARCHAR(20) UNIQUE NOT NULL, -- e.g., "BR001", "BR002"
+    branch_name VARCHAR(255) NOT NULL,
+    
+    -- Address Information
+    address_line VARCHAR(500) NOT NULL,
+    city VARCHAR(100) NOT NULL,
+    state VARCHAR(100),
+    postal_code VARCHAR(20),
+    country VARCHAR(100) DEFAULT 'Pakistan',
+    
+    -- Location
+    lat DOUBLE PRECISION,
+    lng DOUBLE PRECISION,
+    location GEOGRAPHY(POINT, 4326),
+    
+    -- Service Area (radius in meters)
+    delivery_radius INT DEFAULT 5000, -- 5km default
+    
+    -- Branch Manager
+    branch_manager_id UUID,
+    
+    -- Contact Info
+    phone_number VARCHAR(20),
+    email VARCHAR(255),
+    
+    -- Operating Hours (JSONB for flexibility)
+    operating_hours JSONB, -- {"monday": {"open": "09:00", "close": "22:00"}, ...}
+    
+    -- Status
+    is_active BOOLEAN DEFAULT TRUE,
+    accepts_delivery BOOLEAN DEFAULT TRUE,
+    accepts_dine_in BOOLEAN DEFAULT TRUE,
+    accepts_takeaway BOOLEAN DEFAULT TRUE,
+    
+    -- Timestamps
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP,
+    
+    CONSTRAINT fk_branch_manager FOREIGN KEY (branch_manager_id)
+        REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX idx_branches_location ON branches USING GIST (location);
+CREATE INDEX idx_branches_active ON branches(is_active) WHERE deleted_at IS NULL;
+CREATE INDEX idx_branches_manager ON branches(branch_manager_id);
+
+-- ============================================================================ 
+-- USERS (UPDATED - Added BRANCH_MANAGER Role)
+-- ============================================================================ 
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255),
+    display_name VARCHAR(255),
+    phone_number VARCHAR(20),
+    
+    -- UPDATED: Added BRANCH_MANAGER role
+    role VARCHAR(20) NOT NULL CHECK (role IN ('CUSTOMER','RIDER','ADMIN','WAITER','CHEF','BRANCH_MANAGER')),
+
+    profile_image VARCHAR(500),
+    email_verified BOOLEAN DEFAULT FALSE,
+    phone_verified BOOLEAN DEFAULT FALSE,
+    is_active BOOLEAN DEFAULT TRUE,
+
+    -- For Riders
+    vehicle_number VARCHAR(50),
+    vehicle_type VARCHAR(50),
+    
+    -- For Chefs
+    specialization VARCHAR(100),
+    
+    -- For Waiters
+    assigned_section VARCHAR(50),
+    
+    -- NEW: Branch Assignment for staff members
+    assigned_branch_id UUID,
+
+    fcm_token TEXT,
+
+    last_login_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP,
+    
+    CONSTRAINT fk_user_branch FOREIGN KEY (assigned_branch_id)
+        REFERENCES branches(id) ON DELETE SET NULL
+);
+
+CREATE INDEX idx_users_email ON users(email) WHERE deleted_at IS NULL;
+CREATE INDEX idx_users_role ON users(role) WHERE deleted_at IS NULL;
+CREATE INDEX idx_users_branch ON users(assigned_branch_id);
+
+-- ============================================================================ 
+-- Dining TABLES (UPDATED - Linked to Branch)
+-- ============================================================================ 
+CREATE TABLE restaurant_tables (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    branch_id UUID NOT NULL, -- NEW: Link to branch
+    table_number VARCHAR(20) NOT NULL,
+    seating_capacity INT NOT NULL CHECK (seating_capacity > 0),
+    section VARCHAR(50),
+    floor_number INT DEFAULT 1,
+    qr_code_url VARCHAR(500),
+
+    status VARCHAR(20) DEFAULT 'AVAILABLE' CHECK (
+        status IN ('AVAILABLE','OCCUPIED','RESERVED','CLEANING','OUT_OF_SERVICE')
+    ),
+
+    current_waiter_id UUID,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP,
+
+    CONSTRAINT fk_table_branch FOREIGN KEY (branch_id)
+        REFERENCES branches(id) ON DELETE CASCADE,
+    CONSTRAINT fk_table_waiter FOREIGN KEY (current_waiter_id)
+        REFERENCES users(id) ON DELETE SET NULL,
+    -- Table number unique per branch
+    CONSTRAINT unique_table_per_branch UNIQUE (branch_id, table_number)
+);
+
+CREATE INDEX idx_tables_branch ON restaurant_tables(branch_id);
+CREATE INDEX idx_tables_status ON restaurant_tables(status);
+
+-- ============================================================================ 
+-- CUSTOMER ADDRESSES
+-- ============================================================================ 
+CREATE TABLE customer_addresses (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    customer_id UUID NOT NULL,
+    label VARCHAR(50),
+    address_line VARCHAR(500) NOT NULL,
+    city VARCHAR(100),
+    postal_code VARCHAR(20),
+
+    lat DOUBLE PRECISION,
+    lng DOUBLE PRECISION,
+    location GEOGRAPHY(POINT, 4326),
+
+    is_default BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP,
+
+    CONSTRAINT fk_address_customer FOREIGN KEY (customer_id)
+        REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_addresses_customer ON customer_addresses(customer_id);
+CREATE INDEX idx_addresses_location ON customer_addresses USING GIST (location);
+
+-- ============================================================================ 
+-- CATEGORIES
+-- ============================================================================ 
+CREATE TABLE categories (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(100) UNIQUE NOT NULL,
+    description TEXT,
+    image_url VARCHAR(500),
+    display_order INT DEFAULT 0,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP
+);
+
+-- ============================================================================ 
+-- PRODUCTS (Base Product Definition)
+-- ============================================================================ 
+CREATE TABLE products (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    category_id UUID,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    
+    -- Base price (for products without sizes like Burger, Fries, etc.)
+    price NUMERIC(12,2) CHECK (price >= 0),
+    
+    -- NEW: Flag to indicate if this product has multiple sizes
+    has_sizes BOOLEAN DEFAULT FALSE,
+    
+    image_url VARCHAR(500),
+
+    is_available BOOLEAN DEFAULT TRUE,
+    preparation_time INT,
+
+    is_vegetarian BOOLEAN DEFAULT FALSE,
+    spice_level VARCHAR(20),
+
+    available_for_delivery BOOLEAN DEFAULT TRUE,
+    available_for_dine_in BOOLEAN DEFAULT TRUE,
+    available_for_takeaway BOOLEAN DEFAULT TRUE,
+
+    order_count INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP,
+
+    CONSTRAINT fk_product_category FOREIGN KEY (category_id)
+        REFERENCES categories(id) ON DELETE SET NULL
+);
+
+CREATE INDEX idx_products_category ON products(category_id);
+CREATE INDEX idx_products_available ON products(is_available);
+
+COMMENT ON COLUMN products.price IS 'Base price for products without sizes. If has_sizes=TRUE, price comes from product_sizes table';
+COMMENT ON COLUMN products.has_sizes IS 'TRUE if product has multiple sizes (Pizza, Drinks). FALSE for simple products (Burger, Fries)';
+
+-- ============================================================================ 
+-- SIZES (MASTER TABLE - Admin manages all available sizes here)
+-- ============================================================================ 
+CREATE TABLE sizes (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    size_name VARCHAR(50) UNIQUE NOT NULL, -- e.g., "Small", "Medium", "Large", "Extra Large", "Family Size"
+    display_order INT DEFAULT 0, -- Order to display sizes (Small=1, Medium=2, Large=3, etc.)
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP
+);
+
+CREATE INDEX idx_sizes_active ON sizes(is_active) WHERE deleted_at IS NULL;
+
+COMMENT ON TABLE sizes IS 'Master table of all available sizes. Admin can add/manage sizes like Small, Medium, Large, Extra Large, Family Size, etc.';
+
+-- Insert default sizes
+INSERT INTO sizes (size_name, display_order, is_active) VALUES
+('Small', 1, TRUE),
+('Medium', 2, TRUE),
+('Large', 3, TRUE),
+('Extra Large', 4, TRUE),
+('Family Size', 5, TRUE);
+
+-- ============================================================================ 
+-- PRODUCT SIZES (Links products to sizes with prices)
+-- ============================================================================ 
+CREATE TABLE product_sizes (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    product_id UUID NOT NULL,
+    size_id UUID NOT NULL, -- Reference to master sizes table
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP,
+    
+    CONSTRAINT fk_product_size_product FOREIGN KEY (product_id)
+        REFERENCES products(id) ON DELETE CASCADE,
+    CONSTRAINT fk_product_size_size FOREIGN KEY (size_id)
+        REFERENCES sizes(id) ON DELETE RESTRICT,
+    CONSTRAINT unique_product_size UNIQUE (product_id, size_id)
+);
+
+CREATE INDEX idx_product_sizes_product ON product_sizes(product_id);
+CREATE INDEX idx_product_sizes_size ON product_sizes(size_id);
+
+COMMENT ON TABLE product_sizes IS 'Links products to sizes with specific prices. Only for products that need sizes (Pizza, Drinks, etc.)';
+
+-- ============================================================================ 
+-- PRODUCT CUSTOMIZATIONS (For Toppings, Add-ons, etc.)
+-- ============================================================================ 
+CREATE TABLE product_customizations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    product_id UUID NOT NULL,
+    option_name VARCHAR(100) NOT NULL, -- e.g., "Extra Toppings", "Spice Level"
+    option_values JSONB, -- e.g., ["Cheese", "Olives", "Mushrooms"]
+    extra_price NUMERIC(10,2) DEFAULT 0 CHECK (extra_price >= 0),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP,
+
+    CONSTRAINT fk_custom_product FOREIGN KEY (product_id)
+        REFERENCES products(id) ON DELETE CASCADE,
+    CONSTRAINT unique_product_option UNIQUE (product_id, option_name)
+);
+
+CREATE INDEX idx_customizations_product ON product_customizations(product_id);
+
+-- ============================================================================ 
+-- DEALS (UPDATED - Linked to Branch)
+-- ============================================================================ 
+CREATE TABLE deals (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    branch_id UUID, -- NEW: NULL means applicable to all branches
+    
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+
+    discount_type VARCHAR(20) CHECK (discount_type IN ('PERCENTAGE','FIXED_AMOUNT')),
+    discount_value NUMERIC(10,2) NOT NULL,
+    max_discount_amount NUMERIC(10,2),
+    min_order_amount NUMERIC(10,2) DEFAULT 0,
+
+    start_date TIMESTAMP NOT NULL,
+    expiry_date TIMESTAMP NOT NULL,
+    image_url VARCHAR(500),
+    is_active BOOLEAN DEFAULT TRUE,
+    
+    -- NEW: Coupon exclusivity flag
+    exclude_coupons BOOLEAN DEFAULT TRUE, -- If TRUE, coupons cannot be applied with this deal
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP,
+    
+    CONSTRAINT fk_deal_branch FOREIGN KEY (branch_id)
+        REFERENCES branches(id) ON DELETE CASCADE,
+    CHECK (expiry_date > start_date)
+);
+
+CREATE INDEX idx_deals_branch ON deals(branch_id);
+CREATE INDEX idx_deals_active ON deals(is_active);
+CREATE INDEX idx_deals_dates ON deals(start_date, expiry_date);
+
+-- ============================================================================ 
+-- DEAL PRODUCTS (NEW - Which products have deals)
+-- ============================================================================ 
+CREATE TABLE deal_products (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    deal_id UUID NOT NULL,
+    product_id UUID NOT NULL,
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    CONSTRAINT fk_deal_product_deal FOREIGN KEY (deal_id)
+        REFERENCES deals(id) ON DELETE CASCADE,
+    CONSTRAINT fk_deal_product_product FOREIGN KEY (product_id)
+        REFERENCES products(id) ON DELETE CASCADE,
+    CONSTRAINT unique_deal_product UNIQUE (deal_id, product_id)
+);
+
+CREATE INDEX idx_deal_products_deal ON deal_products(deal_id);
+CREATE INDEX idx_deal_products_product ON deal_products(product_id);
+
+-- ============================================================================ 
+-- COUPONS (UPDATED - Linked to Branch)
+-- ============================================================================ 
+CREATE TABLE coupons (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    branch_id UUID, -- NEW: NULL means applicable to all branches
+    
+    code VARCHAR(50) UNIQUE NOT NULL, -- e.g., "WELCOME10"
+    description TEXT,
+    discount_type VARCHAR(20) NOT NULL CHECK (discount_type IN ('PERCENTAGE','FIXED_AMOUNT')),
+    discount_value NUMERIC(10,2) NOT NULL CHECK (discount_value >= 0),
+    
+    max_usage INT DEFAULT 1 CHECK (max_usage > 0), -- total times coupon can be used
+    used_count INT DEFAULT 0, -- usage counter
+    
+    -- NEW: Per-customer usage limit
+    max_usage_per_customer INT DEFAULT 1 CHECK (max_usage_per_customer > 0),
+    
+    -- NEW: Minimum order amount to use coupon
+    min_order_amount NUMERIC(12,2) DEFAULT 0,
+    
+    -- NEW: Maximum discount cap
+    max_discount_amount NUMERIC(12,2),
+    
+    start_date TIMESTAMP NOT NULL,
+    expiry_date TIMESTAMP NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    
+    -- NEW: Exclude products with active deals
+    exclude_deal_products BOOLEAN DEFAULT TRUE, -- If TRUE, cannot apply to products with active deals
+    
+    created_by UUID, -- admin who created the coupon
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_coupon_admin FOREIGN KEY (created_by)
+        REFERENCES users(id),
+    CONSTRAINT fk_coupon_branch FOREIGN KEY (branch_id)
+        REFERENCES branches(id) ON DELETE CASCADE,
+    CHECK (expiry_date > start_date)
+);
+
+CREATE INDEX idx_coupons_branch ON coupons(branch_id);
+CREATE INDEX idx_coupons_code ON coupons(code) WHERE is_active = TRUE;
+CREATE INDEX idx_coupons_dates ON coupons(start_date, expiry_date);
+
+-- ============================================================================ 
+-- COUPON REDEMPTIONS
+-- ============================================================================ 
+CREATE TABLE coupon_redemptions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    coupon_id UUID NOT NULL,
+    order_id UUID NOT NULL,
+    customer_id UUID NOT NULL,
+    discount_amount NUMERIC(12,2) NOT NULL,
+    redeemed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_redemption_coupon FOREIGN KEY (coupon_id)
+        REFERENCES coupons(id) ON DELETE CASCADE,
+    CONSTRAINT fk_redemption_order FOREIGN KEY (order_id)
+        REFERENCES orders(id) ON DELETE CASCADE,
+    CONSTRAINT fk_redemption_customer FOREIGN KEY (customer_id)
+        REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT unique_customer_coupon_order UNIQUE (coupon_id, order_id, customer_id)
+);
+
+CREATE INDEX idx_redemptions_coupon ON coupon_redemptions(coupon_id);
+CREATE INDEX idx_redemptions_customer ON coupon_redemptions(customer_id);
+CREATE INDEX idx_redemptions_order ON coupon_redemptions(order_id);
+
+-- ============================================================================ 
+-- ORDERS (UPDATED - Linked to Branch)
+-- ============================================================================ 
+CREATE TABLE orders (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    order_number VARCHAR(50) UNIQUE NOT NULL,
+    
+    branch_id UUID NOT NULL, -- NEW: Link to branch
+
+    order_type VARCHAR(20) NOT NULL CHECK (
+        order_type IN ('DELIVERY','DINE_IN','TAKEAWAY')
+    ),
+
+    customer_id UUID NOT NULL,
+    rider_id UUID,
+    waiter_id UUID,
+    chef_id UUID,
+    table_id UUID,
+
+    subtotal NUMERIC(12,2) NOT NULL,
+    discount_amount NUMERIC(12,2) DEFAULT 0, -- total discount including deal and coupon
+    coupon_discount NUMERIC(12,2) DEFAULT 0, -- discount from coupon only
+    deal_discount NUMERIC(12,2) DEFAULT 0, -- NEW: discount from deal only
+    tax_amount NUMERIC(12,2) DEFAULT 0,
+    delivery_fee NUMERIC(12,2) DEFAULT 0,
+    service_charge NUMERIC(12,2) DEFAULT 0,
+    total_amount NUMERIC(12,2) NOT NULL,
+
+    coupon_id UUID, -- applied coupon
+    deal_id UUID,
+
+    status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+    payment_status VARCHAR(20) DEFAULT 'PENDING',
+    payment_method VARCHAR(50),
+
+    address_line VARCHAR(500),
+    delivery_location GEOGRAPHY(POINT, 4326),
+
+    special_instructions TEXT,
+    rejection_reason TEXT,
+    cancellation_reason TEXT,
+
+    kitchen_accepted_at TIMESTAMP,
+    ready_at TIMESTAMP,
+    picked_up_at TIMESTAMP,
+    delivered_at TIMESTAMP,
+    completed_at TIMESTAMP,
+    cancelled_at TIMESTAMP,
+
+    food_rating INT CHECK (food_rating BETWEEN 1 AND 5),
+    service_rating INT CHECK (service_rating BETWEEN 1 AND 5),
+    delivery_rating INT CHECK (delivery_rating BETWEEN 1 AND 5),
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP,
+
+    CONSTRAINT fk_order_branch FOREIGN KEY (branch_id)
+        REFERENCES branches(id) ON DELETE CASCADE,
+    CONSTRAINT fk_order_customer FOREIGN KEY (customer_id) 
+        REFERENCES users(id),
+    CONSTRAINT fk_order_rider FOREIGN KEY (rider_id) 
+        REFERENCES users(id),
+    CONSTRAINT fk_order_waiter FOREIGN KEY (waiter_id) 
+        REFERENCES users(id),
+    CONSTRAINT fk_order_chef FOREIGN KEY (chef_id) 
+        REFERENCES users(id),
+    CONSTRAINT fk_order_table FOREIGN KEY (table_id) 
+        REFERENCES restaurant_tables(id),
+    CONSTRAINT fk_order_deal FOREIGN KEY (deal_id) 
+        REFERENCES deals(id),
+    CONSTRAINT fk_order_coupon FOREIGN KEY (coupon_id) 
+        REFERENCES coupons(id)
+);
+
+CREATE INDEX idx_orders_branch ON orders(branch_id);
+CREATE INDEX idx_orders_status ON orders(status);
+CREATE INDEX idx_orders_customer ON orders(customer_id);
+CREATE INDEX idx_orders_geo ON orders USING GIST (delivery_location);
+CREATE INDEX idx_orders_created ON orders(created_at);
+
+-- ============================================================================ 
+-- ORDER STATUS TRANSITIONS (SAFETY)
+-- ============================================================================ 
+CREATE TABLE order_status_transitions (
+    from_status VARCHAR(30),
+    to_status VARCHAR(30),
+    PRIMARY KEY (from_status, to_status)
+);
+
+INSERT INTO order_status_transitions VALUES
+('PENDING','KITCHEN_ACCEPTED'),
+('KITCHEN_ACCEPTED','PREPARING'),
+('PREPARING','READY'),
+('READY','RIDER_ASSIGNED'),
+('RIDER_ASSIGNED','PICKED_UP'),
+('PICKED_UP','OUT_FOR_DELIVERY'),
+('OUT_FOR_DELIVERY','DELIVERED'),
+('DELIVERED','COMPLETED'),
+('PENDING','CANCELLED'),
+('KITCHEN_ACCEPTED','CANCELLED');
+
+-- ============================================================================ 
+-- ORDER ITEMS (UPDATED - Now includes size information)
+-- ============================================================================ 
+CREATE TABLE order_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    order_id UUID NOT NULL,
+    product_id UUID NOT NULL,
+    product_size_id UUID, -- Reference to product_sizes (if product has size)
+    size_id UUID, -- Reference to sizes table (for historical record)
+
+    product_name VARCHAR(255) NOT NULL,
+    size_name VARCHAR(50), -- Size name for reference (copied from sizes table)
+    quantity INT NOT NULL CHECK (quantity > 0),
+    unit_price NUMERIC(10,2) NOT NULL,
+    total_price NUMERIC(10,2) NOT NULL,
+    
+    -- Flag if this item has an active deal
+    has_deal BOOLEAN DEFAULT FALSE,
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_item_order FOREIGN KEY (order_id)
+        REFERENCES orders(id) ON DELETE CASCADE,
+    CONSTRAINT fk_item_product FOREIGN KEY (product_id)
+        REFERENCES products(id),
+    CONSTRAINT fk_item_product_size FOREIGN KEY (product_size_id)
+        REFERENCES product_sizes(id),
+    CONSTRAINT fk_item_size FOREIGN KEY (size_id)
+        REFERENCES sizes(id)
+);
+
+CREATE INDEX idx_order_items_order ON order_items(order_id);
+CREATE INDEX idx_order_items_product ON order_items(product_id);
+
+-- ============================================================================ 
+-- ORDER ITEM CUSTOMIZATIONS (ANALYTICS-FRIENDLY)
+-- ============================================================================ 
+CREATE TABLE order_item_customizations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    order_item_id UUID NOT NULL,
+    option_name VARCHAR(100),
+    option_value VARCHAR(100),
+    extra_price NUMERIC(10,2) DEFAULT 0,
+
+    CONSTRAINT fk_oic_item FOREIGN KEY (order_item_id)
+        REFERENCES order_items(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_customizations_order_item ON order_item_customizations(order_item_id);
+
+-- ============================================================================ 
+-- ORDER REJECTIONS
+-- ============================================================================ 
+CREATE TABLE order_rejections (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    order_id UUID NOT NULL,
+    rejected_by UUID NOT NULL,
+    rejection_type VARCHAR(20) CHECK (rejection_type IN ('KITCHEN','RIDER')),
+    rejection_reason TEXT NOT NULL,
+    is_resolved BOOLEAN DEFAULT FALSE,
+    resolved_by UUID,
+    resolved_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_reject_order FOREIGN KEY (order_id)
+        REFERENCES orders(id) ON DELETE CASCADE,
+    CONSTRAINT fk_reject_user FOREIGN KEY (rejected_by)
+        REFERENCES users(id)
+);
+
+CREATE INDEX idx_rejections_order ON order_rejections(order_id);
+
+-- ============================================================================ 
+-- PAYMENTS (FINAL, SAFE)
+-- ============================================================================ 
+CREATE TABLE payments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    payment_number VARCHAR(50) UNIQUE NOT NULL,
+
+    order_id UUID NOT NULL,
+    customer_id UUID NOT NULL,
+
+    amount NUMERIC(12,2) NOT NULL,
+    currency VARCHAR(10) DEFAULT 'PKR', -- Changed to PKR for Pakistan
+
+    payment_method VARCHAR(50) NOT NULL,
+    provider VARCHAR(50),
+
+    status VARCHAR(20) CHECK (
+        status IN ('PENDING','PROCESSING','SUCCESS','FAILED','REFUNDED')
+    ),
+
+    transaction_id VARCHAR(255),
+    idempotency_key VARCHAR(255) UNIQUE,
+    gateway_response JSONB,
+
+    failure_reason TEXT,
+    refund_amount NUMERIC(12,2),
+    refund_reason TEXT,
+    refunded_at TIMESTAMP,
+
+    completed_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_payment_order FOREIGN KEY (order_id)
+        REFERENCES orders(id),
+    CONSTRAINT fk_payment_customer FOREIGN KEY (customer_id)
+        REFERENCES users(id)
+);
+
+CREATE INDEX idx_payments_order ON payments(order_id);
+CREATE INDEX idx_payments_customer ON payments(customer_id);
+CREATE INDEX idx_payments_status ON payments(status);
+
+-- ============================================================================ 
+-- NOTIFICATIONS
+-- ============================================================================ 
+CREATE TABLE notifications (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    recipient_id UUID NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    body TEXT NOT NULL,
+    type VARCHAR(50),
+    related_order_id UUID,
+    is_read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_notif_user FOREIGN KEY (recipient_id)
+        REFERENCES users(id),
+    CONSTRAINT fk_notif_order FOREIGN KEY (related_order_id)
+        REFERENCES orders(id)
+);
+
+CREATE INDEX idx_notifications_user ON notifications(recipient_id, is_read);
+
+-- ============================================================================ 
+-- SYSTEM SETTINGS
+-- ============================================================================ 
+CREATE TABLE system_settings (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    key VARCHAR(100) UNIQUE NOT NULL,
+    value JSONB NOT NULL,
+    updated_by UUID,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_setting_user FOREIGN KEY (updated_by)
+        REFERENCES users(id)
+);
+
+-- ============================================================================ 
+-- BRANCH INVENTORY (NEW - Track inventory per branch)
+-- ============================================================================ 
+CREATE TABLE branch_inventory (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    branch_id UUID NOT NULL,
+    product_id UUID NOT NULL,
+    
+    quantity_available INT DEFAULT 0,
+    reorder_level INT DEFAULT 10, -- Alert when stock falls below this
+    
+    last_restocked_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    CONSTRAINT fk_inventory_branch FOREIGN KEY (branch_id)
+        REFERENCES branches(id) ON DELETE CASCADE,
+    CONSTRAINT fk_inventory_product FOREIGN KEY (product_id)
+        REFERENCES products(id) ON DELETE CASCADE,
+    CONSTRAINT unique_branch_product UNIQUE (branch_id, product_id)
+);
+
+CREATE INDEX idx_inventory_branch ON branch_inventory(branch_id);
+CREATE INDEX idx_inventory_product ON branch_inventory(product_id);
+CREATE INDEX idx_inventory_low_stock ON branch_inventory(quantity_available) 
+    WHERE quantity_available <= reorder_level;
+
+-- ============================================================================ 
+-- HELPER FUNCTIONS
+-- ============================================================================
+
+-- Function to check if a product has an active deal
+CREATE OR REPLACE FUNCTION has_active_deal(p_product_id UUID, p_branch_id UUID)
+RETURNS BOOLEAN AS $$
+DECLARE
+    deal_count INT;
+BEGIN
+    SELECT COUNT(*) INTO deal_count
+    FROM deal_products dp
+    INNER JOIN deals d ON dp.deal_id = d.id
+    WHERE dp.product_id = p_product_id
+        AND d.is_active = TRUE
+        AND d.deleted_at IS NULL
+        AND CURRENT_TIMESTAMP BETWEEN d.start_date AND d.expiry_date
+        AND (d.branch_id = p_branch_id OR d.branch_id IS NULL);
+    
+    RETURN deal_count > 0;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to validate coupon usage on order items
+CREATE OR REPLACE FUNCTION validate_coupon_on_order(p_order_id UUID, p_coupon_id UUID)
+RETURNS BOOLEAN AS $$
+DECLARE
+    coupon_exclude_deals BOOLEAN;
+    order_branch_id UUID;
+    deal_product_count INT;
+BEGIN
+    -- Get coupon exclude_deal_products flag
+    SELECT exclude_deal_products INTO coupon_exclude_deals
+    FROM coupons
+    WHERE id = p_coupon_id;
+    
+    -- If coupon doesn't exclude deal products, allow it
+    IF coupon_exclude_deals = FALSE THEN
+        RETURN TRUE;
+    END IF;
+    
+    -- Get order's branch
+    SELECT branch_id INTO order_branch_id
+    FROM orders
+    WHERE id = p_order_id;
+    
+    -- Check if any order items have active deals
+    SELECT COUNT(*) INTO deal_product_count
+    FROM order_items oi
+    WHERE oi.order_id = p_order_id
+        AND has_active_deal(oi.product_id, order_branch_id);
+    
+    -- If any items have deals, coupon cannot be applied
+    RETURN deal_product_count = 0;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ============================================================================ 
+-- TRIGGERS
+-- ============================================================================
+
+-- Trigger to update updated_at timestamp
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Apply to all tables with updated_at
+CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_branches_updated_at BEFORE UPDATE ON branches
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_products_updated_at BEFORE UPDATE ON products
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_sizes_updated_at BEFORE UPDATE ON sizes
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_product_sizes_updated_at BEFORE UPDATE ON product_sizes
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_orders_updated_at BEFORE UPDATE ON orders
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_coupons_updated_at BEFORE UPDATE ON coupons
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_deals_updated_at BEFORE UPDATE ON deals
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================================================ 
+-- SAMPLE DATA FOR TESTING (Optional)
+-- ============================================================================
+
+-- Insert sample branch
+-- INSERT INTO branches (branch_code, branch_name, address_line, city, phone_number, email, lat, lng)
+-- VALUES 
+--     ('BR001', 'Main Branch - Gulberg', 'Main Boulevard, Gulberg III', 'Lahore', '+92-300-1234567', 'gulberg@restaurant.pk', 31.5204, 74.3587),
+--     ('BR002', 'DHA Branch', 'Main Boulevard, DHA Phase 5', 'Lahore', '+92-300-7654321', 'dha@restaurant.pk', 31.4697, 74.4081);
+
+-- ============================================================================ 
+-- VIEWS FOR REPORTING
+-- ============================================================================
+
+-- View: Active Products with Sizes and Prices
+CREATE OR REPLACE VIEW v_products_with_sizes AS
+SELECT 
+    p.id as product_id,
+    p.name as product_name,
+    p.description,
+    p.category_id,
+    c.name as category_name,
+    p.price as base_price,
+    p.has_sizes,
+    s.id as size_id,
+    s.size_name,
+    ps.id as product_size_id,
+    ps.price as size_price,
+    ps.is_default,
+    ps.is_available as size_available,
+    p.image_url,
+    p.is_available as product_available,
+    p.preparation_time,
+    p.is_vegetarian
+FROM products p
+LEFT JOIN categories c ON p.category_id = c.id
+LEFT JOIN product_sizes ps ON p.id = ps.product_id AND ps.deleted_at IS NULL
+LEFT JOIN sizes s ON ps.size_id = s.id AND s.deleted_at IS NULL
+WHERE p.deleted_at IS NULL
+    AND p.is_available = TRUE;
+
+-- View: Branch Performance Summary
+CREATE OR REPLACE VIEW v_branch_performance AS
+SELECT 
+    b.id as branch_id,
+    b.branch_code,
+    b.branch_name,
+    b.city,
+    COUNT(DISTINCT o.id) as total_orders,
+    COUNT(DISTINCT CASE WHEN o.status = 'COMPLETED' THEN o.id END) as completed_orders,
+    COUNT(DISTINCT CASE WHEN o.status = 'CANCELLED' THEN o.id END) as cancelled_orders,
+    COALESCE(SUM(CASE WHEN o.status = 'COMPLETED' THEN o.total_amount END), 0) as total_revenue,
+    COALESCE(AVG(CASE WHEN o.status = 'COMPLETED' THEN o.total_amount END), 0) as avg_order_value
+FROM branches b
+LEFT JOIN orders o ON b.id = o.branch_id AND o.deleted_at IS NULL
+WHERE b.deleted_at IS NULL
+GROUP BY b.id, b.branch_code, b.branch_name, b.city;
+
+-- View: Products with Active Deals
+CREATE OR REPLACE VIEW v_products_with_deals AS
+SELECT 
+    p.id as product_id,
+    p.name as product_name,
+    d.id as deal_id,
+    d.title as deal_title,
+    d.discount_type,
+    d.discount_value,
+    d.branch_id,
+    b.branch_name,
+    d.start_date,
+    d.expiry_date,
+    d.exclude_coupons
+FROM products p
+INNER JOIN deal_products dp ON p.id = dp.product_id
+INNER JOIN deals d ON dp.deal_id = d.id
+LEFT JOIN branches b ON d.branch_id = b.id
+WHERE p.deleted_at IS NULL
+    AND d.deleted_at IS NULL
+    AND d.is_active = TRUE
+    AND CURRENT_TIMESTAMP BETWEEN d.start_date AND d.expiry_date;
+
+-- ============================================================================ 
+-- COMMENTS FOR DOCUMENTATION
+-- ============================================================================
+
+COMMENT ON TABLE branches IS 'Stores information about different restaurant branches';
+COMMENT ON TABLE product_sizes IS 'Allows admin to define multiple sizes for each product with different prices';
+COMMENT ON TABLE deal_products IS 'Links deals to specific products - products with active deals cannot have coupons applied';
+COMMENT ON COLUMN coupons.exclude_deal_products IS 'If TRUE, this coupon cannot be applied to products that have active deals';
+COMMENT ON COLUMN deals.exclude_coupons IS 'If TRUE, coupons cannot be used on orders with this deal';
+COMMENT ON COLUMN order_items.has_deal IS 'Indicates if this item has an active deal applied';
+
+-- ============================================================================ 
+-- END OF UPDATED SCHEMA
+-- ============================================================================

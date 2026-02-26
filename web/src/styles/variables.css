@@ -1,0 +1,103 @@
+/* ============================================================================
+   GLOBAL CSS VARIABLES - DO NOT MODIFY THESE COLORS
+   ============================================================================ */
+
+:root {
+  /* PRIMARY BRAND COLOR */
+  --primary: #FA4A0C;
+  --primary-hover: #E8440B;
+  --primary-light: #FFF5F2;
+  --primary-dark: #D43F0A;
+
+  /* BACKGROUNDS - ALL LIGHT */
+  --bg-body: #F9F9F9;
+  --bg-card: #FFFFFF;
+  --bg-hover: #F6F6F6;
+  --bg-input: #FFFFFF;
+
+  /* TEXT COLORS */
+  --text-primary: #2D2D2D;
+  --text-secondary: #5C5C5C;
+  --text-hint: #9A9A9A;
+  --text-white: #FFFFFF;
+
+  /* BORDERS */
+  --border-color: #E8E8E8;
+  --border-color-dark: #D0D0D0;
+
+  /* SHADOWS */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.10);
+  --shadow-orange: 0 4px 12px rgba(250, 74, 12, 0.25);
+
+  /* SPACING */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+
+  /* RADIUS */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+
+  /* STATUS COLORS */
+  --status-pending: #FF9800;
+  --status-pending-bg: #FFF3E0;
+  --status-preparing: #2196F3;
+  --status-preparing-bg: #E3F2FD;
+  --status-ready: #4CAF50;
+  --status-ready-bg: #E8F5E9;
+  --status-delivered: #8BC34A;
+  --status-delivered-bg: #F1F8E9;
+  --status-cancelled: #F44336;
+  --status-cancelled-bg: #FFEBEE;
+}
+
+/* ============================================================================
+   GLOBAL RESET & BASE STYLES
+   ============================================================================ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg-body);
+  color: var(--text-primary);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ============================================================================
+   TYPOGRAPHY
+   ============================================================================ */
+
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+h1 { font-size: 32px; }
+h2 { font-size: 24px; }
+h3 { font-size: 20px; }
+h4 { font-size: 18px; }
+h5 { font-size: 16px; }
+h6 { font-size: 14px; }
+
+p {
+  color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1.6;
+}

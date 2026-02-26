@@ -1,0 +1,188 @@
+import { Request, Response, NextFunction } from 'express';
+import { UserRepository } from './user.repository';
+import { IAuthRequest, sendSuccess, sendError, asyncHandler } from '@/utils';
+import { createError } from '@/middleware/errorHandler';
+import { Types } from 'mongoose';
+
+export class UserController {
+  private userRepository: UserRepository;
+
+  constructor() {
+    this.userRepository = new UserRepository();
+  }
+
+  getProfile = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
+    const user = req.user;
+    
+    if (!user) {
+      throw createError('User not found', 404);
+    }
+
+    sendSuccess(res, user.getPublicProfile(), 'Profile retrieved successfully');
+  });
+
+  updateProfile = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
+    const userId = req.user!._id;
+    const { name, phone, avatar, image } = req.body;
+
+    const updateData: any = {};
+    if (name) updateData.displayName = name;
+    if (phone) updateData.phoneNumber = phone;
+    if (avatar) updateData.profileImage = avatar;
+    if (image) updateData.profileImage = image; // Also accept 'image' field
+
+    const updatedUser = await this.userRepository.updateById(userId, updateData);
+    
+    if (!updatedUser) {
+      throw createError('User not found', 404);
+    }
+
+    sendSuccess(res, updatedUser.getPublicProfile(), 'Profile updated successfully');
+  });
+
+  getAllUsers = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const role = req.query.role as string;
+    const search = req.query.search as string;
+    const userRole = req.user!.role;
+    const userBranchId = req.user!.assignedBranch;
+
+    let filter: any = { isActive: true };
+    if (role) filter.role = role;
+
+    // Branch managers can only see users from their branch and cannot see SUPER_ADMIN
+    if (userRole === 'BRANCH_MANAGER') {
+      filter.role = { $ne: 'SUPER_ADMIN' }; // Hide SUPER_ADMIN from branch managers
+      // Filter by branch - only show users assigned to manager's branch
+      if (userBranchId) {
+        // Convert to ObjectId for proper MongoDB comparison
+        try {
+          const branchObjectId = typeof userBranchId === 'string' 
+            ? new Types.ObjectId(userBranchId)
+            : userBranchId;
+          filter.assignedBranch = branchObjectId;
+        } catch (e) {
+          console.log('[USERS] Invalid branchId format:', userBranchId);
+        }
+      }
+    }
+
+    console.log('[USERS] Filter:', JSON.stringify(filter));
+    console.log('[USERS] User branchId:', userBranchId);
+
+    let result;
+    if (search) {
+      result = await this.userRepository.searchUsers(search, page, limit, filter);
+    } else {
+      result = await this.userRepository.findAll(page, limit, filter);
+    }
+
+    console.log('[USERS] Found users:', result.users.length, 'Total:', result.total);
+
+    const totalPages = Math.ceil(result.total / limit);
+
+    sendSuccess(res, {
+      users: result.users.map(user => user.getPublicProfile()),
+      pagination: {
+        page,
+        limit,
+        total: result.total,
+        pages: totalPages,
+      },
+    }, 'Users retrieved successfully');
+  });
+
+  getUserById = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { id } = req.params;
+
+    const user = await this.userRepository.findById(id);
+    
+    if (!user) {
+      throw createError('User not found', 404);
+    }
+
+    sendSuccess(res, user.getPublicProfile(), 'User retrieved successfully');
+  });
+
+  deactivateUser = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { id } = req.params;
+
+    const user = await this.userRepository.softDeleteById(id);
+    
+    if (!user) {
+      throw createError('User not found', 404);
+    }
+
+    sendSuccess(res, null, 'User deactivated successfully');
+  });
+
+  activateUser = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { id } = req.params;
+
+    const user = await this.userRepository.updateById(id, { isActive: true });
+    
+    if (!user) {
+      throw createError('User not found', 404);
+    }
+
+    sendSuccess(res, { user: user.getPublicProfile() }, 'User activated successfully');
+  });
+
+  updateUser = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { id } = req.params;
+    const { name, email, role, isActive, phone } = req.body;
+
+    const updateData: any = {};
+    if (name) updateData.displayName = name;
+    if (email) updateData.email = email;
+    if (role) updateData.role = role;
+    if (isActive !== undefined) updateData.isActive = isActive;
+    if (phone) updateData.phoneNumber = phone;
+
+    const user = await this.userRepository.updateById(id, updateData);
+    
+    if (!user) {
+      throw createError('User not found', 404);
+    }
+
+    sendSuccess(res, { user: user.getPublicProfile() }, 'User updated successfully');
+  });
+
+  deleteUser = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { id } = req.params;
+
+    const deleted = await this.userRepository.deleteById(id);
+    
+    if (!deleted) {
+      throw createError('User not found', 404);
+    }
+
+    sendSuccess(res, null, 'User deleted successfully');
+  });
+
+  changePassword = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
+    const userId = req.user!._id;
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      throw createError('Current password and new password are required', 400);
+    }
+
+    const user = await this.userRepository.findByIdWithPassword(userId);
+    
+    if (!user) {
+      throw createError('User not found', 404);
+    }
+
+    const isCurrentPasswordValid = await user.comparePassword(currentPassword);
+    
+    if (!isCurrentPasswordValid) {
+      throw createError('Current password is incorrect', 400);
+    }
+
+    await this.userRepository.updatePassword(userId, newPassword);
+
+    sendSuccess(res, null, 'Password changed successfully');
+  });
+}
