@@ -859,6 +859,13 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
         return;
       }
       
+      // Second: try to load branch language (set by SettingsContext)
+      const branchLang = await AsyncStorage.getItem('branchLanguage');
+      if (branchLang && branchLang in translations) {
+        setLanguageState(branchLang as LanguageCode);
+        return;
+      }
+      
       // Fallback: try to load from backend settings
       const authToken = await AsyncStorage.getItem('authToken');
       if (authToken) {

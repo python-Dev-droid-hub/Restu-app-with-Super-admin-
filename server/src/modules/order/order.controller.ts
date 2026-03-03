@@ -25,7 +25,19 @@ export class OrderController {
     console.log('[ORDER DEBUG] Request body:', JSON.stringify(req.body, null, 2));
     
     const userId = req.user!._id;
-    const { items, restaurantId, deliveryAddress, orderType, paymentMethod, deliveryInstructions } = req.body;
+    const {
+      items,
+      restaurantId,
+      deliveryAddress,
+      orderType,
+      paymentMethod,
+      deliveryInstructions,
+      tableId,
+      table,
+      selectedTable,
+      tableNumber,
+      table_number,
+    } = req.body;
 
     console.log('[ORDER DEBUG] userId:', userId);
     console.log('[ORDER DEBUG] restaurantId:', restaurantId);
@@ -114,7 +126,15 @@ export class OrderController {
     const randomNum = String(Math.floor(Math.random() * 9000) + 1000);
     const orderNumber = `ORD${year}${month}${day}${randomNum}`;
 
-    const orderData = {
+    const normalizedOrderType =
+      orderType === 'pickup' || orderType === 'DINE_IN' || orderType === 'dine_in'
+        ? 'DINE_IN'
+        : orderType;
+
+    const resolvedTableId = tableId || table || selectedTable;
+    const resolvedTableNumber = tableNumber || table_number;
+
+    const orderData: any = {
       customer: userId, // The waiter is both customer and waiter for dine-in orders
       branch: restaurantId,
       orderNumber,
@@ -126,13 +146,19 @@ export class OrderController {
       finalAmount,
       deliveryAddress,
       deliveryInstructions,
+      specialInstructions: req.body.specialInstructions || deliveryInstructions,
       estimatedDeliveryTime,
-      orderType: orderType === 'pickup' ? 'DINE_IN' : orderType,
+      orderType: normalizedOrderType,
       paymentMethod,
       status: 'PENDING',
       paymentStatus: 'PENDING',
-      waiter: userId, // Set the waiter who created this order
     };
+
+    if (normalizedOrderType === 'DINE_IN') {
+      orderData.waiter = userId;
+      if (resolvedTableId) orderData.table = resolvedTableId;
+      if (resolvedTableNumber) orderData.tableNumber = resolvedTableNumber;
+    }
     
     console.log('[ORDER DEBUG] Order data prepared:', JSON.stringify(orderData, null, 2));
 
@@ -147,6 +173,79 @@ export class OrderController {
     console.log('[ORDER DEBUG] ====== ORDER CREATION SUCCESS ======');
 
     sendSuccess(res, populatedOrder, 'Order created successfully', 201);
+  });
+
+  updateOrder = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
+    const { orderId } = req.params;
+    const { items, specialInstructions, addItems, removeItems } = req.body;
+    const userId = req.user!._id;
+    const userRole = req.user!.role;
+
+    const order = await this.orderRepository.findById(orderId);
+    if (!order) {
+      throw createError('Order not found', 404);
+    }
+
+    // Check authorization - waiter who created the order, branch manager, or admin
+    const isWaiter = order.waiter && order.waiter._id.toString() === userId.toString();
+    const isBranchManager = order.branch?.branchManager && order.branch.branchManager.toString() === userId.toString();
+    const isAdmin = userRole === 'ADMIN';
+
+    if (!isWaiter && !isBranchManager && !isAdmin) {
+      throw createError('Not authorized to update this order', 403);
+    }
+
+    // Can only update orders in PENDING or KITCHEN_ACCEPTED status
+    if (!['PENDING', 'KITCHEN_ACCEPTED'].includes(order.status)) {
+      throw createError('Cannot update order after it has been submitted to kitchen', 400);
+    }
+
+    const updateData: any = {};
+
+    // Update special instructions
+    if (specialInstructions !== undefined) {
+      updateData.specialInstructions = specialInstructions;
+    }
+
+    // Add new items to existing items
+    if (addItems && addItems.length > 0) {
+      const newItems = [];
+      for (const item of addItems) {
+        const menuItem = await this.menuRepository.findMenuItemById(item.menuItemId);
+        if (!menuItem || !menuItem.isAvailable) {
+          throw createError(`Menu item ${item.menuItemId} not found or unavailable`, 400);
+        }
+        newItems.push({
+          product: item.menuItemId,
+          quantity: item.quantity,
+          unitPrice: menuItem.price,
+          totalPrice: menuItem.price * item.quantity,
+          productName: menuItem.name,
+          customizations: item.customizations || [],
+        });
+      }
+      updateData.items = [...order.items, ...newItems];
+    }
+
+    // Remove items by product ID
+    if (removeItems && removeItems.length > 0) {
+      updateData.items = (updateData.items || order.items).filter(
+        (item: any) => !removeItems.includes(item.product?.toString() || item.product)
+      );
+    }
+
+    // Recalculate totals if items changed
+    if (updateData.items) {
+      const newTotal = updateData.items.reduce((sum: number, item: any) => sum + item.totalPrice, 0);
+      updateData.subtotal = newTotal;
+      updateData.totalAmount = newTotal;
+      updateData.finalAmount = newTotal + (order.taxAmount || 0) + (order.deliveryFee || 0);
+    }
+
+    const updatedOrder = await this.orderRepository.updateById(orderId, updateData);
+    const populatedOrder = await this.orderRepository.findById(orderId);
+
+    sendSuccess(res, populatedOrder, 'Order updated successfully');
   });
 
   getMyOrders = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
@@ -442,10 +541,28 @@ export class OrderController {
     }
 
     const orders = await this.orderRepository.findAllOrders(filter, pageNum, limitNum);
+    const normalizedOrders = (orders || []).map((o: any) => {
+      const tableNumber = o?.table?.tableNumber || o?.tableNumber;
+      const items = Array.isArray(o?.items)
+        ? o.items.map((it: any) => ({
+            ...it,
+            image: it?.image || it?.product?.imageUrl || it?.product?.image,
+          }))
+        : [];
+      return {
+        ...o,
+        id: o._id.toString(),
+        tableNumber,
+        items,
+        // Ensure these fields are properly mapped for frontend
+        finalAmount: o.totalAmount,
+        total: o.totalAmount,
+      };
+    });
     const total = await this.orderRepository.countOrders(filter);
 
     const response = {
-      orders,
+      orders: normalizedOrders,
       pagination: {
         page: pageNum,
         limit: limitNum,
@@ -524,17 +641,18 @@ export class OrderController {
       return;
     }
 
-    // Chef can update to PREPARING or READY
-    if (isChef && ['PREPARING', 'READY'].includes(status)) {
-      const updateData: any = { status };
-      if (status === 'READY' && ready_at) {
+    // Chef can update to PREPARING or READY (case-insensitive)
+    const statusUpper = status?.toUpperCase();
+    if (isChef && ['PREPARING', 'READY'].includes(statusUpper)) {
+      const updateData: any = { status: statusUpper };
+      if (statusUpper === 'READY' && ready_at) {
         updateData.readyAt = new Date(ready_at);
-      } else if (status === 'READY') {
+      } else if (statusUpper === 'READY') {
         updateData.readyAt = new Date();
       }
       const updatedOrder = await this.orderRepository.updateById(orderId, updateData);
       const populatedOrder = await this.orderRepository.findById(orderId);
-      sendSuccess(res, populatedOrder, `Order status updated to ${status}`);
+      sendSuccess(res, populatedOrder, `Order status updated to ${statusUpper}`);
       return;
     }
 
@@ -551,6 +669,81 @@ export class OrderController {
     }
 
     throw createError('Not authorized to update this order', 403);
+  });
+
+  getBranchOrders = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
+    const userId = req.user!._id;
+    const userRole = req.user!.role;
+    const { status, page = '1', limit = '20', branchId } = req.query;
+
+    const pageNum = parseInt(page as string, 10);
+    const limitNum = parseInt(limit as string, 10);
+
+    // Get user's branch ID from query or user data
+    let targetBranchId = branchId as string;
+    
+    if (!targetBranchId) {
+      // Get from req.user which has assignedBranch populated
+      targetBranchId = req.user!.assignedBranch?.toString() || '';
+    }
+
+    // Build filter - show ALL orders for the branch (not filtered by waiter)
+    const filter: any = {};
+    
+    // Only filter by branch if we have one
+    if (targetBranchId) {
+      filter.branch = targetBranchId;
+    }
+    
+    // For waiters, only show DINE_IN orders (they don't need delivery orders)
+    if (userRole === 'WAITER') {
+      filter.orderType = 'DINE_IN';
+    }
+    
+    // Support multiple statuses (comma-separated)
+    if (status && status !== 'all') {
+      const statuses = (status as string).split(',').map(s => s.trim().toUpperCase());
+      if (statuses.length === 1) {
+        filter.status = statuses[0];
+      } else {
+        filter.status = { $in: statuses };
+      }
+    }
+
+    const skip = (pageNum - 1) * limitNum;
+
+    const [orders, total] = await Promise.all([
+      this.orderRepository.findAllOrders(filter, pageNum, limitNum),
+      this.orderRepository.countOrders(filter),
+    ]);
+
+    const normalizedOrders = (orders || []).map((o: any) => {
+      const tableNumber = o?.table?.tableNumber || o?.tableNumber;
+      const items = Array.isArray(o?.items)
+        ? o.items.map((it: any) => ({
+            ...it,
+            image: it?.image || it?.product?.imageUrl || it?.product?.image,
+          }))
+        : [];
+      return {
+        ...o,
+        id: o._id.toString(),
+        tableNumber,
+        items,
+      };
+    });
+
+    const response = {
+      orders: normalizedOrders,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum),
+      },
+    };
+
+    sendSuccess(res, response, 'Branch orders retrieved successfully');
   });
 
   getWaiterOrders = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
@@ -580,8 +773,24 @@ export class OrderController {
       this.orderRepository.countOrders(filter),
     ]);
 
+    const normalizedOrders = (orders || []).map((o: any) => {
+      const tableNumber = o?.table?.tableNumber || o?.tableNumber;
+      const items = Array.isArray(o?.items)
+        ? o.items.map((it: any) => ({
+            ...it,
+            image: it?.image || it?.product?.imageUrl || it?.product?.image,
+          }))
+        : [];
+      return {
+        ...o,
+        id: o._id.toString(),
+        tableNumber,
+        items,
+      };
+    });
+
     const response = {
-      orders,
+      orders: normalizedOrders,
       pagination: {
         page: pageNum,
         limit: limitNum,

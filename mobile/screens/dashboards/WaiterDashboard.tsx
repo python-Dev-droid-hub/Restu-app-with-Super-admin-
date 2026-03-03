@@ -21,6 +21,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '../../components/api/client';
 import { CommonActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import OrderCard from '../../components/ChefDashboard/OrderCard';
+import { getChefOrders, populateOrdersWithProductDetails } from '../../services/orderService';
 
 const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 0;
 const HEADER_MARGIN = Platform.OS === 'ios' ? 50 : 20;
@@ -80,6 +82,7 @@ interface SqlOrderItem {
   product_name: string;
   size_name?: string | null;
   quantity: number;
+  image?: string | null;
 }
 
 interface SqlOrder {
@@ -181,21 +184,27 @@ export default function WaiterDashboard() {
         });
       }
 
-      const ordersResponse = await api.get('/orders/waiter/my-orders');
+      const ordersResponse = await api.get('/orders/branch/all');
       if (ordersResponse.success && ordersResponse.data) {
         const rawOrders = ordersResponse.data.orders || [];
-        const formattedOrders: SqlOrder[] = rawOrders.map((order: any) => {
+        console.log('[WAITER] Branch orders count:', rawOrders.length);
+        
+        // Populate product details for orders with incomplete product data
+        const populatedOrders = await populateOrdersWithProductDetails(rawOrders);
+        
+        const formattedOrders: SqlOrder[] = populatedOrders.map((order: any) => {
           const id = order.id || order._id;
           const createdAt = order.created_at || order.createdAt;
           const orderNumber = order.order_number || order.orderNumber || `ORD-${String(id).slice(-6).toUpperCase()}`;
-          const status = (order.status || 'PENDING') as SqlOrderStatus;
+          const status = String(order.status || 'PENDING').toUpperCase() as SqlOrderStatus;
           const orderType = (order.order_type || order.orderType || 'DINE_IN') as SqlOrderType;
           const itemsRaw = order.items || order.orderItems || [];
           const items: SqlOrderItem[] = itemsRaw.map((item: any) => ({
             id: item.id || item._id || `${id}-${item.product_id || item.productId || item.product_name || item.productName}`,
-            product_name: item.product_name || item.productName || 'Item',
+            product_name: item.productName || item.product_name || item.name || (item.product?.name) || 'Item',
             size_name: item.size_name || item.sizeName || null,
-            quantity: item.quantity || 1,
+            quantity: Number(item.quantity) || 1,
+            image: item.image || item.product?.image || item.product?.imageUrl || null,
           }));
           return {
             id: String(id),
@@ -332,10 +341,10 @@ export default function WaiterDashboard() {
   };
 
   const toOrderFilterGroup = (status: SqlOrderStatus, pickedUpAt?: string | null): 'ACTIVE' | 'READY' | 'COMPLETED' | 'CANCELLED' => {
-    if (status === 'COMPLETED') return 'COMPLETED';
+    if (status === 'COMPLETED' || status === 'SERVED' || status === 'DELIVERED') return 'COMPLETED';
     if (status === 'CANCELLED') return 'CANCELLED';
-    if (status === 'READY' && !pickedUpAt) return 'READY';
-    if (status === 'PENDING' || status === 'KITCHEN_ACCEPTED' || status === 'PREPARING' || status === 'PICKED_UP' || status === 'DELIVERED') return 'ACTIVE';
+    if (status === 'READY') return 'READY';
+    // PENDING, KITCHEN_ACCEPTED, PREPARING, PICKED_UP all go to ACTIVE
     return 'ACTIVE';
   };
 
@@ -354,6 +363,19 @@ export default function WaiterDashboard() {
     return { label: 'Delivery', bg: 'rgba(43,196,138,0.14)', fg: '#2BC48A' };
   };
 
+  const openEditOrder = (order: SqlOrder) => {
+    if (!['PENDING', 'KITCHEN_ACCEPTED'].includes(order.status)) {
+      Alert.alert('Cannot Edit', 'Orders can only be edited before they are submitted to kitchen.');
+      return;
+    }
+    if (!order.id || order.id === 'undefined') {
+      Alert.alert('Error', 'Order ID is missing. Please refresh and try again.');
+      return;
+    }
+    // Navigate to full edit order screen
+    (navigation as any).navigate('EditOrder', { orderId: order.id });
+  };
+
   const pickUpOrder = async (orderId: string) => {
     try {
       const response = await api.put(`/orders/${orderId}/status`, { 
@@ -370,79 +392,20 @@ export default function WaiterDashboard() {
     }
   };
 
-  const StatCard = ({ color, value, label, sublabel }: { color: string; value: number; label: string; sublabel?: string }) => (
-    <TouchableOpacity activeOpacity={0.9} style={[styles.statCardNew, { backgroundColor: color }]}>
+  const StatCard = ({ color, value, label, sublabel, onPress }: { color: string; value: number; label: string; sublabel?: string; onPress?: () => void }) => (
+    <TouchableOpacity activeOpacity={0.9} style={[styles.statCardNew, { backgroundColor: color }]} onPress={onPress}>
       <Text style={styles.statValueNew}>{value}</Text>
       <Text style={styles.statLabelNew}>{label}</Text>
       {sublabel && <Text style={styles.statSublabelNew}>{sublabel}</Text>}
     </TouchableOpacity>
   );
 
-  const OrderCardNew = ({ order }: { order: SqlOrder }) => {
-    const tableLabel = order.table_number ? `Table ${order.table_number}` : 'Table';
-    const statusPill = getOrderStatusPill(order.status);
-    const isUrgent = order.status === 'PENDING';
-    const isCooking = order.status === 'PREPARING' || order.status === 'KITCHEN_ACCEPTED';
-    
-    return (
-      <View style={styles.orderCardNew}>
-        {/* Header Row */}
-        <View style={styles.orderTopRow}>
-          <View style={styles.orderBadge}>
-            <Text style={styles.orderBadgeText}>TT</Text>
-          </View>
-          <View style={styles.orderMetaLeft}>
-            <Text style={styles.orderNumberNew}>{order.order_number}</Text>
-          </View>
-          <View style={styles.orderTimeInfo}>
-            <Text style={styles.tableText}>{tableLabel}</Text>
-            <Text style={styles.timeText}>{formatSinceMinutes(order.created_at)}</Text>
-          </View>
-        </View>
-
-        {/* Status Pills */}
-        <View style={styles.pillsRow}>
-          {isUrgent && (
-            <View style={[styles.statusPill, styles.urgentPill]}>
-              <Text style={styles.statusPillText}>Urgent</Text>
-            </View>
-          )}
-          <View style={[styles.statusPill, { backgroundColor: statusPill.bg }]}>
-            <Text style={[styles.statusPillText, { color: statusPill.fg }]}>{statusPill.label}</Text>
-          </View>
-        </View>
-
-        {/* Order Items */}
-        <View style={styles.orderItemsNew}>
-          {order.items.map((item, index) => (
-            <Text key={index} style={styles.orderItemLineNew}>
-              {item.quantity}x {item.product_name}
-            </Text>
-          ))}
-        </View>
-
-        {/* Special Instructions */}
-        {!!order.special_instructions && (
-          <View style={styles.orderNoteBox}>
-            <Text style={styles.orderNoteTitle}>Special Instructions</Text>
-            <Text style={styles.orderNoteText}>{order.special_instructions}</Text>
-          </View>
-        )}
-
-        {/* Bottom Row */}
-        <View style={styles.orderBottomRow}>
-          <Text style={styles.expectedTime}>Expected Time: {formatTime(order.created_at)}</Text>
-          <View style={[styles.statusPillSmall, { backgroundColor: statusPill.bg }]}>
-            <Text style={[styles.statusPillTextSmall, { color: statusPill.fg }]}>{statusPill.label}</Text>
-          </View>
-        </View>
-      </View>
-    );
-  };
-
   const renderHome = () => {
     const activeOrders = orders.filter(o => o.status !== 'COMPLETED' && o.status !== 'CANCELLED');
     const readyOrders = orders.filter(o => o.status === 'READY');
+    const filteredHomeOrders = orders
+      .filter(o => toOrderFilterGroup(o.status, o.picked_up_at) === orderFilter)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     return (
       <ScrollView
         style={styles.content}
@@ -456,18 +419,30 @@ export default function WaiterDashboard() {
             value={activeOrders.length} 
             label="New Orders" 
             sublabel="Active"
+            onPress={() => {
+              setOrderFilter('ACTIVE');
+              setActiveTab('orders');
+            }}
           />
           <StatCard 
             color="#2BC48A" 
             value={readyOrders.length} 
             label="Ready" 
             sublabel="To Serve"
+            onPress={() => {
+              setOrderFilter('READY');
+              setActiveTab('orders');
+            }}
           />
           <StatCard 
             color="#FF4D4D" 
             value={orders.filter(o => o.status === 'PENDING').length} 
             label="Pending" 
             sublabel="Urgent"
+            onPress={() => {
+              setOrderFilter('ACTIVE');
+              setActiveTab('orders');
+            }}
           />
         </View>
 
@@ -494,13 +469,70 @@ export default function WaiterDashboard() {
             })}
           </View>
 
-          {activeOrders.length === 0 ? (
+          {filteredHomeOrders.length === 0 ? (
             <View style={styles.emptyStateNew}>
               <Text style={styles.emptyTitleNew}>No orders</Text>
-              <Text style={styles.emptySubNew}>Try another tab</Text>
+              <Text style={styles.emptySubNew}>Pull down to refresh or create a new order</Text>
             </View>
           ) : (
-            activeOrders.slice(0, 5).map(o => <OrderCardNew key={o.id} order={o} />)
+            filteredHomeOrders.slice(0, 5).map((o, idx) => (
+              <View key={`home-${o.id}-${idx}`} style={{ marginBottom: 12 }}>
+                <OrderCard
+                  order={{
+                    id: o.id,
+                    orderNumber: o.order_number,
+                    status: String(o.status || 'PENDING').toLowerCase() as any,
+                    orderType: o.order_type,
+                    tableNumber: o.table_number || undefined,
+                    items: o.items.map(item => ({
+                      id: item.id,
+                      quantity: Number(item.quantity) || 1,
+                      product: {
+                        name: item.product_name,
+                        image: item.image,
+                      }
+                    })) as any,
+                    createdAt: o.created_at,
+                    specialInstructions: o.special_instructions || undefined,
+                    totalAmount: o.total_amount,
+                  }}
+                  onStatusChange={async (orderId, status) => {
+                    try {
+                      await pickUpOrder(orderId);
+                    } catch (e: any) {
+                      Alert.alert('Error', e?.message || 'Failed to update order');
+                    }
+                  }}
+                  role="WAITER"
+                  showPayment={true}
+                  showActions={o.status === 'READY'}
+                />
+                {/* Edit button for editable orders */}
+                {['PENDING', 'KITCHEN_ACCEPTED'].includes(o.status) && (
+                  <TouchableOpacity
+                    style={{
+                      position: 'absolute',
+                      top: 8,
+                      right: 8,
+                      backgroundColor: DESIGN.colors.orange,
+                      borderRadius: 16,
+                      width: 32,
+                      height: 32,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.2,
+                      shadowRadius: 4,
+                      elevation: 4,
+                    }}
+                    onPress={() => openEditOrder(o)}
+                  >
+                    <Ionicons name="pencil" size={16} color="#fff" />
+                  </TouchableOpacity>
+                )}
+              </View>
+            ))
           )}
         </View>
       </ScrollView>
@@ -544,10 +576,67 @@ export default function WaiterDashboard() {
           {filteredOrders.length === 0 ? (
             <View style={styles.emptyStateNew}>
               <Text style={styles.emptyTitleNew}>No orders</Text>
-              <Text style={styles.emptySubNew}>Try another filter</Text>
+              <Text style={styles.emptySubNew}>Pull down to refresh or create a new order</Text>
             </View>
           ) : (
-            filteredOrders.map(o => <OrderCardNew key={o.id} order={o} />)
+            filteredOrders.map((o, idx) => (
+              <View key={`orders-${o.id}-${idx}`} style={{ marginBottom: 12 }}>
+                <OrderCard
+                  order={{
+                    id: o.id,
+                    orderNumber: o.order_number,
+                    status: o.status.toLowerCase() as any,
+                    orderType: o.order_type,
+                    tableNumber: o.table_number || undefined,
+                    items: o.items.map(item => ({
+                      id: item.id,
+                      quantity: Number(item.quantity) || 1,
+                      product: {
+                        name: item.product_name,
+                        image: item.image,
+                      }
+                    })) as any,
+                    createdAt: o.created_at,
+                    specialInstructions: o.special_instructions || undefined,
+                    totalAmount: o.total_amount,
+                  }}
+                  onStatusChange={async (orderId, status) => {
+                    try {
+                      await pickUpOrder(orderId);
+                    } catch (e: any) {
+                      Alert.alert('Error', e?.message || 'Failed to update order');
+                    }
+                  }}
+                  role="WAITER"
+                  showPayment={true}
+                  showActions={o.status === 'READY'}
+                />
+                {/* Edit button for editable orders */}
+                {['PENDING', 'KITCHEN_ACCEPTED'].includes(o.status) && (
+                  <TouchableOpacity
+                    style={{
+                      position: 'absolute',
+                      top: 8,
+                      right: 8,
+                      backgroundColor: DESIGN.colors.orange,
+                      borderRadius: 16,
+                      width: 32,
+                      height: 32,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.2,
+                      shadowRadius: 4,
+                      elevation: 4,
+                    }}
+                    onPress={() => openEditOrder(o)}
+                  >
+                    <Ionicons name="pencil" size={16} color="#fff" />
+                  </TouchableOpacity>
+                )}
+              </View>
+            ))
           )}
         </View>
       </ScrollView>

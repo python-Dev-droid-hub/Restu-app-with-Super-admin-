@@ -71,23 +71,45 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
       const userRole = parsedUserData?.role;
       const branchId =
         parsedUserData?.assignedBranch?._id ||
+        parsedUserData?.assignedBranch ||
         parsedUserData?.branch?._id ||
+        parsedUserData?.branch ||
         parsedUserData?.branchId;
 
-      // If BRANCH_MANAGER, use assigned branch currency/language when available
-      if (userRole === 'BRANCH_MANAGER' && branchId) {
+      // For staff roles (BRANCH_MANAGER, CHEF, WAITER), use assigned branch settings
+      const staffRoles = ['BRANCH_MANAGER', 'CHEF', 'WAITER', 'KITCHEN', 'COOK', 'HEAD_CHEF', 'SOUS_CHEF', 'KITCHEN_MANAGER'];
+      if (staffRoles.includes(userRole) && branchId) {
         const branchRes = await api.get(`/restaurants/${branchId}`);
-        const branchCurrency = branchRes.success ? branchRes.data?.currency : undefined;
-        // Validate currency - fallback to USD if not supported
-        const currency = VALID_CURRENCIES.includes(branchCurrency) ? branchCurrency : (systemSettings?.defaultCurrency || 'USD');
-        const symbol = currencySymbols[currency] || '$';
+        if (branchRes.success && branchRes.data) {
+          const branchCurrency = branchRes.data?.currency;
+          const branchLanguage = branchRes.data?.language;
+          
+          // Store branch language in AsyncStorage for LocalizationContext to use
+          if (branchLanguage) {
+            await AsyncStorage.setItem('branchLanguage', branchLanguage);
+          }
+          
+          // Validate currency - fallback to USD if not supported
+          const currency = VALID_CURRENCIES.includes(branchCurrency) ? branchCurrency : (systemSettings?.defaultCurrency || 'USD');
+          const symbol = currencySymbols[currency] || '$';
 
-        setSettings({
-          defaultCurrency: currency,
-          taxRate: systemSettings?.taxRate || 8.5,
-          currencySymbol: symbol,
-          appName: systemSettings?.appName || 'Restaurant App',
-        });
+          setSettings({
+            defaultCurrency: currency,
+            taxRate: systemSettings?.taxRate || 8.5,
+            currencySymbol: symbol,
+            appName: systemSettings?.appName || 'Restaurant App',
+          });
+        } else {
+          // Fallback to system settings
+          const currency = VALID_CURRENCIES.includes(systemSettings?.defaultCurrency) ? systemSettings?.defaultCurrency : 'USD';
+          const symbol = currencySymbols[currency] || '$';
+          setSettings({
+            defaultCurrency: currency,
+            taxRate: systemSettings?.taxRate || 8.5,
+            currencySymbol: symbol,
+            appName: systemSettings?.appName || 'Restaurant App',
+          });
+        }
       } else {
         const currency = VALID_CURRENCIES.includes(systemSettings?.defaultCurrency) ? systemSettings?.defaultCurrency : 'USD';
         const symbol = currencySymbols[currency] || '$';
@@ -121,6 +143,13 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
 
   useEffect(() => {
     loadSettings();
+    
+    // Set up polling to refresh settings every 30 seconds for real-time sync
+    const pollInterval = setInterval(() => {
+      loadSettings();
+    }, 30000);
+    
+    return () => clearInterval(pollInterval);
   }, []);
 
   const formatPrice = (price: number): string => {

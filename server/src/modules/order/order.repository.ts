@@ -86,18 +86,15 @@ export class OrderRepository {
     try {
       const skip = (page - 1) * limit;
       
-      // Convert string branchId to ObjectId if needed
-      const branchObjectId = typeof branchId === 'string' 
-        ? new Types.ObjectId(branchId) 
-        : branchId;
-      
-      const filter: any = { branch: branchObjectId };
+      // Use branchId directly - MongoDB will handle string to ObjectId conversion
+      const filter: any = { branch: branchId };
       
       if (status) {
         filter.status = status;
       }
 
       console.log('[findByBranchId] Query filter:', JSON.stringify(filter));
+      console.log('[findByBranchId] BranchId type:', typeof branchId);
 
       const [orders, total] = await Promise.all([
         Order.find(filter)
@@ -328,7 +325,7 @@ export class OrderRepository {
       .populate('waiter', 'displayName')
       .populate('chef', 'displayName')
       .populate('table', 'tableNumber')
-      .populate('items.product', 'name')
+      .populate('items.product', 'name imageUrl')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);

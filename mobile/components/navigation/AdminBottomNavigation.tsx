@@ -8,7 +8,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { CommonActions, useNavigation, useRoute } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS } from '../../constants/colors';
 import { getSpacing } from '../../utils/responsive';
@@ -72,10 +72,14 @@ export default function AdminBottomNavigation({ onMorePress, currentRoute: propR
         // @ts-ignore
         navigation.navigate(homeRoute);
       } else {
-        // For stack-pushed screens (details), jump back to the correct dashboard navigator
+        // For stack-pushed screens, reset back to the correct dashboard tab navigator
         const dashboardRoute = await getDashboardRouteName();
-        // @ts-ignore
-        navigation.navigate(dashboardRoute);
+        navigation.dispatch(
+          CommonActions.reset({
+            index: 0,
+            routes: [{ name: dashboardRoute as never }],
+          })
+        );
       }
       return;
     }

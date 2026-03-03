@@ -17,6 +17,8 @@ import { api } from '../../components/api/client';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalization } from '../../context/LocalizationContext';
+import OrderCard from '../../components/ChefDashboard/OrderCard';
+import { getCashierOrders, populateOrdersWithProductDetails } from '../../services/orderService';
 
 import { useUserData } from '../../hooks/useUserData';
 
@@ -32,9 +34,17 @@ import { COLORS } from '../../constants/colors';
 type OrderStatus = 'all' | 'pending' | 'cancelled' | 'preparing' | 'completed';
 
 interface OrderItem {
-  name: string;
+  name?: string;
+  productName?: string;
+  product?: {
+    name?: string;
+    imageUrl?: string;
+    image?: string;
+  };
   quantity: number;
   price?: number;
+  image?: string;
+  unitPrice?: number;
 }
 
 interface Order {
@@ -43,13 +53,20 @@ interface Order {
   status: string;
   customerName?: string;
   customerEmail?: string;
-  total: number;
+  total?: number;
+  totalAmount?: number;
   createdAt: string;
   items?: OrderItem[];
+  orderType?: string;
+  tableNumber?: string;
+  table?: {
+    tableNumber?: string;
+  };
+  specialInstructions?: string;
 }
 
 export default function AdminOrdersScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation() as any;
   const insets = useSafeAreaInsets();
   const { t } = useLocalization();
   const { userRole, profileImage } = useUserData();
@@ -74,14 +91,40 @@ export default function AdminOrdersScreen() {
 
   useEffect(() => {
     loadOrders();
+    
+    // Poll for real-time updates every 5 seconds
+    const interval = setInterval(() => {
+      loadOrdersSilent();
+    }, 5000);
+    
+    return () => clearInterval(interval);
   }, []);
+
+  const loadOrdersSilent = async () => {
+    try {
+      // Use order service for silent updates too (to get populated product data)
+      const result = await getCashierOrders();
+      if (result.success) {
+        setOrders(result.orders);
+      }
+    } catch (error) {
+      console.error('Error loading orders silently:', error);
+    }
+  };
 
   const loadOrders = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/orders');
-      if (response.success) {
-        setOrders(response.data.orders || []);
+      
+      // Use order service to get orders with populated product details
+      const result = await getCashierOrders();
+      
+      if (result.success) {
+        console.log('[ADMIN] Orders loaded with populated products:', result.orders.length);
+        setOrders(result.orders);
+      } else {
+        console.error('[ADMIN] Failed to load orders');
+        Alert.alert('Error', 'Failed to load orders');
       }
     } catch (error) {
       console.error('Error loading orders:', error);
@@ -93,7 +136,7 @@ export default function AdminOrdersScreen() {
 
   const updateOrderStatus = async (orderId: string, newStatus: string) => {
     try {
-      const response = await api.put(`/orders/${orderId}/status`, { status: newStatus });
+      const response = await api.patch(`/orders/${orderId}/status`, { status: newStatus });
       if (response.success) {
         Alert.alert('Success', 'Order status updated');
         loadOrders();
@@ -226,70 +269,40 @@ export default function AdminOrdersScreen() {
       >
         <View style={styles.ordersContainer}>
           {filteredOrders.length > 0 ? (
-            filteredOrders.map((order) => (
-              <View key={order._id} style={styles.orderCard}>
-                {/* Order Header with ID and Status */}
-                <View style={styles.orderHeader}>
-                  <View>
-                    <Text style={styles.orderId}>
-                      Order #{order.orderNumber || order._id?.slice(-6)}
-                    </Text>
-                    <Text style={styles.orderTime}>
-                      {formatTimeAgo(order.createdAt)}
-                    </Text>
-                  </View>
-                  <View style={[styles.statusBadge, { backgroundColor: getStatusColor(order.status) + '15' }]}>
-                    <Text style={[styles.statusText, { color: getStatusColor(order.status) }]}>
-                      {order.status}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Customer Info */}
-                <View style={styles.customerRow}>
-                  <View style={styles.customerIconContainer}>
-                    <Ionicons name="bag-handle" size={18} color={COLORS.orange} />
-                  </View>
-                  <View style={styles.customerInfo}>
-                    <Text style={styles.customerName}>
-                      {order.customerName || order.customerEmail || 'Customer'}
-                    </Text>
-                    <Text style={styles.customerTime}>
-                      {formatTimeAgo(order.createdAt)}
-                    </Text>
-                  </View>
-                  <View style={[styles.statusBadgeSmall, { backgroundColor: getStatusColor(order.status) + '15' }]}>
-                    <Text style={[styles.statusTextSmall, { color: getStatusColor(order.status) }]}>
-                      {order.status}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Order Items Preview */}
-                {renderOrderItems(order.items)}
-
-                {/* Order Footer with Total and Actions */}
-                <View style={styles.orderFooter}>
-                  <Text style={styles.orderTotal}>${order.total?.toFixed(2) || '0.00'}</Text>
-                  
-                  {order.status?.toLowerCase() === 'pending' && (
-                    <View style={styles.actionButtons}>
-                      <TouchableOpacity
-                        style={[styles.actionBtn, styles.prepareBtn]}
-                        onPress={() => updateOrderStatus(order._id, 'confirmed')}
-                      >
-                        <Text style={styles.prepareBtnText}>Prepare</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.actionBtn, styles.cancelBtn]}
-                        onPress={() => updateOrderStatus(order._id, 'cancelled')}
-                      >
-                        <Text style={styles.cancelBtnText}>Cancel</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-                </View>
-              </View>
+            filteredOrders.map((order, index) => (
+              <OrderCard
+                key={`order-${order._id || (order as any).id || index}`}
+                order={{
+                  id: (order as any).id || order._id,
+                  orderNumber:
+                    order.orderNumber || (order as any).order_number ||
+                    `ORD-${String((order as any).id || order._id || '').slice(-6)}`,
+                  status: String(order.status || 'pending').toLowerCase() as any,
+                  orderType: order.orderType || 'DINE_IN',
+                  tableNumber: order.tableNumber || order.table?.tableNumber,
+                  items: (order.items || []).map((item: any, itemIdx: number) => ({
+                    id: `${(order as any).id || order._id || 'order'}-${itemIdx}`,
+                    quantity: Number(item.quantity) || 1,
+                    product: {
+                      name: item.productName || item.name || (item.product?.name) || 'Unknown Product',
+                      image: item.product?.imageUrl || item.product?.image || item.image,
+                    }
+                  })) as any,
+                  createdAt: order.createdAt,
+                  totalAmount: (order.totalAmount ?? order.total) as any,
+                  specialInstructions: order.specialInstructions || (order as any).special_instructions || '',
+                }}
+                onStatusChange={async (orderId, status) => {
+                  try {
+                    await updateOrderStatus(orderId, status.toUpperCase());
+                  } catch (error) {
+                    console.error('Error updating order:', error);
+                  }
+                }}
+                role={userRole || 'MANAGER'}
+                showPayment={true}
+                showActions={order.status?.toLowerCase() !== 'completed' && order.status?.toLowerCase() !== 'cancelled'}
+              />
             ))
           ) : (
             <View style={styles.emptyContainer}>
@@ -318,11 +331,11 @@ export default function AdminOrdersScreen() {
             </View>
             {menuItems.map((item, index) => (
               <TouchableOpacity
-                key={index}
+                key={item.screen}
                 style={styles.menuItem}
                 onPress={() => {
                   setShowMoreMenu(false);
-                  navigation.navigate(item.screen as any);
+                  (navigation as any).navigate(item.screen);
                 }}
               >
                 <Ionicons name={item.icon as any} size={24} color={COLORS.orange} />
@@ -338,12 +351,12 @@ export default function AdminOrdersScreen() {
       <ProfileMenu
         visible={showProfileMenu}
         onClose={() => setShowProfileMenu(false)}
-        onLogout={() => navigation.navigate('Welcome' as any)}
-        onChangePassword={() => navigation.navigate('ChangePassword' as any)}
+        onLogout={() => navigation.navigate('Welcome')}
+        onChangePassword={() => navigation.navigate('ChangePassword')}
       />
 
       {/* Bottom Navigation */}
-      <AdminBottomNavigation onMorePress={() => setShowMoreMenu(true)} />
+      <AdminBottomNavigation currentRoute="AdminOrders" onMorePress={() => setShowMoreMenu(true)} />
     </View>
   );
 }

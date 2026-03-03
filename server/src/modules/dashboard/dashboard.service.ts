@@ -600,11 +600,12 @@ export class DashboardService {
       orderType: order.orderType,
       items: order.items.map((item: any) => ({
         id: item._id,
-        name: item.productName || 'Unknown Item',
+        name: item.product?.name || item.productName || 'Unknown Item',
         quantity: item.quantity,
         status: item.status || 'PENDING',
         preparationTime: item.preparationTime || 15,
-        specialInstructions: item.specialInstructions
+        specialInstructions: item.specialInstructions,
+        image: item.product?.image || item.product?.imageUrl || null
       })),
       priority: this.calculateOrderPriority(order),
       orderTime: order.createdAt ? new Date(order.createdAt).toLocaleTimeString('en-US', { 
@@ -612,7 +613,10 @@ export class DashboardService {
         minute: '2-digit', 
         hour12: true 
       }) : 'Unknown',
-      estimatedReadyTime: this.calculateEstimatedReadyTime(order)
+      estimatedReadyTime: this.calculateEstimatedReadyTime(order),
+      createdAt: order.createdAt,
+      status: order.status,
+      specialInstructions: order.specialInstructions
     }));
   }
 

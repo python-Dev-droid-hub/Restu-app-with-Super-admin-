@@ -341,14 +341,19 @@ export default function OrderForm() {
 
     // Match server validation schema
     const orderData = {
-      restaurantId: branchId,
       items: cart.map(item => ({
         menuItemId: item.product.id,
         quantity: item.quantity,
-        customizations: item.selectedSize ? [item.selectedSize.size_name] : [],
+        customizations: item.product.has_sizes && item.selectedSize ? [{
+          optionName: 'Size',
+          optionValue: item.selectedSize.size_name,
+          extraPrice: item.selectedSize.price - item.product.price,
+        }] : [],
       })),
-      orderType: 'pickup',
+      restaurantId: branchId,
+      orderType: 'DINE_IN',
       paymentMethod: 'cash',
+      tableId: selectedTable,
       deliveryAddress: {
         street: `Table ${table?.table_number || '1'}`,
         city: 'Restaurant',

@@ -3,12 +3,15 @@ import { DashboardService } from './dashboard.service';
 import { sendSuccess } from '@/utils/response';
 import { asyncHandler, IAuthRequest } from '@/utils';
 import { logger } from '@/utils/logger';
+import { OrderRepository } from '@/modules/order/order.repository';
 
 export class DashboardController {
   private dashboardService: DashboardService;
+  private orderRepository: OrderRepository;
 
   constructor() {
     this.dashboardService = new DashboardService();
+    this.orderRepository = new OrderRepository();
   }
 
   // Super Admin Dashboard Stats
@@ -211,13 +214,13 @@ export class DashboardController {
         return;
       }
 
-      // Get orders with COOKING status for this branch
-      console.log('Querying COOKING orders for branch:', branchId);
+      // Get active kitchen orders for this branch
+      console.log('Querying kitchen orders for branch:', branchId);
       const { orders } = await this.orderRepository.findByBranchId(branchId, 1, 100, undefined);
       console.log('Total orders from repo:', orders.length);
       
-      const cookingOrders = orders.filter((o: any) => o.status === 'COOKING');
-      console.log('COOKING orders only:', cookingOrders.length);
+      const cookingOrders = orders;
+      console.log('Kitchen orders returned (all statuses):', cookingOrders.length);
       console.log('All order statuses:', orders.map((o: any) => o.status));
 
       console.log('=== /dashboard/kitchen/orders/cooking END ===');

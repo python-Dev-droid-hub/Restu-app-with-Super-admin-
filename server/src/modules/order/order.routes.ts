@@ -27,13 +27,25 @@ const createOrderSchema = Joi.object({
       lng: Joi.number().min(-180).max(180),
     }).optional(),
   }).required(),
-  orderType: Joi.string().valid('delivery', 'pickup').required(),
+  orderType: Joi.string().valid('delivery', 'pickup', 'DINE_IN', 'dine_in').required(),
   paymentMethod: Joi.string().valid('cash', 'card', 'digital_wallet').required(),
   deliveryInstructions: Joi.string().max(500).optional(),
+  tableId: Joi.string().optional(),
+  specialInstructions: Joi.string().max(1000).optional(),
 });
 
 const updateStatusSchema = Joi.object({
-  status: Joi.string().valid('pending', 'confirmed', 'preparing', 'ready', 'out_for_delivery', 'delivered', 'cancelled').required(),
+  status: Joi.string().valid(
+    'PENDING',
+    'KITCHEN_ACCEPTED',
+    'PREPARING',
+    'READY',
+    'PICKED_UP',
+    'OUT_FOR_DELIVERY',
+    'DELIVERED',
+    'COMPLETED',
+    'CANCELLED'
+  ).required(),
 });
 
 const cancelOrderSchema = Joi.object({
@@ -62,7 +74,7 @@ router.put('/:id/review', authenticate, authorize('CUSTOMER'), validate(addRevie
 
 // Protected routes - Restaurant owners
 router.get('/restaurant/:restaurantId', authenticate, authorize('BRANCH_MANAGER', 'ADMIN', 'SUPER_ADMIN'), validateParams(restaurantParamsSchema), orderController.getRestaurantOrders);
-router.put('/:id/status', authenticate, authorize('BRANCH_MANAGER', 'ADMIN', 'CHEF', 'RIDER', 'SUPER_ADMIN'), validate(updateStatusSchema), orderController.updateOrderStatus);
+router.put('/:id/status', authenticate, authorize('BRANCH_MANAGER', 'ADMIN', 'CHEF', 'KITCHEN', 'COOK', 'HEAD_CHEF', 'SOUS_CHEF', 'KITCHEN_MANAGER', 'RIDER', 'SUPER_ADMIN'), validate(updateStatusSchema), orderController.updateOrderStatus);
 router.put('/:id/cancel-restaurant', authenticate, authorize('BRANCH_MANAGER', 'ADMIN', 'SUPER_ADMIN'), validate(cancelOrderSchema), orderController.cancelOrder);
 router.get('/stats/:restaurantId', authenticate, authorize('BRANCH_MANAGER', 'ADMIN', 'SUPER_ADMIN'), validateParams(restaurantParamsSchema), orderController.getOrderStats);
 
@@ -76,16 +88,25 @@ router.put('/:id/deliver', authenticate, authorize('RIDER', 'SUPER_ADMIN'), vali
 router.get('/admin/all', authenticate, authorize('ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER'), orderController.getMyOrders); // Reuse getMyOrders for admin with different logic
 router.get('/admin/stats', authenticate, authorize('ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER'), orderController.getOrderStats);
 
-// Generic admin endpoint for listing all orders with filtering
-router.get('/', authenticate, authorize('ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER'), orderController.getAllOrders);
+// Generic admin endpoint for listing all orders with filtering - accessible to all staff roles
+router.get('/', authenticate, authorize('ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER', 'WAITER', 'CHEF'), orderController.getAllOrders);
 
 // Submit order to kitchen - Waiter, Branch Manager, Admin
 router.post('/:orderId/submit-to-kitchen', authenticate, authorize('WAITER', 'BRANCH_MANAGER', 'ADMIN', 'SUPER_ADMIN'), orderController.submitToKitchen);
 
+// Update order - Waiter can edit their orders before kitchen accepts
+router.put('/:orderId', authenticate, authorize('WAITER', 'BRANCH_MANAGER', 'ADMIN', 'SUPER_ADMIN'), orderController.updateOrder);
+
 // Get orders for waiter - filtered by status
 router.get('/waiter/my-orders', authenticate, authorize('WAITER', 'SUPER_ADMIN'), orderController.getWaiterOrders);
 
-// PATCH order status - Waiter can mark as PICKED_UP
-router.patch('/:orderId', authenticate, authorize('WAITER', 'BRANCH_MANAGER', 'ADMIN', 'CHEF', 'SUPER_ADMIN'), orderController.patchOrderStatus);
+// Get ALL branch orders (for waiters/chefs to see all dine-in orders)
+router.get('/branch/all', authenticate, authorize('WAITER', 'BRANCH_MANAGER', 'ADMIN', 'SUPER_ADMIN', 'CHEF'), orderController.getBranchOrders);
+
+// PATCH order status - Waiter can mark as PICKED_UP, CHEF can update kitchen status
+router.patch('/:orderId', authenticate, authorize('WAITER', 'BRANCH_MANAGER', 'ADMIN', 'CHEF', 'KITCHEN', 'COOK', 'HEAD_CHEF', 'SOUS_CHEF', 'KITCHEN_MANAGER', 'SUPER_ADMIN'), orderController.patchOrderStatus);
+
+// PATCH order status with /status suffix - for CHEF role status updates
+router.patch('/:orderId/status', authenticate, authorize('BRANCH_MANAGER', 'ADMIN', 'CHEF', 'KITCHEN', 'COOK', 'HEAD_CHEF', 'SOUS_CHEF', 'KITCHEN_MANAGER', 'RIDER', 'SUPER_ADMIN'), orderController.patchOrderStatus);
 
 export default router;

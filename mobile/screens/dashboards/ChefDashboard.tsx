@@ -22,6 +22,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '../../components/api/client';
+import OrderCard from '../../components/ChefDashboard/OrderCard';
 import { CommonActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import EditProfileScreen from '../profile/EditProfileScreen';
@@ -81,7 +82,8 @@ interface KitchenOrderItem {
 }
 
 interface KitchenOrder {
-  id: string;
+  _id: string;
+  id?: string;
   orderNumber: string;
   tableNumber: string;
   orderType: 'DINE_IN' | 'DELIVERY' | 'TAKEAWAY';
@@ -91,7 +93,7 @@ interface KitchenOrder {
   estimatedReadyTime: string;
   specialInstructions?: string;
   createdAt: string;
-  status: 'PENDING' | 'PREPARING' | 'READY' | 'COMPLETED' | 'CANCELLED';
+  status: 'PENDING' | 'PREPARING' | 'COOKING' | 'READY' | 'COMPLETED' | 'CANCELLED';
   elapsedTime?: number;
   expectedTime?: number;
   isLate?: boolean;
@@ -149,45 +151,44 @@ export default function ChefDashboard() {
   const [customRejectionReason, setCustomRejectionReason] = useState('');
   const bellShakeAnim = useRef(new Animated.Value(0)).current;
   const [userData, setUserData] = useState<any>({ name: 'Chef Michael', role: 'Head Chef', avatar: null });
-  // Notification polling effect
-  useEffect(() => {
-    if (notificationsDisabled) return;
-    const fetchNotifications = async () => {
-      try {
-        // Fetch real notifications from API
-        const [recentResponse, unreadResponse] = await Promise.all([
-          api.get('/notifications/admin/recent'),
-          api.get('/notifications/admin/unread-count'),
-        ]);
 
-        if (!recentResponse.success && checkAuthError(recentResponse)) return;
-        if (!unreadResponse.success && checkAuthError(unreadResponse)) return;
-
-        // If chef is forbidden from admin notification endpoints, disable polling to stop log spam
-        if (recentResponse.statusCode === 403 || unreadResponse.statusCode === 403) {
-          setNotificationsDisabled(true);
-          setNotificationList([]);
-          setUnreadCount(0);
+  // Update order status function - MOVED TO COMPONENT LEVEL
+  const updateOrderStatus = async (orderId: string, status: string) => {
+    console.log('[updateOrderStatus] Starting:', { orderId, status, userRole: userData?.role, userId: userData?.id });
+    
+    if (!orderId) {
+      console.error('[updateOrderStatus] ERROR: orderId is empty!');
+      throw new Error('Order ID is required');
+    }
+    
+    try {
+      // Use PATCH endpoint which is authorized for CHEF role
+      const response = await api.patch(`/orders/${orderId}/status`, { status });
+      console.log('[updateOrderStatus] Response:', response);
+      
+      if (!response.success) {
+        console.error('[updateOrderStatus] API Error:', response.message, 'StatusCode:', (response as any).statusCode);
+        if (checkAuthError(response)) {
+          console.log('[updateOrderStatus] Auth error detected, redirecting to login');
           return;
         }
-
-        if (recentResponse.success && recentResponse.data) {
-          setNotificationList(recentResponse.data.notifications || []);
-        }
-
-        if (unreadResponse.success && unreadResponse.data) {
-          setUnreadCount(unreadResponse.data.unreadCount || 0);
-        }
-      } catch (error) {
-        console.log('Error fetching notifications:', error);
+        throw new Error(response.message || 'Failed to update order status');
       }
-    };
+      
+      console.log('[updateOrderStatus] Success!');
+    } catch (error: any) {
+      console.error('[updateOrderStatus] Exception:', error?.message || error);
+      throw error;
+    }
+  };
 
-    fetchNotifications();
-    // Poll every 10 seconds for new notifications
-    const interval = setInterval(fetchNotifications, 10000);
-    return () => clearInterval(interval);
-  }, [notificationsDisabled]);
+  // Notification polling effect - DISABLED to prevent 404 errors
+  useEffect(() => {
+    // No notification endpoints available - skip polling
+    setNotificationsDisabled(true);
+    setNotificationList([]);
+    setUnreadCount(0);
+  }, []);
 
   useEffect(() => {
     const loadUserData = async () => {
@@ -250,7 +251,11 @@ export default function ChefDashboard() {
     try {
       const userDataStr = await AsyncStorage.getItem('userData');
       if (userDataStr) {
-        setUserData(JSON.parse(userDataStr));
+        const parsed = JSON.parse(userDataStr);
+        console.log('[loadUserData] User loaded:', { role: parsed?.role, id: parsed?.id || parsed?._id, email: parsed?.email });
+        setUserData(parsed);
+      } else {
+        console.log('[loadUserData] No user data found in AsyncStorage');
       }
     } catch (e) {
       console.error('Error loading user data:', e);
@@ -339,14 +344,12 @@ export default function ChefDashboard() {
     setShowOrderDetailsModal(true);
   };
 
-  // Accept order
+  // Accept order - use lowercase status for backend compatibility
   const handleAcceptOrder = async (order: any) => {
     try {
-      // Call API to update order status
-      const response = await api.patch(`/orders/${order.id}/status`, { status: 'PREPARING' });
+      const response = await api.patch(`/orders/${order.id}/status`, { status: 'preparing' });
       if (!response.success && checkAuthError(response)) return;
       
-      // Update order status locally
       const updatedOrders = orders.map(o => 
         o.id === order.id ? { ...o, status: 'PREPARING' as const } : o
       );
@@ -359,18 +362,16 @@ export default function ChefDashboard() {
     }
   };
 
-  // Reject order
+  // Reject order - use lowercase status for backend compatibility
   const handleRejectOrder = async (reason: string) => {
     try {
       if (selectedOrderFromNotification) {
-        // Call API to update order status
         const response = await api.patch(`/orders/${selectedOrderFromNotification.id}/status`, { 
-          status: 'CANCELLED', 
+          status: 'cancelled', 
           reason 
         });
         if (!response.success && checkAuthError(response)) return;
         
-        // Update order status locally
         const updatedOrders = orders.map(o => 
           o.id === selectedOrderFromNotification.id ? { ...o, status: 'CANCELLED' as const, rejectionReason: reason } : o
         );
@@ -387,14 +388,12 @@ export default function ChefDashboard() {
     }
   };
 
-  // Mark order as complete
+  // Mark order as complete - use lowercase status for backend compatibility
   const handleMarkComplete = async (order: any) => {
     try {
-      // Call API to update order status
-      const response = await api.patch(`/orders/${order.id}/status`, { status: 'COMPLETED' });
+      const response = await api.patch(`/orders/${order.id}/status`, { status: 'delivered' });
       if (!response.success && checkAuthError(response)) return;
       
-      // Update order status locally
       const updatedOrders = orders.map(o => 
         o.id === order.id ? { ...o, status: 'COMPLETED' as const } : o
       );
@@ -404,6 +403,22 @@ export default function ChefDashboard() {
       setShowOrderDetailsModal(false);
     } catch (error) {
       showToast('Failed to complete order', 'error');
+    }
+  };
+
+  const handleMarkReady = async (order: any) => {
+    try {
+      const response = await api.patch(`/orders/${order.id}/status`, { status: 'ready' });
+      if (!response.success && checkAuthError(response)) return;
+
+      const updateOne = (o: any) => (o.id === order.id ? { ...o, status: 'READY' as const } : o);
+      setOrders(prev => prev.map(updateOne));
+      setCookingOrders(prev => prev.map(updateOne));
+
+      showToast('Order marked as READY', 'success');
+      setShowOrderDetailsModal(false);
+    } catch (error) {
+      showToast('Failed to mark order as READY', 'error');
     }
   };
 
@@ -532,156 +547,6 @@ export default function ChefDashboard() {
     return { label: status, bg: '#8E8E93', fg: '#FFFFFF' };
   };
 
-  const OrderCard = ({ order, showActions = false }: { order: KitchenOrder; showActions?: boolean }) => {
-    const initials = 'TT';
-    const isCancelled = order.status === 'CANCELLED';
-
-    return (
-      <View style={styles.orderCard}>
-        {/* Header Row */}
-        <View style={styles.orderTopRow}>
-          <View style={styles.orderBadge}>
-            <Text style={styles.orderBadgeText}>{initials}</Text>
-          </View>
-          <View style={styles.orderMetaLeft}>
-            <Text style={styles.orderNumber}>{order.orderNumber}</Text>
-          </View>
-          <View style={styles.orderTimeInfo}>
-            <Text style={styles.tableText}>Table {order.tableNumber}</Text>
-            <Text style={styles.timeText}>{formatSinceMinutes(order.createdAt || order.orderTime)}</Text>
-          </View>
-        </View>
-
-        {/* Items with status */}
-        <View style={styles.orderItemsRow}>
-          {order.items.map((item, index) => {
-            const pill = getItemStatusPill(item.status);
-            return (
-              <View key={index} style={styles.itemWithStatus}>
-                <Text style={styles.orderItemLine}>
-                  {item.quantity}x {item.name}
-                </Text>
-                <View style={[styles.itemStatusPill, { backgroundColor: pill.bg }]}>
-                  <Text style={[styles.itemStatusText, { color: pill.fg }]}>{pill.label}</Text>
-                </View>
-              </View>
-            );
-          })}
-        </View>
-
-        {/* Special Instructions */}
-        {!!order.specialInstructions && (
-          <View style={styles.orderNoteRow}>
-            <Ionicons name="information-circle" size={14} color={DESIGN.colors.muted} />
-            <Text style={styles.orderNoteText}>{order.specialInstructions}</Text>
-          </View>
-        )}
-
-        {/* Priority */}
-        <View style={styles.priorityRow}>
-          <Text style={styles.priorityLabel}>Priority:</Text>
-          <View style={[styles.priorityPill, order.priority === 'URGENT' ? styles.priorityUrgent : styles.priorityNormal]}>
-            <Text style={[styles.priorityText, order.priority === 'URGENT' ? styles.priorityTextUrgent : styles.priorityTextNormal]}>
-              {order.priority === 'URGENT' ? 'Urgent' : order.priority}
-            </Text>
-          </View>
-          {isCancelled && (
-            <View style={styles.cancelledBadge}>
-              <Text style={styles.cancelledText}>Cancelled</Text>
-            </View>
-          )}
-        </View>
-
-        {/* Action Buttons */}
-        {showActions && !isCancelled && (
-          <View style={styles.actionButtonsRow}>
-            <TouchableOpacity style={styles.acceptBtn}>
-              <Text style={styles.acceptBtnText}>Accept</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.rejectBtn}>
-              <Text style={styles.rejectBtnText}>Reject</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {isCancelled && (
-          <View style={styles.cancelledRow}>
-            <Ionicons name="close-circle" size={16} color={DESIGN.colors.red} />
-            <Text style={styles.cancelledByText}>Cancelled by kitchen</Text>
-            <TouchableOpacity style={styles.rejectedBtn}>
-              <Text style={styles.rejectedBtnText}>Rejected</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
-    );
-  };
-
-  const CookingOrderCard = ({ order }: { order: KitchenOrder }) => {
-    const initials = 'TT';
-    const progress = order.expectedTime ? Math.min((order.elapsedTime || 0) / order.expectedTime, 1) : 0;
-
-    return (
-      <View style={styles.cookingCard}>
-        {/* Header */}
-        <View style={styles.cookingHeader}>
-          <View style={styles.orderBadgeSmall}>
-            <Text style={styles.orderBadgeTextSmall}>{initials}</Text>
-          </View>
-          <View style={styles.cookingMeta}>
-            <Text style={styles.orderNumberSmall}>{order.orderNumber}</Text>
-            <Text style={styles.tableTextSmall}>Table {order.tableNumber}</Text>
-          </View>
-          <Text style={styles.timeTextSmall}>{formatSinceMinutes(order.createdAt || order.orderTime)}</Text>
-          <TouchableOpacity>
-            <Ionicons name="ellipsis-horizontal" size={20} color={DESIGN.colors.muted} />
-          </TouchableOpacity>
-        </View>
-
-        {/* Items */}
-        <View style={styles.cookingItems}>
-          {order.items.map((item, index) => {
-            const pill = getItemStatusPill(item.status);
-            return (
-              <View key={index} style={styles.cookingItemRow}>
-                <Text style={styles.cookingItemText}>{item.quantity}x {item.name}</Text>
-                <View style={[styles.itemStatusPillSmall, { backgroundColor: pill.bg }]}>
-                  <Text style={[styles.itemStatusTextSmall, { color: pill.fg }]}>{pill.label}</Text>
-                </View>
-              </View>
-            );
-          })}
-        </View>
-
-        {/* Special Instructions */}
-        {!!order.specialInstructions && (
-          <View style={styles.specialInstBox}>
-            <Text style={styles.specialInstTitle}>Special Instructions</Text>
-            <Text style={styles.specialInstText}>{order.specialInstructions}</Text>
-          </View>
-        )}
-
-        {/* Progress Bar */}
-        <View style={styles.progressSection}>
-          <View style={styles.progressLabels}>
-            <Text style={styles.progressLabel}>Elapsed: {order.elapsedTime}m</Text>
-            <Text style={styles.progressLabel}>Expected: {order.expectedTime}m</Text>
-          </View>
-          <View style={styles.progressBarBg}>
-            <View style={[styles.progressBarFill, { width: `${progress * 100}%`, backgroundColor: order.isLate ? DESIGN.colors.red : DESIGN.colors.green }]} />
-          </View>
-          {order.isLate && (
-            <View style={styles.lateRow}>
-              <Ionicons name="warning" size={14} color={DESIGN.colors.red} />
-              <Text style={styles.lateText}>Running late by {order.lateBy} mins</Text>
-              <Text style={styles.lateTime}>9:16 PM</Text>
-            </View>
-          )}
-        </View>
-      </View>
-    );
-  };
-
   const StatCard = ({ color, value, label, sublabel }: { color: string; value: number; label: string; sublabel?: string }) => (
     <TouchableOpacity activeOpacity={0.9} style={[styles.statCard, { backgroundColor: color }]}>
       <Text style={styles.statValue}>{value}</Text>
@@ -702,6 +567,21 @@ export default function ChefDashboard() {
 
     const initials = 'TT';
 
+    // Calculate real-time stats from orders data
+    const newOrdersCount = homeOrders.filter(o => o.status === 'PENDING').length;
+    const activeOrdersCount = homeOrders.filter(o => ['PENDING', 'PREPARING', 'COOKING'].includes(o.status)).length;
+    const cookingOrdersCount = homeOrders.filter(o => o.status === 'COOKING' || o.status === 'PREPARING').length;
+    const delayedOrdersCount = homeOrders.filter(o => {
+      const created = new Date(o.createdAt || o.orderTime).getTime();
+      const diffMinutes = (Date.now() - created) / 60000;
+      return diffMinutes > 20 && ['PENDING', 'PREPARING', 'COOKING'].includes(o.status);
+    }).length;
+    const over30MinCount = homeOrders.filter(o => {
+      const created = new Date(o.createdAt || o.orderTime).getTime();
+      const diffMinutes = (Date.now() - created) / 60000;
+      return diffMinutes > 30 && ['PENDING', 'PREPARING', 'COOKING'].includes(o.status);
+    }).length;
+
     // Filter orders based on selected tab
     const filteredOrders = homeOrders.filter(order => {
       if (homeActiveTab === 'Active') return order.status === 'PENDING' || order.status === 'PREPARING' || order.status === 'COOKING';
@@ -715,61 +595,6 @@ export default function ChefDashboard() {
     if (homeOrders.length > 0 && filteredOrders.length === 0) {
       console.log('Order statuses in homeOrders:', homeOrders.map(o => o.status));
     }
-
-    const HomeOrderCard = ({ order }: { order: KitchenOrder }) => {
-      return (
-        <View style={homeStyles.orderCard}>
-          {/* Header */}
-          <View style={homeStyles.orderHeader}>
-            <View style={homeStyles.orderBadge}>
-              <Text style={homeStyles.orderBadgeText}>{initials}</Text>
-            </View>
-            <View style={homeStyles.orderMeta}>
-              <Text style={homeStyles.orderNumber}>{order.orderNumber}</Text>
-              <Text style={homeStyles.tableTimeText}>Table {order.tableNumber} • {order.orderTime}</Text>
-            </View>
-          </View>
-
-          {/* Items */}
-          <View style={homeStyles.itemsList}>
-            {order.items.map((item, idx) => {
-              const pill = getItemStatusPill(item.status);
-              return (
-                <View key={idx} style={homeStyles.itemRow}>
-                  <Text style={homeStyles.itemText}>{item.quantity}x {item.name}</Text>
-                  <View style={[homeStyles.itemPill, { backgroundColor: pill.bg }]}>
-                    <Text style={[homeStyles.itemPillText, { color: pill.fg }]}>{pill.label}</Text>
-                  </View>
-                </View>
-              );
-            })}
-          </View>
-
-          {/* Urgent tag */}
-          {order.priority === 'URGENT' && (
-            <View style={homeStyles.urgentTag}>
-              <Text style={homeStyles.urgentText}>Urgent</Text>
-            </View>
-          )}
-
-          {/* Special Instructions */}
-          {order.specialInstructions && (
-            <View style={homeStyles.specialBox}>
-              <Text style={homeStyles.specialTitle}>Special Instructions</Text>
-              <Text style={homeStyles.specialText}>{order.specialInstructions}</Text>
-            </View>
-          )}
-
-          {/* Footer */}
-          <View style={homeStyles.orderFooter}>
-            <Text style={homeStyles.expectedTime}>Expected: {order.estimatedReadyTime} • {order.elapsedTime || 25}m elapsed</Text>
-            <TouchableOpacity style={homeStyles.completeBtn}>
-              <Text style={homeStyles.completeBtnText}>Mark as Completed</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      );
-    };
 
     return (
       <View style={{ flex: 1 }}>
@@ -815,23 +640,35 @@ export default function ChefDashboard() {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
           showsVerticalScrollIndicator={false}
         >
-          {/* Stats Cards */}
+          {/* Stats Cards - Functional with real-time calculations */}
           <View style={homeStyles.statsRow}>
-            <View style={[homeStyles.statCard, { backgroundColor: '#FF7A59' }]}>
-              <Text style={homeStyles.statValue}>{stats.newOrders}</Text>
+            <TouchableOpacity 
+              style={[homeStyles.statCard, { backgroundColor: '#FF7A59' }]}
+              onPress={() => setHomeActiveTab('Active')}
+              activeOpacity={0.9}
+            >
+              <Text style={homeStyles.statValue}>{newOrdersCount}</Text>
               <Text style={homeStyles.statLabel}>New Orders</Text>
-              <Text style={homeStyles.statSublabel}>{stats.activeOrders} active</Text>
-            </View>
-            <View style={[homeStyles.statCard, { backgroundColor: '#2BC48A' }]}>
-              <Text style={homeStyles.statValue}>{stats.cookingOrders}</Text>
+              <Text style={homeStyles.statSublabel}>{activeOrdersCount} active</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[homeStyles.statCard, { backgroundColor: '#2BC48A' }]}
+              onPress={() => setHomeActiveTab('Active')}
+              activeOpacity={0.9}
+            >
+              <Text style={homeStyles.statValue}>{cookingOrdersCount}</Text>
               <Text style={homeStyles.statLabel}>Orders Cooking</Text>
-              <Text style={homeStyles.statSublabel}>{stats.avgCookingTime}m avg time</Text>
-            </View>
-            <View style={[homeStyles.statCard, { backgroundColor: '#8B5CF6' }]}>
-              <Text style={homeStyles.statValue}>{stats.delayedOrders}</Text>
+              <Text style={homeStyles.statSublabel}>~15m avg time</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[homeStyles.statCard, { backgroundColor: '#8B5CF6' }]}
+              onPress={() => setHomeActiveTab('Active')}
+              activeOpacity={0.9}
+            >
+              <Text style={homeStyles.statValue}>{delayedOrdersCount}</Text>
               <Text style={homeStyles.statLabel}>Orders Delayed</Text>
-              <Text style={homeStyles.statSublabel}>{stats.over30Min} Over 30m</Text>
-            </View>
+              <Text style={homeStyles.statSublabel}>{over30MinCount} Over 30m</Text>
+            </TouchableOpacity>
           </View>
 
           {/* Orders Queue */}
@@ -844,20 +681,45 @@ export default function ChefDashboard() {
                   <Text style={[homeStyles.tabText, homeActiveTab === tab && homeStyles.tabTextActive]}>
                     {tab}
                   </Text>
-                  {homeActiveTab === tab && <View style={homeStyles.tabIndicator} />}
+                  {homeActiveTab === tab && <View key={`${tab}-indicator`} style={homeStyles.tabIndicator} />}
                 </TouchableOpacity>
               ))}
             </View>
 
             {/* Orders */}
             {filteredOrders.length === 0 ? (
-              <View style={homeStyles.emptyState}>
+              <View style={homeStyles.emptyState} key="empty-state">
                 <Ionicons name="restaurant-outline" size={48} color="#ccc" />
                 <Text style={homeStyles.emptyTitle}>No {homeActiveTab?.toLowerCase()} orders</Text>
                 <Text style={homeStyles.emptySub}>Try another tab</Text>
               </View>
             ) : (
-              filteredOrders.map(o => <HomeOrderCard key={o.id} order={o} />)
+              filteredOrders.map((o, index) => (
+                <View key={o.id || `order-${index}`}>
+                  <OrderCard
+                    order={{
+                      id: o._id || o.id,
+                      orderNumber: o.orderNumber,
+                      status: o.status as any,
+                      orderType: o.orderType,
+                      tableNumber: o.tableNumber,
+                      items: o.items as any,
+                      createdAt: o.createdAt || o.orderTime,
+                      expectedReadyTime: (o as any).expectedReadyTime,
+                      specialInstructions: o.specialInstructions,
+                    }}
+                    onStatusChange={async (orderId, status) => {
+                      try {
+                        await updateOrderStatus(orderId, status);
+                        showToast(`Order updated: ${status}`, 'success');
+                        await loadDashboardData();
+                      } catch (e) {
+                        showToast('Failed to update order', 'error');
+                      }
+                    }}
+                  />
+                </View>
+              ))
             )}
           </View>
         </ScrollView>
@@ -873,14 +735,14 @@ export default function ChefDashboard() {
     const currentOrders = cookingOrderTypeTab === 'DINE_IN' ? dineInOrders : deliveryOrders;
     
     const filteredOrders = currentOrders.filter(o => {
-      if (cookingFilterTab === 'ACTIVE') return o.status === 'PREPARING';
+      if (cookingFilterTab === 'ACTIVE') return o.status === 'PENDING' || o.status === 'PREPARING' || o.status === 'COOKING';
       if (cookingFilterTab === 'READY') return o.status === 'READY';
       if (cookingFilterTab === 'COMPLETED') return o.status === 'COMPLETED';
       return true;
     });
 
-    const dineInCount = dineInOrders.filter(o => o.status === 'PREPARING' || o.status === 'READY').length;
-    const deliveryCount = deliveryOrders.filter(o => o.status === 'PREPARING' || o.status === 'READY').length;
+    const dineInCount = dineInOrders.filter(o => ['PENDING', 'PREPARING', 'COOKING', 'READY'].includes(o.status)).length;
+    const deliveryCount = deliveryOrders.filter(o => ['PENDING', 'PREPARING', 'COOKING', 'READY'].includes(o.status)).length;
 
     const handleReadyClick = (order: KitchenOrder) => {
       if (order.orderType === 'DELIVERY') {
@@ -900,130 +762,6 @@ export default function ChefDashboard() {
     };
 
     const allChecked = Object.values(packingChecklist).every(v => v);
-
-    const CookingOrderCard = ({ order }: { order: KitchenOrder }) => {
-      const isDineIn = order.orderType === 'DINE_IN';
-      const isReady = order.status === 'READY';
-      const isPending = order.status === 'PENDING';
-      
-      return (
-        <TouchableOpacity 
-          activeOpacity={0.9}
-          onPress={() => openOrderDetails(order)}
-        >
-          <View style={[cookingStyles.orderCard, isDineIn ? cookingStyles.dineInCard : cookingStyles.deliveryCard]}>
-            {/* Order Type Badge */}
-            <View style={[cookingStyles.typeBadge, isDineIn ? cookingStyles.dineInBadge : cookingStyles.deliveryBadge]}>
-              <Ionicons name={isDineIn ? 'restaurant' : 'cube'} size={12} color="#fff" />
-              <Text style={cookingStyles.typeBadgeText}>{isDineIn ? 'DINE-IN' : 'DELIVERY'}</Text>
-            </View>
-
-            {/* Header */}
-            <View style={cookingStyles.orderHeader}>
-              <View style={cookingStyles.orderBadge}>
-                <Text style={cookingStyles.orderBadgeText}>TT</Text>
-              </View>
-              <View style={cookingStyles.orderMeta}>
-                <Text style={cookingStyles.orderNumber}>{order.orderNumber}</Text>
-                <Text style={cookingStyles.tableTimeText}>
-                  {isDineIn ? `Table ${order.tableNumber}` : 'Delivery'} • {order.orderTime}
-                </Text>
-              </View>
-              {order.priority === 'URGENT' && (
-                <View style={cookingStyles.urgentBadge}>
-                  <Text style={cookingStyles.urgentText}>URGENT</Text>
-                </View>
-              )}
-            </View>
-
-            {/* Items */}
-            <View style={cookingStyles.itemsList}>
-              {order.items.map((item, index) => {
-                const pill = getItemStatusPill(item.status);
-                return (
-                  <View key={index} style={cookingStyles.itemRow}>
-                    <Text style={cookingStyles.itemText}>{item.quantity}x {item.name}</Text>
-                    <View style={[cookingStyles.itemPill, { backgroundColor: pill.bg }]}>
-                      <Text style={[cookingStyles.itemPillText, { color: pill.fg }]}>{pill.label}</Text>
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
-
-            {/* Special Instructions */}
-            {order.specialInstructions && (
-              <View style={cookingStyles.specialBox}>
-                <Text style={cookingStyles.specialTitle}>Special Instructions</Text>
-              <Text style={cookingStyles.specialText}>{order.specialInstructions}</Text>
-            </View>
-          )}
-
-          {/* Packing Instructions for Delivery */}
-          {!isDineIn && (
-            <View style={cookingStyles.packingBox}>
-              <Text style={cookingStyles.packingTitle}>Packing Instructions</Text>
-              <View style={cookingStyles.packingList}>
-                <Text style={cookingStyles.packingItem}>• Use food containers</Text>
-                <Text style={cookingStyles.packingItem}>• Include napkins & utensils</Text>
-                <Text style={cookingStyles.packingItem}>• Add packaging labels</Text>
-                <Text style={cookingStyles.packingItem}>• Include delivery receipt</Text>
-              </View>
-            </View>
-          )}
-
-          {/* Accept/Reject Buttons for PENDING orders */}
-          {isPending && (
-            <View style={cookingStyles.actionButtonsContainer}>
-              <TouchableOpacity 
-                style={[cookingStyles.actionBtn, cookingStyles.rejectBtn]}
-                onPress={() => {
-                  setSelectedOrderFromNotification(order);
-                  setShowRejectionModal(true);
-                }}
-              >
-                <Text style={cookingStyles.rejectBtnText}>Reject</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[cookingStyles.actionBtn, cookingStyles.acceptBtn]}
-                onPress={() => handleAcceptOrder(order)}
-              >
-                <Text style={cookingStyles.acceptBtnText}>Accept</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* Footer */}
-          <View style={cookingStyles.orderFooter}>
-            <View style={cookingStyles.timeInfo}>
-              <Text style={cookingStyles.timeText}>
-                {isDineIn ? 'Ready in ~15 mins' : 'Ready in ~15 mins (with packing)'}
-              </Text>
-              <Text style={cookingStyles.locationText}>
-                {isDineIn ? 'Kitchen service counter' : 'Delivery pickup station'}
-              </Text>
-            </View>
-            
-            {isReady ? (
-              <View style={cookingStyles.readyBadge}>
-                <Ionicons name="checkmark-circle" size={20} color="#2BC48A" />
-                <Text style={cookingStyles.readyBadgeText}>READY</Text>
-              </View>
-            ) : (
-              <TouchableOpacity 
-                style={[cookingStyles.readyBtn, isDineIn ? cookingStyles.dineInReadyBtn : cookingStyles.deliveryReadyBtn]}
-                onPress={() => handleReadyClick(order)}
-              >
-                <Text style={cookingStyles.readyBtnText}>
-                  {isDineIn ? 'Ready to Serve' : 'Ready for Pickup (Packed)'}
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-        </TouchableOpacity>
-      );
-    };
 
     return (
       <View style={styles.tabContent}>
@@ -1093,7 +831,33 @@ export default function ChefDashboard() {
               <Text style={homeStyles.emptySub}>Try another tab</Text>
             </View>
           ) : (
-            filteredOrders.map(o => <CookingOrderCard key={o.id} order={o} />)
+            filteredOrders.map(o => (
+              <OrderCard
+                key={o._id || o.id}
+                order={{
+                  id: o._id || o.id,
+                  orderNumber: o.orderNumber,
+                  status: o.status as any,
+                  orderType: o.orderType,
+                  tableNumber: o.tableNumber,
+                  items: o.items as any,
+                  createdAt: o.createdAt || o.orderTime,
+                  expectedReadyTime: (o as any).expectedReadyTime,
+                  specialInstructions: o.specialInstructions,
+                }}
+                onStatusChange={async (orderId, status) => {
+                  try {
+                    console.log('[Cooking Tab] onStatusChange called:', { orderId, status });
+                    await updateOrderStatus(orderId, status);
+                    showToast(`Order updated: ${status}`, 'success');
+                    await loadDashboardData();
+                  } catch (e: any) {
+                    console.error('[Cooking Tab] onStatusChange error:', e?.message || e);
+                    showToast('Failed to update order', 'error');
+                  }
+                }}
+              />
+            ))
           )}
         </ScrollView>
 

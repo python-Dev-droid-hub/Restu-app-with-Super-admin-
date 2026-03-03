@@ -15,7 +15,7 @@ class ApiClient {
     // For mobile development, use the computer's IP address instead of localhost
     // Replace with your computer's IP address (run ipconfig/ifconfig to find it)
     this.baseURL = __DEV__
-      ? 'http://192.168.18.179:3000/api'  // Replace with your computer's IP
+      ? 'http://192.168.0.140:3000/api'  // Replace with your computer's IP
       : 'http://your-production-api-url/api'; // For production
 
     console.log('[API] Base URL:', this.baseURL);

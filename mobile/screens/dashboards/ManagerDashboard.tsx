@@ -124,6 +124,48 @@ export default function ManagerDashboard() {
   const [userData, setUserData] = useState<{name?: string; image?: string; email?: string}>({});
 
   useEffect(() => {
+    loadDashboardData();
+    
+    // Poll for real-time updates every 5 seconds
+    const interval = setInterval(() => {
+      loadOrdersSilent();
+    }, 5000);
+    
+    return () => clearInterval(interval);
+  }, []);
+
+  const loadOrdersSilent = async () => {
+    try {
+      const branchId = await AsyncStorage.getItem('selected_branch_id');
+      const params = new URLSearchParams();
+      if (branchId) {
+        params.append('branchId', branchId);
+      }
+      
+      const ordersResponse = await api.get(`/orders?limit=5&${params.toString()}`);
+      if (ordersResponse.success && ordersResponse.data) {
+        const rawOrders = ordersResponse.data.orders || [];
+        // Normalize order data to ensure fields are correctly mapped
+        const normalizedOrders = rawOrders.map((order: any) => ({
+          _id: order.id || order._id,
+          orderNumber: order.orderNumber || order.order_number,
+          status: order.status,
+          totalAmount: order.totalAmount || order.total_amount || order.total || order.finalAmount || 0,
+          finalAmount: order.finalAmount || order.final_amount,
+          total: order.total,
+          createdAt: order.createdAt || order.created_at,
+          customerName: order.customerName,
+          customerEmail: order.customerEmail,
+          items: order.items || [],
+        }));
+        setRecentOrders(normalizedOrders);
+      }
+    } catch (error) {
+      console.error('Error loading orders silently:', error);
+    }
+  };
+
+  useEffect(() => {
     loadUserData();
   }, []);
 
@@ -132,6 +174,14 @@ export default function ManagerDashboard() {
     if (assignedBranch._id) {
       loadDashboardData();
       loadUnreadCount();
+      
+      // Set up polling for real-time updates (every 10 seconds)
+      const pollInterval = setInterval(() => {
+        loadDashboardData();
+        loadUnreadCount();
+      }, 10000);
+      
+      return () => clearInterval(pollInterval);
     }
   }, [assignedBranch._id]);
 
@@ -186,7 +236,21 @@ export default function ManagerDashboard() {
 
       const ordersResponse = await api.get(`/orders?limit=5&${params.toString()}`);
       if (ordersResponse.success && ordersResponse.data) {
-        setRecentOrders(ordersResponse.data.orders || []);
+        const rawOrders = ordersResponse.data.orders || [];
+        // Normalize order data to ensure fields are correctly mapped
+        const normalizedOrders = rawOrders.map((order: any) => ({
+          _id: order.id || order._id,
+          orderNumber: order.orderNumber || order.order_number,
+          status: order.status,
+          totalAmount: order.totalAmount || order.total_amount || order.total || order.finalAmount || 0,
+          finalAmount: order.finalAmount || order.final_amount,
+          total: order.total,
+          createdAt: order.createdAt || order.created_at,
+          customerName: order.customerName,
+          customerEmail: order.customerEmail,
+        }));
+        setRecentOrders(normalizedOrders);
+        console.log('[MANAGER] Orders loaded:', normalizedOrders.length);
       }
 
       // Load recent products and count for stats
@@ -230,7 +294,9 @@ export default function ManagerDashboard() {
   };
 
   const formatTimeAgo = (dateString: string) => {
+    if (!dateString) return 'Just now';
     const date = new Date(dateString);
+    if (isNaN(date.getTime())) return 'Just now';
     const now = new Date();
     const diffMinutes = Math.floor((now.getTime() - date.getTime()) / 60000);
     
@@ -375,20 +441,20 @@ export default function ManagerDashboard() {
 
           {recentOrders.length > 0 ? (
             recentOrders.map((order, index) => (
-              <View key={order._id || index} style={styles.orderItem}>
+              <View key={`recent-${order._id || index}`} style={styles.orderItem}>
                 <View style={styles.orderIconContainer}>
                   <Ionicons name="receipt-outline" size={20} color="#E87E35" />
                 </View>
                 <View style={styles.orderInfo}>
                   <Text style={styles.orderNumber}>
-                    Order #{order.orderNumber || order._id?.slice(-6)}
+                    Order #{order.orderNumber || String(order._id || '').slice(-6)}
                   </Text>
                   <Text style={styles.orderTime}>{formatTimeAgo(order.createdAt || new Date().toISOString())}</Text>
                 </View>
                 <Text style={styles.orderAmount}>{formatPrice(order.totalAmount || order.finalAmount || order.total || 0)}</Text>
                 <View style={[styles.statusBadge, { backgroundColor: getStatusColor(order.status) + '20' }]}>
                   <Text style={[styles.statusText, { color: getStatusColor(order.status) }]}>
-                    {order.status}
+                    {String(order.status || 'PENDING')}
                   </Text>
                 </View>
               </View>

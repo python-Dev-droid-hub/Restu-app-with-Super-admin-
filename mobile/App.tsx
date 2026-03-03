@@ -40,6 +40,7 @@ import ResetPasswordScreen from './screens/auth/ResetPasswordScreen';
 import ChangePasswordScreen from './screens/auth/ChangePasswordScreen';
 import CustomerMenuScreen from './screens/CustomerMenuScreen';
 import OrderForm from './screens/waiter/OrderForm';
+import EditOrderScreen from './screens/waiter/EditOrderScreen';
 import KitchenDisplay from './screens/chef/KitchenDisplay';
 import KitchenStats from './screens/chef/KitchenStats';
 import KitchenSettingsScreen from './screens/profile/KitchenSettingsScreen';
@@ -226,6 +227,11 @@ export default function App() {
           <Stack.Screen
             name="OrderForm"
             component={OrderForm}
+          />
+          <Stack.Screen
+            name="EditOrder"
+            component={EditOrderScreen}
+            options={{ headerShown: false }}
           />
           <Stack.Screen
             name="KitchenDisplay"
