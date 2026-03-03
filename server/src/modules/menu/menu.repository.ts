@@ -19,7 +19,8 @@ export class MenuRepository {
   }
 
   async findMenuItemById(id: string | Types.ObjectId): Promise<any | null> {
-    return await MenuItem.findById(id).populate('category', 'name description');
+    return await MenuItem.findById(id)
+      .populate('category', 'name description');
   }
 
   async updateMenuItem(id: string | Types.ObjectId, updateData: any): Promise<any | null> {

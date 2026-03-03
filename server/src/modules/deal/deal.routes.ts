@@ -46,9 +46,9 @@ router.get('/active', dealController.getActiveDeals);
 router.get('/:id', dealController.getDealById);
 
 // Admin routes
-router.post('/', authenticate, authorize('ADMIN'), validate(createDealSchema), dealController.createDeal);
-router.put('/:id', authenticate, authorize('ADMIN'), validate(updateDealSchema), dealController.updateDeal);
-router.delete('/:id', authenticate, authorize('ADMIN'), dealController.deleteDeal);
-router.patch('/:id/restore', authenticate, authorize('ADMIN'), dealController.restoreDeal);
+router.post('/', authenticate, authorize('ADMIN', 'SUPER_ADMIN'), validate(createDealSchema), dealController.createDeal);
+router.put('/:id', authenticate, authorize('ADMIN', 'SUPER_ADMIN'), validate(updateDealSchema), dealController.updateDeal);
+router.delete('/:id', authenticate, authorize('ADMIN', 'SUPER_ADMIN'), dealController.deleteDeal);
+router.patch('/:id/restore', authenticate, authorize('ADMIN', 'SUPER_ADMIN'), dealController.restoreDeal);
 
 export default router;

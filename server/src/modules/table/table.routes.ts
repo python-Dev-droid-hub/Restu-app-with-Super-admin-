@@ -35,20 +35,20 @@ const changeStatusSchema = Joi.object({
 });
 
 // Routes - all require ADMIN or BRANCH_MANAGER role
-router.get('/', authenticate, authorize('ADMIN', 'BRANCH_MANAGER'), tableController.getTables);
-router.get('/branch/:branchId', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'WAITER'), tableController.getTablesByBranch);
-router.get('/stats/:branchId', authenticate, authorize('ADMIN', 'BRANCH_MANAGER'), tableController.getTableStats);
-router.get('/:id', authenticate, authorize('ADMIN', 'BRANCH_MANAGER'), tableController.getTable);
+router.get('/', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'WAITER', 'SUPER_ADMIN'), tableController.getTables);
+router.get('/branch/:branchId', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'WAITER', 'SUPER_ADMIN'), tableController.getTablesByBranch);
+router.get('/stats/:branchId', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), tableController.getTableStats);
+router.get('/:id', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), tableController.getTable);
 
-router.post('/', authenticate, authorize('ADMIN', 'BRANCH_MANAGER'), validate(createTableSchema), tableController.createTable);
-router.put('/:id', authenticate, authorize('ADMIN', 'BRANCH_MANAGER'), validate(updateTableSchema), tableController.updateTable);
-router.delete('/:id', authenticate, authorize('ADMIN'), tableController.deleteTable);
+router.post('/', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), validate(createTableSchema), tableController.createTable);
+router.put('/:id', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), validate(updateTableSchema), tableController.updateTable);
+router.delete('/:id', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), tableController.deleteTable);
 
 // Assign/remove waiter
-router.put('/:id/assign-waiter', authenticate, authorize('ADMIN', 'BRANCH_MANAGER'), validate(assignWaiterSchema), tableController.assignWaiter);
-router.put('/:id/remove-waiter', authenticate, authorize('ADMIN', 'BRANCH_MANAGER'), tableController.removeWaiter);
+router.put('/:id/assign-waiter', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), validate(assignWaiterSchema), tableController.assignWaiter);
+router.put('/:id/remove-waiter', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), tableController.removeWaiter);
 
 // Change status
-router.put('/:id/status', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'WAITER'), validate(changeStatusSchema), tableController.changeStatus);
+router.put('/:id/status', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'WAITER', 'SUPER_ADMIN'), validate(changeStatusSchema), tableController.changeStatus);
 
 export default router;

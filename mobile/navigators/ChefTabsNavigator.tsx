@@ -13,6 +13,7 @@ export default function ChefTabsNavigator() {
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
+        tabBarStyle: { display: 'none' }, // Hide external tab bar - ChefDashboard has its own
         tabBarIcon: ({ focused, color, size }) => {
           let iconName: any = 'home-outline';
 

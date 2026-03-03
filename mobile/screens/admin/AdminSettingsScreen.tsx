@@ -77,16 +77,19 @@ export default function AdminSettingsScreen() {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  const menuItems = [
-    { name: 'Notifications', icon: 'notifications-outline', screen: 'AdminNotifications' },
-    { name: 'Branches', icon: 'business-outline', screen: 'AdminBranches' },
-    { name: 'Deals', icon: 'pricetag-outline', screen: 'AdminDeals' },
-    { name: 'Coupons', icon: 'ticket-outline', screen: 'AdminCoupons' },
-    { name: 'Product Size', icon: 'resize-outline', screen: 'AdminProductSizes' },
-    { name: 'Categories', icon: 'grid-outline', screen: 'AdminCategories' },
-    { name: 'Reports', icon: 'bar-chart-outline', screen: 'AdminReports' },
-    { name: 'Settings', icon: 'settings-outline', screen: 'AdminSettings' },
-  ];
+  // Get userData first to determine menu items
+  const getMenuItems = () => {
+    return [
+      { name: 'Notifications', icon: 'notifications-outline', screen: 'AdminNotifications' },
+      ...(userData.role !== 'BRANCH_MANAGER' ? [{ name: 'Branches', icon: 'business-outline', screen: 'AdminBranches' }] : []),
+      { name: 'Deals', icon: 'pricetag-outline', screen: 'AdminDeals' },
+      { name: 'Coupons', icon: 'ticket-outline', screen: 'AdminCoupons' },
+      { name: 'Product Size', icon: 'resize-outline', screen: 'AdminProductSizes' },
+      { name: 'Categories', icon: 'grid-outline', screen: 'AdminCategories' },
+      { name: 'Reports', icon: 'bar-chart-outline', screen: 'AdminReports' },
+      { name: 'Settings', icon: 'settings-outline', screen: 'AdminSettings' },
+    ];
+  };
 
   const [editModal, setEditModal] = useState<{
     visible: boolean;
@@ -128,94 +131,25 @@ export default function AdminSettingsScreen() {
   const [showChangeImageModal, setShowChangeImageModal] = useState(false);
   const [newName, setNewName] = useState('');
 
-  // Comprehensive currency list with symbols
+  // Only functional currencies supported by backend with proper flag emojis
   const currencies = [
-    { code: 'USD', name: 'US Dollar', symbol: '$', flag: '🇺🇸' },
-    { code: 'EUR', name: 'Euro', symbol: '€', flag: '🇪🇺' },
-    { code: 'GBP', name: 'British Pound', symbol: '£', flag: '🇬🇧' },
-    { code: 'SAR', name: 'Saudi Riyal', symbol: '﷼', flag: '🇸🇦' },
-    { code: 'AED', name: 'UAE Dirham', symbol: 'د.إ', flag: '🇦🇪' },
-    { code: 'PKR', name: 'Pakistani Rupee', symbol: '₨', flag: '🇵🇰' },
-    { code: 'INR', name: 'Indian Rupee', symbol: '₹', flag: '🇮🇳' },
-    { code: 'CAD', name: 'Canadian Dollar', symbol: 'C$', flag: '🇨🇦' },
-    { code: 'AUD', name: 'Australian Dollar', symbol: 'A$', flag: '🇦🇺' },
-    { code: 'JPY', name: 'Japanese Yen', symbol: '¥', flag: '🇯🇵' },
-    { code: 'CNY', name: 'Chinese Yuan', symbol: '¥', flag: '🇨🇳' },
-    { code: 'RUB', name: 'Russian Ruble', symbol: '₽', flag: '🇷🇺' },
-    { code: 'BRL', name: 'Brazilian Real', symbol: 'R$', flag: '🇧🇷' },
-    { code: 'MXN', name: 'Mexican Peso', symbol: '$', flag: '🇲🇽' },
-    { code: 'ZAR', name: 'South African Rand', symbol: 'R', flag: '🇿🇦' },
-    { code: 'CHF', name: 'Swiss Franc', symbol: 'Fr', flag: '🇨🇭' },
-    { code: 'SEK', name: 'Swedish Krona', symbol: 'kr', flag: '🇸🇪' },
-    { code: 'NZD', name: 'New Zealand Dollar', symbol: 'NZ$', flag: '🇳🇿' },
-    { code: 'SGD', name: 'Singapore Dollar', symbol: 'S$', flag: '🇸🇬' },
-    { code: 'HKD', name: 'Hong Kong Dollar', symbol: 'HK$', flag: '🇭🇰' },
-    { code: 'NOK', name: 'Norwegian Krone', symbol: 'kr', flag: '🇳🇴' },
-    { code: 'DKK', name: 'Danish Krone', symbol: 'kr', flag: '🇩🇰' },
-    { code: 'PLN', name: 'Polish Zloty', symbol: 'zł', flag: '🇵🇱' },
-    { code: 'THB', name: 'Thai Baht', symbol: '฿', flag: '🇹🇭' },
-    { code: 'IDR', name: 'Indonesian Rupiah', symbol: 'Rp', flag: '🇮🇩' },
-    { code: 'MYR', name: 'Malaysian Ringgit', symbol: 'RM', flag: '🇲🇾' },
-    { code: 'PHP', name: 'Philippine Peso', symbol: '₱', flag: '🇵🇭' },
-    { code: 'VND', name: 'Vietnamese Dong', symbol: '₫', flag: '🇻🇳' },
-    { code: 'KRW', name: 'South Korean Won', symbol: '₩', flag: '🇰🇷' },
-    { code: 'TWD', name: 'Taiwan Dollar', symbol: 'NT$', flag: '🇹🇼' },
-    { code: 'TRY', name: 'Turkish Lira', symbol: '₺', flag: '🇹🇷' },
-    { code: 'ILS', name: 'Israeli Shekel', symbol: '₪', flag: '🇮🇱' },
-    { code: 'EGP', name: 'Egyptian Pound', symbol: 'E£', flag: '🇪🇬' },
-    { code: 'NGN', name: 'Nigerian Naira', symbol: '₦', flag: '🇳🇬' },
-    { code: 'KES', name: 'Kenyan Shilling', symbol: 'KSh', flag: '🇰🇪' },
-    { code: 'GHS', name: 'Ghanaian Cedi', symbol: '₵', flag: '🇬🇭' },
-    { code: 'UAH', name: 'Ukrainian Hryvnia', symbol: '₴', flag: '🇺🇦' },
-    { code: 'KWD', name: 'Kuwaiti Dinar', symbol: 'د.ك', flag: '🇰🇼' },
-    { code: 'BHD', name: 'Bahraini Dinar', symbol: 'د.ب', flag: '🇧🇭' },
-    { code: 'OMR', name: 'Omani Rial', symbol: 'ر.ع', flag: '🇴🇲' },
-    { code: 'QAR', name: 'Qatari Riyal', symbol: 'ر.ق', flag: '🇶🇦' },
-    { code: 'JOD', name: 'Jordanian Dinar', symbol: 'د.ا', flag: '🇯🇴' },
-    { code: 'LBP', name: 'Lebanese Pound', symbol: 'ل.ل', flag: '🇱🇧' },
-    { code: 'MAD', name: 'Moroccan Dirham', symbol: 'د.م', flag: '🇲🇦' },
-    { code: 'TND', name: 'Tunisian Dinar', symbol: 'د.ت', flag: '🇹🇳' },
-    { code: 'DZD', name: 'Algerian Dinar', symbol: 'د.ج', flag: '🇩🇿' },
-    { code: 'ARS', name: 'Argentine Peso', symbol: '$', flag: '🇦🇷' },
-    { code: 'CLP', name: 'Chilean Peso', symbol: '$', flag: '🇨🇱' },
-    { code: 'COP', name: 'Colombian Peso', symbol: '$', flag: '🇨🇴' },
-    { code: 'PEN', name: 'Peruvian Sol', symbol: 'S/', flag: '🇵🇪' },
-    { code: 'UYU', name: 'Uruguayan Peso', symbol: '$U', flag: '🇺🇾' },
+    { code: 'USD', name: 'US Dollar', symbol: '$', flag: '\u{1F1FA}\u{1F1F8}' }, // 🇺🇸 US
+    { code: 'PKR', name: 'Pakistani Rupee', symbol: '₨', flag: '\u{1F1F5}\u{1F1F0}' }, // 🇵🇰 PK
+    { code: 'EUR', name: 'Euro', symbol: '€', flag: '\u{1F1EA}\u{1F1FA}' }, // 🇪🇺 EU
+    { code: 'GBP', name: 'British Pound', symbol: '£', flag: '\u{1F1EC}\u{1F1E7}' }, // 🇬🇧 GB
+    { code: 'AED', name: 'UAE Dirham', symbol: 'د.إ', flag: '\u{1F1E6}\u{1F1EA}' }, // 🇦🇪 AE
+    { code: 'SAR', name: 'Saudi Riyal', symbol: '﷼', flag: '\u{1F1F8}\u{1F1E6}' }, // 🇸🇦 SA
+    { code: 'INR', name: 'Indian Rupee', symbol: '₹', flag: '\u{1F1EE}\u{1F1F3}' }, // 🇮🇳 IN
   ];
 
   const [currencyModalVisible, setCurrencyModalVisible] = useState(false);
   const [languageModalVisible, setLanguageModalVisible] = useState(false);
 
-  // Comprehensive language list
+  // Languages supported by backend API - only these can be saved
   const languages = [
-    { code: 'en', name: 'English', nativeName: 'English', flag: '🇺🇸' },
-    { code: 'ar', name: 'Arabic', nativeName: 'العربية', flag: '🇸🇦' },
-    { code: 'es', name: 'Spanish', nativeName: 'Español', flag: '🇪🇸' },
-    { code: 'fr', name: 'French', nativeName: 'Français', flag: '🇫🇷' },
-    { code: 'de', name: 'German', nativeName: 'Deutsch', flag: '🇩🇪' },
-    { code: 'it', name: 'Italian', nativeName: 'Italiano', flag: '🇮🇹' },
-    { code: 'pt', name: 'Portuguese', nativeName: 'Português', flag: '🇵🇹' },
-    { code: 'ru', name: 'Russian', nativeName: 'Русский', flag: '🇷🇺' },
-    { code: 'zh', name: 'Chinese', nativeName: '中文', flag: '🇨🇳' },
-    { code: 'ja', name: 'Japanese', nativeName: '日本語', flag: '🇯🇵' },
-    { code: 'ko', name: 'Korean', nativeName: '한국어', flag: '🇰🇷' },
-    { code: 'hi', name: 'Hindi', nativeName: 'हिन्दी', flag: '🇮🇳' },
-    { code: 'ur', name: 'Urdu', nativeName: 'اردو', flag: '🇵🇰' },
-    { code: 'tr', name: 'Turkish', nativeName: 'Türkçe', flag: '🇹🇷' },
-    { code: 'th', name: 'Thai', nativeName: 'ไทย', flag: '🇹🇭' },
-    { code: 'vi', name: 'Vietnamese', nativeName: 'Tiếng Việt', flag: '🇻🇳' },
-    { code: 'id', name: 'Indonesian', nativeName: 'Bahasa Indonesia', flag: '🇮🇩' },
-    { code: 'ms', name: 'Malay', nativeName: 'Bahasa Melayu', flag: '🇲🇾' },
-    { code: 'nl', name: 'Dutch', nativeName: 'Nederlands', flag: '🇳🇱' },
-    { code: 'pl', name: 'Polish', nativeName: 'Polski', flag: '🇵🇱' },
-    { code: 'uk', name: 'Ukrainian', nativeName: 'Українська', flag: '🇺🇦' },
-    { code: 'he', name: 'Hebrew', nativeName: 'עברית', flag: '🇮🇱' },
-    { code: 'fa', name: 'Persian', nativeName: 'فارسی', flag: '🇮🇷' },
-    { code: 'bn', name: 'Bengali', nativeName: 'বাংলা', flag: '🇧🇩' },
-    { code: 'ta', name: 'Tamil', nativeName: 'தமிழ்', flag: '🇱🇰' },
-    { code: 'ml', name: 'Malayalam', nativeName: 'മലയാളം', flag: '🇮🇳' },
-    { code: 'sw', name: 'Swahili', nativeName: 'Kiswahili', flag: '🇰🇪' },
-    { code: 'af', name: 'Afrikaans', nativeName: 'Afrikaans', flag: '🇿🇦' },
+    { code: 'en', name: 'English', nativeName: 'English', flag: '\u{1F1FA}\u{1F1F8}' }, // 🇺🇸 US
+    { code: 'ar', name: 'Arabic', nativeName: 'العربية', flag: '\u{1F1F8}\u{1F1E6}' }, // 🇸🇦 SA
+    { code: 'ur', name: 'Urdu', nativeName: 'اردو', flag: '\u{1F1F5}\u{1F1F0}' }, // 🇵🇰 PK
   ];
 
   const openCurrencyModal = () => {
@@ -955,7 +889,7 @@ export default function AdminSettingsScreen() {
                 <Ionicons name="close" size={24} color="#666" />
               </TouchableOpacity>
             </View>
-            {menuItems.map((item, index) => (
+            {getMenuItems().map((item, index) => (
               <TouchableOpacity
                 key={index}
                 style={styles.moreMenuItem}

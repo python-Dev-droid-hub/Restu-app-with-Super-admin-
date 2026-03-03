@@ -70,6 +70,7 @@ export default function AdminReportsScreen() {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [userRole, setUserRole] = useState<string>('');
   const [assignedBranch, setAssignedBranch] = useState<{_id?: string; name?: string; code?: string}>({});
+  const [profileImage, setProfileImage] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
 
   // Load user role on mount
@@ -83,6 +84,7 @@ export default function AdminReportsScreen() {
       if (stored) {
         const parsed = JSON.parse(stored);
         setUserRole(parsed.role || '');
+        setProfileImage(parsed.image || parsed.profileImage || parsed.avatar || '');
         // Get manager's assigned branch
         const branchData = parsed.assignedBranch || parsed.branch;
         if (branchData) {
@@ -127,7 +129,13 @@ export default function AdminReportsScreen() {
         branchId = branchData?._id || branchData?.branchId || parsed.branchId || '';
       }
       
-      let url = `/dashboard/admin/analytics?range=${activeTab === 'today' ? '1d' : '30d'}`;
+      // Use manager-specific endpoint for BRANCH_MANAGER role
+      const userRole = await AsyncStorage.getItem('userRole');
+      const endpoint = userRole === 'BRANCH_MANAGER' 
+        ? `/dashboard/manager/analytics?range=${activeTab === 'today' ? '1d' : '30d'}`
+        : `/dashboard/admin/analytics?range=${activeTab === 'today' ? '1d' : '30d'}`;
+      
+      let url = endpoint;
       if (branchId) {
         url += `&branchId=${branchId}`;
       }
@@ -260,6 +268,7 @@ export default function AdminReportsScreen() {
         <ResponsiveHeader
           title={t('nav.reports')}
           notificationCount={3}
+          profileImage={profileImage}
           onNotificationPress={() => {
             // @ts-ignore
             navigation.navigate('AdminNotifications');
@@ -286,6 +295,7 @@ export default function AdminReportsScreen() {
       <ResponsiveHeader
         title={t('nav.reports')}
         notificationCount={3}
+        profileImage={profileImage}
         onNotificationPress={() => {
           // @ts-ignore
           navigation.navigate('AdminNotifications');
@@ -330,17 +340,17 @@ export default function AdminReportsScreen() {
           {/* Total Revenue Card */}
           <View style={[styles.statCard, { backgroundColor: '#2E7D52' }]}>
             <Text style={styles.statLabel}>Total Revenue</Text>
-            <Text style={styles.statValue}>${(reportData.totalRevenue || 0).toLocaleString()}</Text>
+            <Text style={styles.statValue}>${(reportData?.totalRevenue || 0).toLocaleString()}</Text>
             <View style={styles.changeRow}>
               <Ionicons name="cash-outline" size={12} color="#4CAF50" />
-              <Text style={styles.changeText}>Avg: ${(reportData.averageOrderValue || 0).toLocaleString()}</Text>
+              <Text style={styles.changeText}>Avg: ${(reportData?.averageOrderValue || 0).toLocaleString()}</Text>
             </View>
           </View>
 
           {/* Total Orders Card */}
           <View style={[styles.statCard, { backgroundColor: '#E87E35' }]}>
             <Text style={styles.statLabel}>Total Orders</Text>
-            <Text style={styles.statValue}>{(reportData.totalOrders || 0).toLocaleString()}</Text>
+            <Text style={styles.statValue}>{(reportData?.totalOrders || 0).toLocaleString()}</Text>
             <View style={styles.changeRow}>
               <Ionicons name="receipt-outline" size={12} color="#FFD54F" />
               <Text style={[styles.changeText, { color: '#FFD54F' }]}>In selected period</Text>
@@ -350,7 +360,7 @@ export default function AdminReportsScreen() {
           {/* User Growth Card */}
           <View style={[styles.statCard, { backgroundColor: '#2196F3' }]}>
             <Text style={styles.statLabel}>User Growth</Text>
-            <Text style={styles.statValue}>{(reportData.userGrowth || []).length}</Text>
+            <Text style={styles.statValue}>{(reportData?.userGrowth || []).length}</Text>
             <View style={styles.changeRow}>
               <Ionicons name="people-outline" size={12} color="#81D4FA" />
               <Text style={[styles.changeText, { color: '#81D4FA' }]}>New users</Text>
@@ -361,10 +371,10 @@ export default function AdminReportsScreen() {
         {/* Top Restaurants Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Top Restaurants</Text>
-          {(reportData.topRestaurants || []).length === 0 ? (
+          {(reportData?.topRestaurants || []).length === 0 ? (
             <Text style={{ color: '#999', padding: 20, textAlign: 'center' }}>No restaurant data available</Text>
           ) : (
-            (reportData.topRestaurants || []).map((item, index) => (
+            (reportData?.topRestaurants || []).map((item, index) => (
               <View key={index} style={styles.itemRow}>
                 <View style={[styles.itemIcon, { backgroundColor: '#E87E35' }]}>
                   <Text style={{ color: '#fff', fontWeight: 'bold' }}>{index + 1}</Text>
@@ -382,12 +392,12 @@ export default function AdminReportsScreen() {
         {/* Order Status Distribution */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Order Status</Text>
-          {reportData.orderStatusDistribution && Object.entries(reportData.orderStatusDistribution).map(([status, count]) => (
+          {reportData?.orderStatusDistribution && Object.entries(reportData.orderStatusDistribution).map(([status, count]) => (
             <View key={status} style={styles.statusRow}>
               <Text style={styles.statusLabel}>{status.replace(/_/g, ' ')}</Text>
               <View style={styles.statusBar}>
                 <View style={[styles.statusBarFill, { 
-                  width: `${Math.min(100, (count as number) / (reportData.totalOrders || 1) * 100)}%`,
+                  width: `${Math.min(100, (count as number) / (reportData?.totalOrders || 1) * 100)}%`,
                   backgroundColor: getStatusColor(status)
                 }]} />
               </View>

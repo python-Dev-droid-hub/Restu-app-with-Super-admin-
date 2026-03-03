@@ -650,10 +650,20 @@ export class DashboardService {
       branch: branchId,
       createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
     });
+    
+    // Count total users (staff + manager) for this branch
+    const totalUsers = await User.countDocuments({
+      $or: [
+        { assignedBranch: branchId },
+        { _id: managerId }
+      ],
+      role: { $in: ['WAITER', 'CHEF', 'RIDER', 'BRANCH_MANAGER', 'ADMIN'] }
+    });
 
     return {
       totalOrders,
       todayOrders,
+      totalUsers,
       revenue: 0,
       activeStaff: 0
     };

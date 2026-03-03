@@ -33,6 +33,7 @@ interface ReportData {
 const Reports: React.FC = () => {
   const [reportData, setReportData] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState({
     startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     endDate: new Date().toISOString().split('T')[0],
@@ -45,6 +46,7 @@ const Reports: React.FC = () => {
   const loadReports = async () => {
     try {
       setLoading(true);
+      setError(null);
       const response = await api.getReports({
         startDate: dateRange.startDate,
         endDate: dateRange.endDate,
@@ -55,6 +57,7 @@ const Reports: React.FC = () => {
       }
     } catch (error) {
       console.error('Error loading reports:', error);
+      setError('Failed to load reports. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -70,8 +73,10 @@ const Reports: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="page-content">
-        <div className="loading">Loading reports...</div>
+      <div className="page-container">
+        <div className="page-content">
+          <div className="loading">Loading reports...</div>
+        </div>
       </div>
     );
   }
@@ -93,6 +98,15 @@ const Reports: React.FC = () => {
 
       {/* Page Content */}
       <div className="page-content">
+        {error && (
+          <div className="alert alert-error" style={{ marginBottom: '20px', padding: '15px', borderRadius: '8px', background: '#fee2e2', color: '#dc2626' }}>
+            <strong>Error:</strong> {error}
+            <button onClick={loadReports} className="btn btn-outline btn-sm" style={{ marginLeft: '10px' }}>
+              Retry
+            </button>
+          </div>
+        )}
+
         {/* Filters Bar */}
         <div className="filters-bar">
           <div className="filter-item">

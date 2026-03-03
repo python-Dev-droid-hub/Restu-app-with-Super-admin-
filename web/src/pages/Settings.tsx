@@ -7,6 +7,7 @@ interface RestaurantSettings {
   phoneNumber: string;
   email: string;
   currency: string;
+  language: string;
   taxRate: number;
   serviceCharge: number;
   deliveryFee: number;
@@ -25,6 +26,7 @@ const Settings: React.FC = () => {
     phoneNumber: '',
     email: '',
     currency: 'PKR',
+    language: 'en',
     taxRate: 16,
     serviceCharge: 0,
     deliveryFee: 50,
@@ -56,6 +58,7 @@ const Settings: React.FC = () => {
           phoneNumber: apiSettings.phoneNumber || '',
           email: apiSettings.email || '',
           currency: apiSettings.currency || 'PKR',
+          language: apiSettings.language || 'en',
           taxRate: apiSettings.taxRate || 16,
           serviceCharge: apiSettings.serviceCharge || 0,
           deliveryFee: apiSettings.deliveryFee || 50,
@@ -223,16 +226,16 @@ const Settings: React.FC = () => {
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label">Tax Rate (%)</label>
-                  <input
-                    type="number"
-                    className="form-input"
-                    value={settings.taxRate}
-                    onChange={(e) => handleChange('taxRate', parseFloat(e.target.value))}
-                    min="0"
-                    max="50"
-                    step="0.1"
-                  />
+                  <label className="form-label">Language</label>
+                  <select
+                    className="form-select"
+                    value={settings.language}
+                    onChange={(e) => handleChange('language', e.target.value)}
+                  >
+                    <option value="en">English</option>
+                    <option value="ur">Urdu</option>
+                    <option value="ar">Arabic</option>
+                  </select>
                 </div>
               </div>
 

@@ -12,6 +12,9 @@ import {
   TextInput,
   RefreshControl,
   StatusBar,
+  KeyboardAvoidingView,
+  Platform,
+  Keyboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -21,6 +24,7 @@ import { api } from '../../components/api/client';
 import ResponsiveHeader from '../../components/layout/ResponsiveHeader';
 import ProfileMenu from '../../components/common/ProfileMenu';
 import AdminBottomNavigation from '../../components/navigation/AdminBottomNavigation';
+import { useUserData } from '../../hooks/useUserData';
 
 interface Table {
   _id: string;
@@ -35,6 +39,7 @@ interface Table {
 interface Waiter {
   _id: string;
   display_name: string;
+  displayName?: string;
   email: string;
   phone_number?: string;
   assignedTablesCount?: number;
@@ -75,10 +80,18 @@ export default function TableAssignmentScreen() {
   const [userData, setUserData] = useState<{branchId?: string}>({});
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [userRole, setUserRole] = useState<string>('');
+  const { profileImage } = useUserData();
 
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [emailInput, setEmailInput] = useState('');
   const [assignByEmail, setAssignByEmail] = useState(false);
+  
+  // Add Table modal state
+  const [showAddTableModal, setShowAddTableModal] = useState(false);
+  const [newTableNumber, setNewTableNumber] = useState('');
+  const [newTableCapacity, setNewTableCapacity] = useState('4');
+  const [selectedWaiterForNewTable, setSelectedWaiterForNewTable] = useState<string>('');
+  const [addingTable, setAddingTable] = useState(false);
 
   // Load user role on mount
   useEffect(() => {
@@ -161,41 +174,35 @@ export default function TableAssignmentScreen() {
   const loadTables = async () => {
     try {
       const params = new URLSearchParams();
-      if (selectedBranch !== 'all') {
-        params.append('branchId', selectedBranch);
-      } else if (userData.branchId) {
-        params.append('branchId', userData.branchId);
+      const effectiveBranchId = userRole === 'BRANCH_MANAGER' && userData.branchId 
+        ? userData.branchId 
+        : (selectedBranch !== 'all' ? selectedBranch : userData.branchId);
+      
+      if (effectiveBranchId) {
+        params.append('branchId', effectiveBranchId);
       }
 
       const response = await api.get(`/tables?${params.toString()}`);
       if (response.success && response.data) {
-        setTables(response.data.tables || response.data || []);
+        const rawTables = response.data.tables || response.data || [];
+        const normalizedTables = rawTables.map((t: any) => ({
+          _id: String(t._id || t.id).trim(),
+          number: t.tableNumber,
+          capacity: t.seatingCapacity,
+          status: t.status,
+          section: t.section,
+          floorNumber: t.floorNumber,
+          branch: t.branch,
+          assignedWaiterId: t.currentWaiter?._id ? String(t.currentWaiter._id).trim() : t.assignedWaiterId,
+          assignedWaiterName: t.currentWaiter?.displayName || t.currentWaiter?.name || t.currentWaiter?.email || t.assignedWaiterName,
+        }));
+        setTables(normalizedTables);
       } else {
-        // Mock data for development
-        setTables([
-          { _id: '1', number: 1, capacity: 4, status: 'AVAILABLE', branchId: 'branch-1', assignedWaiterId: undefined },
-          { _id: '2', number: 2, capacity: 2, status: 'OCCUPIED', branchId: 'branch-1', assignedWaiterId: 'waiter-1', assignedWaiterName: 'Ahmed' },
-          { _id: '3', number: 3, capacity: 6, status: 'AVAILABLE', branchId: 'branch-1', assignedWaiterId: undefined },
-          { _id: '4', number: 4, capacity: 4, status: 'RESERVED', branchId: 'branch-1', assignedWaiterId: 'waiter-2', assignedWaiterName: 'Sara' },
-          { _id: '5', number: 5, capacity: 8, status: 'AVAILABLE', branchId: 'branch-1', assignedWaiterId: undefined },
-          { _id: '6', number: 6, capacity: 2, status: 'OCCUPIED', branchId: 'branch-1', assignedWaiterId: undefined },
-          { _id: '7', number: 7, capacity: 4, status: 'AVAILABLE', branchId: 'branch-1', assignedWaiterId: 'waiter-1', assignedWaiterName: 'Ahmed' },
-          { _id: '8', number: 8, capacity: 6, status: 'AVAILABLE', branchId: 'branch-1', assignedWaiterId: undefined },
-        ]);
+        setTables([]);
       }
     } catch (error) {
       console.error('Error loading tables:', error);
-      // Set mock data on error
-      setTables([
-        { _id: '1', number: 1, capacity: 4, status: 'AVAILABLE', branchId: 'branch-1' },
-        { _id: '2', number: 2, capacity: 2, status: 'OCCUPIED', branchId: 'branch-1', assignedWaiterId: 'waiter-1', assignedWaiterName: 'Ahmed' },
-        { _id: '3', number: 3, capacity: 6, status: 'AVAILABLE', branchId: 'branch-1' },
-        { _id: '4', number: 4, capacity: 4, status: 'RESERVED', branchId: 'branch-1', assignedWaiterId: 'waiter-2', assignedWaiterName: 'Sara' },
-        { _id: '5', number: 5, capacity: 8, status: 'AVAILABLE', branchId: 'branch-1' },
-        { _id: '6', number: 6, capacity: 2, status: 'OCCUPIED', branchId: 'branch-1' },
-        { _id: '7', number: 7, capacity: 4, status: 'AVAILABLE', branchId: 'branch-1', assignedWaiterId: 'waiter-1', assignedWaiterName: 'Ahmed' },
-        { _id: '8', number: 8, capacity: 6, status: 'AVAILABLE', branchId: 'branch-1' },
-      ]);
+      setTables([]);
     }
   };
 
@@ -211,25 +218,22 @@ export default function TableAssignmentScreen() {
 
       const response = await api.get(`/users?${params.toString()}`);
       if (response.success && response.data) {
-        setWaiters(response.data.users || response.data || []);
+        const rawWaiters = response.data.users || response.data || [];
+        const normalizedWaiters = rawWaiters.map((w: any) => ({
+          _id: w._id,
+          display_name: w.display_name || w.displayName || w.name || 'Unknown',
+          displayName: w.display_name || w.displayName || w.name,
+          email: w.email || '',
+          phone_number: w.phone_number,
+          assignedTablesCount: w.assignedTablesCount,
+        }));
+        setWaiters(normalizedWaiters);
       } else {
-        // Mock data for development
-        setWaiters([
-          { _id: 'waiter-1', display_name: 'Ahmed Khan', email: 'ahmed@restaurant.com', phone_number: '+92-300-1111111', assignedTablesCount: 2 },
-          { _id: 'waiter-2', display_name: 'Sara Ali', email: 'sara@restaurant.com', phone_number: '+92-300-2222222', assignedTablesCount: 1 },
-          { _id: 'waiter-3', display_name: 'Hassan Malik', email: 'hassan@restaurant.com', phone_number: '+92-300-3333333', assignedTablesCount: 0 },
-          { _id: 'waiter-4', display_name: 'Fatima Noor', email: 'fatima@restaurant.com', phone_number: '+92-300-4444444', assignedTablesCount: 0 },
-        ]);
+        setWaiters([]);
       }
     } catch (error) {
       console.error('Error loading waiters:', error);
-      // Set mock data on error
-      setWaiters([
-        { _id: 'waiter-1', display_name: 'Ahmed Khan', email: 'ahmed@restaurant.com', phone_number: '+92-300-1111111', assignedTablesCount: 2 },
-        { _id: 'waiter-2', display_name: 'Sara Ali', email: 'sara@restaurant.com', phone_number: '+92-300-2222222', assignedTablesCount: 1 },
-        { _id: 'waiter-3', display_name: 'Hassan Malik', email: 'hassan@restaurant.com', phone_number: '+92-300-3333333', assignedTablesCount: 0 },
-        { _id: 'waiter-4', display_name: 'Fatima Noor', email: 'fatima@restaurant.com', phone_number: '+92-300-4444444', assignedTablesCount: 0 },
-      ]);
+      setWaiters([]);
     }
   };
 
@@ -241,6 +245,116 @@ export default function TableAssignmentScreen() {
       }
     } catch (error) {
       console.error('Error loading branches:', error);
+    }
+  };
+
+  const handleAddTable = async () => {
+    // Parse table numbers - support comma-separated or single number
+    const tableNumbers = newTableNumber
+      .split(/[,\s]+/)
+      .map(n => parseInt(n.trim(), 10))
+      .filter(n => !isNaN(n) && n > 0);
+
+    if (tableNumbers.length === 0) {
+      Alert.alert('Error', 'Please enter valid table number(s). Use commas to separate multiple tables (e.g., 1, 2, 3)');
+      return;
+    }
+
+    const capacity = parseInt(newTableCapacity, 10);
+    if (!capacity || capacity < 1) {
+      Alert.alert('Error', 'Please enter a valid capacity');
+      return;
+    }
+
+    const branchId = userRole === 'BRANCH_MANAGER' ? userData.branchId : (selectedBranch !== 'all' ? selectedBranch : userData.branchId);
+    if (!branchId) {
+      Alert.alert('Error', 'Please select a branch first');
+      return;
+    }
+
+    setAddingTable(true);
+    const results: string[] = [];
+    
+    console.log('[TABLE_CREATE] Starting table creation...');
+    console.log('[TABLE_CREATE] Table numbers:', tableNumbers);
+    console.log('[TABLE_CREATE] Capacity:', capacity);
+    console.log('[TABLE_CREATE] BranchId:', branchId);
+    console.log('[TABLE_CREATE] Selected waiter:', selectedWaiterForNewTable);
+    
+    try {
+      for (const tableNum of tableNumbers) {
+        try {
+          const requestBody = {
+            tableNumber: String(tableNum),
+            seatingCapacity: capacity,
+            branch: branchId,
+            status: 'AVAILABLE',
+          };
+          console.log('[TABLE_CREATE] Request body:', JSON.stringify(requestBody));
+          
+          const response = await api.post('/tables', requestBody);
+          console.log('[TABLE_CREATE] API response:', JSON.stringify(response));
+
+          if (response.success && response.data) {
+            const newTable = response.data.table || response.data;
+            console.log('[TABLE_CREATE] New table created:', newTable);
+            
+            // If a waiter was selected, assign them to the new table
+            if (selectedWaiterForNewTable) {
+              const selectedWaiter = waiters.find(w => w._id === selectedWaiterForNewTable);
+              console.log('[TABLE_CREATE] Selected waiter object:', selectedWaiter);
+              if (selectedWaiter) {
+                try {
+                  console.log('[TABLE_CREATE] Assigning waiter', selectedWaiter._id, 'to table', newTable._id);
+                  const assignResponse = await api.patch(`/tables/${newTable._id}/assign`, {
+                    waiterId: selectedWaiter._id,
+                  });
+                  console.log('[TABLE_CREATE] Assign response:', assignResponse);
+                  newTable.assignedWaiterId = selectedWaiter._id;
+                  newTable.assignedWaiterName = selectedWaiter.display_name;
+                } catch (assignError) {
+                  console.error('[TABLE_CREATE] Error assigning waiter to new table:', assignError);
+                }
+              }
+            }
+
+            setTables(prev => [...prev, newTable]);
+            results.push(`Table ${tableNum} added`);
+          } else {
+            console.log('[TABLE_CREATE] Failed response:', response);
+            results.push(`Table ${tableNum} failed: ${response.message || 'Unknown error'}`);
+          }
+        } catch (error: any) {
+          console.error(`[TABLE_CREATE] Error adding table ${tableNum}:`, error);
+          console.error('[TABLE_CREATE] Error response:', error?.response);
+          console.error('[TABLE_CREATE] Error data:', error?.response?.data);
+          results.push(`Table ${tableNum} failed: ${error?.response?.data?.message || error?.message || 'Error'}`);
+        }
+      }
+
+      // Show summary
+      const successCount = results.filter(r => r.includes('added')).length;
+      const failCount = results.length - successCount;
+      
+      if (successCount > 0) {
+        Alert.alert(
+          'Complete',
+          `${successCount} table(s) added successfully.${failCount > 0 ? `\n\nFailed:\n${results.filter(r => r.includes('failed')).join('\n')}` : ''}`
+        );
+      } else {
+        Alert.alert('Error', results.join('\n'));
+      }
+      
+      // Reset form
+      setNewTableNumber('');
+      setNewTableCapacity('4');
+      setSelectedWaiterForNewTable('');
+      setShowAddTableModal(false);
+    } catch (error) {
+      console.error('Error adding tables:', error);
+      Alert.alert('Error', 'Failed to add tables. Please try again.');
+    } finally {
+      setAddingTable(false);
     }
   };
 
@@ -257,42 +371,42 @@ export default function TableAssignmentScreen() {
   };
 
   const handleUnassignWaiter = async (table: Table) => {
-    Alert.alert(
-      'Unassign Waiter',
-      `Remove waiter assignment from Table ${table.number}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Unassign',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const response = await api.patch(`/tables/${table._id}/unassign`);
-              if (response.success) {
-                setTables(prev => prev.map(t => 
-                  t._id === table._id 
-                    ? { ...t, assignedWaiterId: undefined, assignedWaiterName: undefined }
-                    : t
-                ));
-                Alert.alert('Success', 'Waiter unassigned successfully');
-              } else {
-                // Update locally for mock
-                setTables(prev => prev.map(t => 
-                  t._id === table._id 
-                    ? { ...t, assignedWaiterId: undefined, assignedWaiterName: undefined }
-                    : t
-                ));
-                Alert.alert('Success', 'Waiter unassigned successfully');
-              }
-            } catch (error) {
-              console.error('Error unassigning waiter:', error);
-              Alert.alert('Error', 'Failed to unassign waiter');
+  Alert.alert(
+    'Unassign Waiter',
+    `Remove waiter assignment from Table ${table.number}?`,
+    [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Unassign',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            const response = await api.patch(`/tables/${table._id}/unassign`);
+            if (response.success) {
+              setTables(prev => prev.map(t => 
+                t._id === table._id 
+                  ? { ...t, assignedWaiterId: undefined, assignedWaiterName: undefined }
+                  : t
+              ));
+              Alert.alert('Success', 'Waiter unassigned successfully');
+            } else {
+              // Update locally for mock
+              setTables(prev => prev.map(t => 
+                t._id === table._id 
+                  ? { ...t, assignedWaiterId: undefined, assignedWaiterName: undefined }
+                  : t
+              ));
+              Alert.alert('Success', 'Waiter unassigned successfully');
             }
-          },
+          } catch (error) {
+            console.error('Error unassigning waiter:', error);
+            Alert.alert('Error', 'Failed to unassign waiter');
+          }
         },
-      ]
-    );
-  };
+      },
+    ]
+  );
+};
 
   const confirmAssignWaiter = async (waiter: Waiter) => {
     if (!selectedTable) return;
@@ -393,6 +507,35 @@ export default function TableAssignmentScreen() {
     return `${branch.branchName} (${branch.branchCode})`;
   };
 
+  const handleDeleteTable = async (table: Table) => {
+    Alert.alert(
+      'Delete Table',
+      `Are you sure you want to delete Table ${table.number}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const tableId = table._id.trim();
+              const response = await api.delete(`/tables/${tableId}`);
+              if (response.success) {
+                setTables(prev => prev.filter(t => t._id !== table._id));
+                Alert.alert('Success', 'Table deleted successfully');
+              } else {
+                Alert.alert('Error', response.message || 'Failed to delete table');
+              }
+            } catch (error: any) {
+              console.error('Error deleting table:', error);
+              Alert.alert('Error', error?.response?.data?.message || 'Failed to delete table');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const renderTableCard = ({ item }: { item: Table }) => {
     const statusColor = getStatusColor(item.status);
     
@@ -405,6 +548,12 @@ export default function TableAssignmentScreen() {
           <View style={[styles.statusBadge, { backgroundColor: statusColor + '20' }]}>
             <Text style={[styles.statusText, { color: statusColor }]}>{item.status}</Text>
           </View>
+          <TouchableOpacity 
+            style={styles.deleteTableBtn}
+            onPress={() => handleDeleteTable(item)}
+          >
+            <Ionicons name="trash-outline" size={18} color={COLORS.danger} />
+          </TouchableOpacity>
         </View>
         
         <View style={styles.tableInfo}>
@@ -465,7 +614,7 @@ export default function TableAssignmentScreen() {
     >
       <View style={styles.waiterAvatar}>
         <Text style={styles.waiterAvatarText}>
-          {item.display_name.split(' ').map(n => n[0]).join('').toUpperCase()}
+          {item.display_name ? item.display_name.split(' ').map(n => n[0]).join('').toUpperCase() : '?'}
         </Text>
       </View>
       <View style={styles.waiterInfo}>
@@ -495,6 +644,7 @@ export default function TableAssignmentScreen() {
       {/* Responsive Header */}
       <ResponsiveHeader
         title="Table Assignment"
+        profileImage={profileImage}
         onProfilePress={() => setShowProfileMenu(true)}
       />
 
@@ -564,6 +714,15 @@ export default function TableAssignmentScreen() {
         </View>
       </View>
 
+      {/* Add Table Button */}
+      <TouchableOpacity
+        style={styles.addTableButton}
+        onPress={() => setShowAddTableModal(true)}
+      >
+        <Ionicons name="add-circle" size={20} color={COLORS.white} />
+        <Text style={styles.addTableButtonText}>Add Table</Text>
+      </TouchableOpacity>
+
       {/* Tables Grid */}
       <FlatList
         data={tables}
@@ -581,6 +740,147 @@ export default function TableAssignmentScreen() {
         }
       />
 
+      {/* Add Table Modal */}
+      <Modal
+        visible={showAddTableModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => {
+          setShowAddTableModal(false);
+          setNewTableNumber('');
+          setNewTableCapacity('4');
+          setSelectedWaiterForNewTable('');
+          Keyboard.dismiss();
+        }}
+      >
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.keyboardAvoidingView}
+        >
+          <ScrollView 
+            style={styles.modalScrollView}
+            contentContainerStyle={styles.modalScrollContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Add New Table</Text>
+                <TouchableOpacity onPress={() => {
+                  setShowAddTableModal(false);
+                  setNewTableNumber('');
+                  setNewTableCapacity('4');
+                  setSelectedWaiterForNewTable('');
+                  Keyboard.dismiss();
+                }}>
+                  <Ionicons name="close" size={24} color={COLORS.muted} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.formSection}>
+                {/* Table Number Input */}
+                <Text style={styles.inputLabel}>Table Number(s)</Text>
+                <Text style={styles.inputHint}>Enter comma-separated numbers (e.g., 1, 2, 3, 4)</Text>
+                <View style={styles.inputContainer}>
+                  <Ionicons name="restaurant-outline" size={18} color={COLORS.muted} />
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="1, 2, 3, 4, 5"
+                    value={newTableNumber}
+                    onChangeText={setNewTableNumber}
+                    keyboardType="number-pad"
+                    returnKeyType="done"
+                  />
+                </View>
+
+                {/* Capacity Input */}
+                <Text style={styles.inputLabel}>Capacity (persons)</Text>
+                <View style={styles.inputContainer}>
+                  <Ionicons name="people-outline" size={18} color={COLORS.muted} />
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="Enter capacity"
+                    value={newTableCapacity}
+                    onChangeText={setNewTableCapacity}
+                    keyboardType="number-pad"
+                    returnKeyType="done"
+                  />
+                </View>
+
+                {/* Waiter Selection */}
+                <Text style={styles.inputLabel}>Assign Waiter (Optional)</Text>
+                <View style={styles.waiterDropdown}>
+                  <TouchableOpacity
+                    style={styles.waiterDropdownButton}
+                    onPress={() => {
+                      if (waiters.length === 0) {
+                        Alert.alert('No Waiters', 'No waiters available. Please add waiters first.');
+                      }
+                    }}
+                  >
+                    <Ionicons name="person-outline" size={18} color={COLORS.muted} />
+                    <Text style={styles.waiterDropdownText}>
+                      {selectedWaiterForNewTable 
+                        ? waiters.find(w => w._id === selectedWaiterForNewTable)?.display_name || 'Select Waiter'
+                        : 'Select a waiter (optional)'}
+                    </Text>
+                    <Ionicons name="chevron-down" size={16} color={COLORS.muted} />
+                  </TouchableOpacity>
+                  
+                  {/* Waiter List - Using ScrollView instead of FlatList to avoid VirtualizedLists error */}
+                  {waiters.length > 0 && (
+                    <View style={styles.waiterListContainer}>
+                      <ScrollView style={styles.waiterOptionList}>
+                        {waiters.map((item) => (
+                          <TouchableOpacity
+                            key={item._id}
+                            style={[
+                              styles.waiterOption,
+                              selectedWaiterForNewTable === item._id && styles.waiterOptionSelected
+                            ]}
+                            onPress={() => setSelectedWaiterForNewTable(
+                              selectedWaiterForNewTable === item._id ? '' : item._id
+                            )}
+                          >
+                            <View style={styles.waiterOptionAvatar}>
+                              <Text style={styles.waiterOptionAvatarText}>
+                                {item.display_name ? item.display_name.split(' ').map(n => n[0]).join('').toUpperCase() : '?'}
+                              </Text>
+                            </View>
+                            <View style={styles.waiterOptionInfo}>
+                              <Text style={styles.waiterOptionName}>{item.display_name}</Text>
+                              <Text style={styles.waiterOptionEmail}>{item.email}</Text>
+                            </View>
+                            {selectedWaiterForNewTable === item._id && (
+                              <Ionicons name="checkmark-circle" size={20} color={COLORS.primary} />
+                            )}
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  )}
+                </View>
+
+                {/* Add Table Button */}
+                <TouchableOpacity
+                  style={[styles.submitButton, addingTable && styles.submitButtonDisabled]}
+                  onPress={handleAddTable}
+                  disabled={addingTable}
+                >
+                  {addingTable ? (
+                    <ActivityIndicator size="small" color={COLORS.white} />
+                  ) : (
+                    <>
+                      <Ionicons name="add-circle" size={18} color={COLORS.white} />
+                      <Text style={styles.submitButtonText}>Add Table(s)</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
+
       {/* Assign Waiter Modal */}
       <Modal
         visible={showAssignModal}
@@ -592,95 +892,123 @@ export default function TableAssignmentScreen() {
           setEmailInput('');
         }}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                Assign Waiter to Table {selectedTable?.number}
-              </Text>
-              <TouchableOpacity onPress={() => {
-                setShowAssignModal(false);
-                setAssignByEmail(false);
-                setEmailInput('');
-              }}>
-                <Ionicons name="close" size={24} color={COLORS.muted} />
-              </TouchableOpacity>
-            </View>
-
-            {/* Toggle between list and email */}
-            <View style={styles.toggleContainer}>
-              <TouchableOpacity
-                style={[styles.toggleButton, !assignByEmail && styles.toggleButtonActive]}
-                onPress={() => setAssignByEmail(false)}
-              >
-                <Text style={[styles.toggleButtonText, !assignByEmail && styles.toggleButtonTextActive]}>
-                  From List
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.keyboardAvoidingView}
+        >
+          <ScrollView 
+            style={styles.modalScrollView}
+            contentContainerStyle={styles.modalScrollContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>
+                  Assign Waiter to Table {selectedTable?.number}
                 </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.toggleButton, assignByEmail && styles.toggleButtonActive]}
-                onPress={() => setAssignByEmail(true)}
-              >
-                <Text style={[styles.toggleButtonText, assignByEmail && styles.toggleButtonTextActive]}>
-                  By Email
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {assignByEmail ? (
-              /* Email Input Mode */
-              <View style={styles.emailSection}>
-                <Text style={styles.emailLabel}>Enter Waiter Email:</Text>
-                <View style={styles.emailInputContainer}>
-                  <Ionicons name="mail-outline" size={18} color={COLORS.muted} />
-                  <TextInput
-                    style={styles.emailInput}
-                    placeholder="waiter@example.com"
-                    value={emailInput}
-                    onChangeText={setEmailInput}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                  />
-                </View>
-                <TouchableOpacity
-                  style={styles.assignEmailButton}
-                  onPress={assignWaiterByEmail}
-                >
-                  <Ionicons name="person-add" size={18} color={COLORS.white} />
-                  <Text style={styles.assignEmailButtonText}>Assign Waiter</Text>
+                <TouchableOpacity onPress={() => {
+                  setShowAssignModal(false);
+                  setAssignByEmail(false);
+                  setEmailInput('');
+                  Keyboard.dismiss();
+                }}>
+                  <Ionicons name="close" size={24} color={COLORS.muted} />
                 </TouchableOpacity>
               </View>
-            ) : (
-              /* List Selection Mode */
-              <>
-                {/* Search Waiter */}
-                <View style={styles.searchContainer}>
-                  <Ionicons name="search" size={18} color={COLORS.muted} />
-                  <TextInput
-                    style={styles.searchInput}
-                    placeholder="Search waiters..."
-                    value={searchWaiterQuery}
-                    onChangeText={setSearchWaiterQuery}
-                  />
-                </View>
 
-                {/* Waiters List */}
-                <FlatList
-                  data={filteredWaiters}
-                  renderItem={renderWaiterItem}
-                  keyExtractor={item => item._id}
-                  style={styles.waitersList}
-                  ListEmptyComponent={
-                    <View style={styles.emptyWaiterContainer}>
-                      <Ionicons name="person-outline" size={32} color={COLORS.muted} />
-                      <Text style={styles.emptyWaiterText}>No waiters found</Text>
-                    </View>
-                  }
-                />
-              </>
-            )}
-          </View>
-        </View>
+              {/* Toggle between list and email */}
+              <View style={styles.toggleContainer}>
+                <TouchableOpacity
+                  style={[styles.toggleButton, !assignByEmail && styles.toggleButtonActive]}
+                  onPress={() => setAssignByEmail(false)}
+                >
+                  <Text style={[styles.toggleButtonText, !assignByEmail && styles.toggleButtonTextActive]}>
+                    From List
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.toggleButton, assignByEmail && styles.toggleButtonActive]}
+                  onPress={() => setAssignByEmail(true)}
+                >
+                  <Text style={[styles.toggleButtonText, assignByEmail && styles.toggleButtonTextActive]}>
+                    By Email
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {assignByEmail ? (
+                /* Email Input Mode */
+                <View style={styles.emailSection}>
+                  <Text style={styles.emailLabel}>Enter Waiter Email:</Text>
+                  <View style={styles.emailInputContainer}>
+                    <Ionicons name="mail-outline" size={18} color={COLORS.muted} />
+                    <TextInput
+                      style={styles.emailInput}
+                      placeholder="waiter@example.com"
+                      value={emailInput}
+                      onChangeText={setEmailInput}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                    />
+                  </View>
+                  <TouchableOpacity
+                    style={styles.assignEmailButton}
+                    onPress={assignWaiterByEmail}
+                  >
+                    <Ionicons name="person-add" size={18} color={COLORS.white} />
+                    <Text style={styles.assignEmailButtonText}>Assign Waiter</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                /* List Selection Mode */
+                <>
+                  {/* Search Waiter */}
+                  <View style={styles.searchContainer}>
+                    <Ionicons name="search" size={18} color={COLORS.muted} />
+                    <TextInput
+                      style={styles.searchInput}
+                      placeholder="Search waiters..."
+                      value={searchWaiterQuery}
+                      onChangeText={setSearchWaiterQuery}
+                    />
+                  </View>
+
+                  {/* Waiters List */}
+                  <ScrollView style={styles.waitersList} nestedScrollEnabled={true}>
+                    {filteredWaiters.length === 0 ? (
+                      <View style={styles.emptyWaiterContainer}>
+                        <Ionicons name="person-outline" size={32} color={COLORS.muted} />
+                        <Text style={styles.emptyWaiterText}>No waiters found</Text>
+                      </View>
+                    ) : (
+                      filteredWaiters.map((item) => (
+                        <TouchableOpacity 
+                          key={item._id}
+                          style={styles.waiterItem}
+                          onPress={() => confirmAssignWaiter(item)}
+                        >
+                          <View style={styles.waiterAvatar}>
+                            <Text style={styles.waiterAvatarText}>
+                              {item.display_name ? item.display_name.split(' ').map(n => n[0]).join('').toUpperCase() : '?'}
+                            </Text>
+                          </View>
+                          <View style={styles.waiterInfo}>
+                            <Text style={styles.waiterName}>{item.display_name}</Text>
+                            <Text style={styles.waiterEmail}>{item.email}</Text>
+                            <Text style={styles.waiterTables}>
+                              {item.assignedTablesCount || 0} tables assigned
+                            </Text>
+                          </View>
+                          <Ionicons name="chevron-forward" size={20} color={COLORS.muted} />
+                        </TouchableOpacity>
+                      ))
+                    )}
+                  </ScrollView>
+                </>
+              )}
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* More Menu Modal */}
@@ -726,6 +1054,18 @@ export default function TableAssignmentScreen() {
 }
 
 const styles = StyleSheet.create({
+  keyboardAvoidingView: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  modalScrollView: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  modalScrollContent: {
+    flexGrow: 1,
+    justifyContent: 'flex-end',
+  },
   container: {
     flex: 1,
     backgroundColor: COLORS.background,
@@ -914,9 +1254,12 @@ const styles = StyleSheet.create({
   },
   tableHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 8,
+  },
+  deleteTableBtn: {
+    padding: 4,
+    marginLeft: 'auto',
   },
   tableNumberBadge: {
     paddingHorizontal: 10,
@@ -1013,6 +1356,137 @@ const styles = StyleSheet.create({
     color: COLORS.danger,
     fontWeight: '500',
   },
+  addTableButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.primary,
+    marginHorizontal: 16,
+    marginBottom: 16,
+    paddingVertical: 12,
+    borderRadius: 10,
+    gap: 8,
+  },
+  addTableButtonText: {
+    fontSize: 14,
+    color: COLORS.white,
+    fontWeight: '600',
+  },
+  formSection: {
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  inputLabel: {
+    fontSize: 13,
+    color: COLORS.dark,
+    marginBottom: 8,
+    fontWeight: '500',
+  },
+  inputHint: {
+    fontSize: 12,
+    color: COLORS.muted,
+    marginBottom: 8,
+    marginTop: -4,
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.background,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    marginBottom: 16,
+    gap: 8,
+  },
+  textInput: {
+    flex: 1,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: COLORS.dark,
+  },
+  waiterDropdown: {
+    marginBottom: 16,
+  },
+  waiterDropdownButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.background,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 10,
+    gap: 8,
+  },
+  waiterDropdownText: {
+    flex: 1,
+    fontSize: 14,
+    color: COLORS.dark,
+  },
+  waiterListContainer: {
+    backgroundColor: COLORS.background,
+    borderRadius: 10,
+    marginTop: 8,
+    maxHeight: 200,
+  },
+  waiterOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  waiterOptionSelected: {
+    backgroundColor: COLORS.primary + '10',
+  },
+  waiterOptionAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: COLORS.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  waiterOptionAvatarText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: COLORS.white,
+  },
+  waiterOptionInfo: {
+    flex: 1,
+  },
+  waiterOptionName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.dark,
+  },
+  waiterOptionEmail: {
+    fontSize: 12,
+    color: COLORS.muted,
+    marginTop: 2,
+  },
+  waiterOptionList: {
+    maxHeight: 200,
+  },
+  submitButton: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 10,
+    paddingVertical: 14,
+    paddingBottom: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 8,
+    marginBottom: 20,
+  },
+  submitButtonDisabled: {
+    opacity: 0.7,
+  },
+  submitButtonText: {
+    fontSize: 14,
+    color: COLORS.white,
+    fontWeight: '600',
+  },
   emptyContainer: {
     alignItems: 'center',
     paddingVertical: 40,
@@ -1031,8 +1505,8 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    maxHeight: '70%',
-    paddingBottom: 20,
+    maxHeight: '85%',
+    paddingBottom: 60,
   },
   modalHeader: {
     flexDirection: 'row',

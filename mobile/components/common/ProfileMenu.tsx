@@ -165,6 +165,7 @@ export default function ProfileMenu({ visible, onClose, onLogout, onChangePasswo
           text: t('profile.logout'), 
           style: 'destructive',
           onPress: async () => {
+            onClose(); // Close the modal first
             await AsyncStorage.multiRemove(['authToken', 'userRole', 'userData']);
             onLogout();
           }

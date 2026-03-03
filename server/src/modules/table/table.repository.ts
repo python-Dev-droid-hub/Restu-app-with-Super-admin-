@@ -4,7 +4,7 @@ export class TableRepository {
   // Find all tables with optional filters
   async findAll(filters: any = {}) {
     return RestaurantTable.find(filters)
-      .populate('branch', 'branchName branchCode')
+      .populate('branch', '_id branchName branchCode')
       .populate('currentWaiter', 'displayName email')
       .sort({ floorNumber: 1, section: 1, tableNumber: 1 });
   }
@@ -45,6 +45,14 @@ export class TableRepository {
     return table.softDelete();
   }
 
+  // Hard delete table (permanently remove from database)
+  async hardDelete(id: string) {
+    const table = await RestaurantTable.findById(id);
+    if (!table) return null;
+    await RestaurantTable.deleteOne({ _id: id });
+    return table;
+  }
+
   // Assign waiter to table
   async assignWaiter(tableId: string, waiterId: string) {
     const table = await RestaurantTable.findById(tableId);
@@ -56,7 +64,7 @@ export class TableRepository {
   async removeWaiter(tableId: string) {
     const table = await RestaurantTable.findById(tableId);
     if (!table) return null;
-    table.currentWaiter = null;
+    table.currentWaiter = undefined;
     return table.save();
   }
 

@@ -139,6 +139,7 @@ export default function ChefDashboard() {
   const [isOnline, setIsOnline] = useState(true);
   const [notificationList, setNotificationList] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [notificationsDisabled, setNotificationsDisabled] = useState(false);
   const [showNotificationPanel, setShowNotificationPanel] = useState(false);
   const [toasts, setToasts] = useState<any[]>([]);
   const [selectedOrderFromNotification, setSelectedOrderFromNotification] = useState<any>(null);
@@ -150,24 +151,35 @@ export default function ChefDashboard() {
   const [userData, setUserData] = useState<any>({ name: 'Chef Michael', role: 'Head Chef', avatar: null });
   // Notification polling effect
   useEffect(() => {
+    if (notificationsDisabled) return;
     const fetchNotifications = async () => {
       try {
         // Fetch real notifications from API
-        const response = await api.get('/notifications');
-        if (!response.success && checkAuthError(response)) return;
-        if (response.success && response.data) {
-          setNotificationList(response.data.notifications || []);
-          setUnreadCount(response.data.unreadCount || 0);
-        } else {
-          // Fallback to empty if API fails
+        const [recentResponse, unreadResponse] = await Promise.all([
+          api.get('/notifications/admin/recent'),
+          api.get('/notifications/admin/unread-count'),
+        ]);
+
+        if (!recentResponse.success && checkAuthError(recentResponse)) return;
+        if (!unreadResponse.success && checkAuthError(unreadResponse)) return;
+
+        // If chef is forbidden from admin notification endpoints, disable polling to stop log spam
+        if (recentResponse.statusCode === 403 || unreadResponse.statusCode === 403) {
+          setNotificationsDisabled(true);
           setNotificationList([]);
           setUnreadCount(0);
+          return;
+        }
+
+        if (recentResponse.success && recentResponse.data) {
+          setNotificationList(recentResponse.data.notifications || []);
+        }
+
+        if (unreadResponse.success && unreadResponse.data) {
+          setUnreadCount(unreadResponse.data.unreadCount || 0);
         }
       } catch (error) {
         console.log('Error fetching notifications:', error);
-        // Set empty state on error
-        setNotificationList([]);
-        setUnreadCount(0);
       }
     };
 
@@ -175,7 +187,8 @@ export default function ChefDashboard() {
     // Poll every 10 seconds for new notifications
     const interval = setInterval(fetchNotifications, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [notificationsDisabled]);
+
   useEffect(() => {
     const loadUserData = async () => {
       try {
@@ -199,6 +212,7 @@ export default function ChefDashboard() {
       console.log('Error saving user data:', error);
     }
   };
+
   const [homeActiveTab, setHomeActiveTab] = useState('Active');
   const [showChecklistModal, setShowChecklistModal] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<KitchenOrder | null>(null);
@@ -217,9 +231,20 @@ export default function ChefDashboard() {
   const [mostOrdered, setMostOrdered] = useState<MostOrderedItem[]>([]);
 
   useEffect(() => {
-    loadDashboardData();
-    loadUserData();
+    // First load user data, then load dashboard data
+    const init = async () => {
+      await loadUserData();
+    };
+    init();
   }, []);
+
+  // Load dashboard data AFTER userData is loaded
+  useEffect(() => {
+    if (userData && (userData.assignedBranch || userData.branchId)) {
+      console.log('[ChefDashboard] userData loaded, loading dashboard...');
+      loadDashboardData();
+    }
+  }, [userData]);
 
   const loadUserData = async () => {
     try {
@@ -273,7 +298,7 @@ export default function ChefDashboard() {
   };
 
   // Handle notification tap
-  const handleNotificationTap = async (notification: any) => {
+  const markNotificationAsRead = async (notification: any) => {
     // Mark as read locally
     setNotificationList(prev => prev.map(n => 
       n.id === notification.id ? { ...n, is_read: true } : n
@@ -283,7 +308,7 @@ export default function ChefDashboard() {
 
     // Mark as read on server
     try {
-      await api.patch(`/notifications/${notification.id}/read`);
+      await api.put(`/notifications/${notification.id}/read`);
     } catch (error) {
       console.log('Error marking notification as read:', error);
     }
@@ -385,13 +410,34 @@ export default function ChefDashboard() {
   const loadDashboardData = async () => {
     try {
       setLoading(true);
+      // Get chef's branch ID from user data
+      const branchId =
+        userData?.assignedBranch?._id ||
+        userData?.assignedBranch?.id ||
+        userData?.assignedBranch ||
+        userData?.branchId ||
+        '';
+      
+      console.log('===== CHEF DASHBOARD LOAD START =====');
+      console.log('Branch ID:', branchId);
+      console.log('User assignedBranch:', JSON.stringify(userData?.assignedBranch));
+      
+      if (!branchId) {
+        console.warn('⚠️ NO BRANCH ID - orders will not load correctly!');
+      }
+      
       // Fetch all dashboard data in parallel
       const [statsResponse, ordersResponse, cookingResponse, mostOrderedResponse] = await Promise.all([
         api.get('/dashboard/chef/stats'),
         api.get('/dashboard/chef/orders'),
-        api.get('/kitchen/orders/cooking'),
-        api.get('/kitchen/most-ordered'),
+        api.get(`/dashboard/kitchen/orders/cooking?branch=${branchId}`),
+        api.get('/dashboard/kitchen/most-ordered'),
       ]);
+      
+      console.log('--- API Responses ---');
+      console.log('stats success:', statsResponse.success);
+      console.log('orders success:', ordersResponse.success, 'count:', ordersResponse.data?.orders?.length || 0);
+      console.log('cooking success:', cookingResponse.success, 'count:', cookingResponse.data?.orders?.length || 0);
       
       // Check for auth errors in any response
       if (!statsResponse.success && checkAuthError(statsResponse)) return;
@@ -402,15 +448,34 @@ export default function ChefDashboard() {
       if (statsResponse.success && statsResponse.data) {
         setStats(statsResponse.data);
       }
+      
+      let loadedOrders = [];
       if (ordersResponse.success && ordersResponse.data) {
-        setOrders(ordersResponse.data.orders || []);
+        loadedOrders = ordersResponse.data.orders || [];
+        console.log('Loaded orders:', loadedOrders.length);
+        if (loadedOrders.length > 0) {
+          console.log('First order status:', loadedOrders[0]?.status);
+          console.log('First order id:', loadedOrders[0]?.id);
+        }
+        setOrders(loadedOrders);
       }
+      
+      let loadedCookingOrders = [];
       if (cookingResponse.success && cookingResponse.data) {
-        setCookingOrders(cookingResponse.data.orders || []);
+        loadedCookingOrders = cookingResponse.data.orders || [];
+        console.log('Loaded cooking orders:', loadedCookingOrders.length);
+        if (loadedCookingOrders.length > 0) {
+          console.log('First cooking order:', JSON.stringify(loadedCookingOrders[0], null, 2));
+        }
+        setCookingOrders(loadedCookingOrders);
       }
+      
       if (mostOrderedResponse.success && mostOrderedResponse.data) {
         setMostOrdered(mostOrderedResponse.data.items || []);
       }
+      
+      console.log('===== CHEF DASHBOARD LOAD END =====');
+      
     } catch (error) {
       console.error('Error loading dashboard data:', error);
     } finally {
@@ -626,19 +691,30 @@ export default function ChefDashboard() {
   );
 
   const renderHome = () => {
-    // Use real orders from state instead of hardcoded data
-    const homeOrders = orders;
+    // Prefer kitchen queue orders (branch-filtered) for home screen
+    const homeOrders = (cookingOrders && cookingOrders.length > 0) ? cookingOrders : orders;
+
+    console.log('--- RENDER HOME ---');
+    console.log('cookingOrders length:', cookingOrders?.length || 0);
+    console.log('orders length:', orders?.length || 0);
+    console.log('homeOrders length:', homeOrders?.length || 0);
+    console.log('homeActiveTab:', homeActiveTab);
 
     const initials = 'TT';
 
     // Filter orders based on selected tab
     const filteredOrders = homeOrders.filter(order => {
-      if (homeActiveTab === 'Active') return order.status === 'PENDING' || order.status === 'PREPARING';
+      if (homeActiveTab === 'Active') return order.status === 'PENDING' || order.status === 'PREPARING' || order.status === 'COOKING';
       if (homeActiveTab === 'Ready') return order.status === 'READY';
       if (homeActiveTab === 'Completed') return order.status === 'COMPLETED';
       if (homeActiveTab === 'Cancelled') return order.status === 'CANCELLED';
       return true;
     });
+
+    console.log('filteredOrders length:', filteredOrders?.length || 0);
+    if (homeOrders.length > 0 && filteredOrders.length === 0) {
+      console.log('Order statuses in homeOrders:', homeOrders.map(o => o.status));
+    }
 
     const HomeOrderCard = ({ order }: { order: KitchenOrder }) => {
       return (
@@ -862,10 +938,10 @@ export default function ChefDashboard() {
 
             {/* Items */}
             <View style={cookingStyles.itemsList}>
-              {order.items.map((item, idx) => {
+              {order.items.map((item, index) => {
                 const pill = getItemStatusPill(item.status);
                 return (
-                  <View key={idx} style={cookingStyles.itemRow}>
+                  <View key={index} style={cookingStyles.itemRow}>
                     <Text style={cookingStyles.itemText}>{item.quantity}x {item.name}</Text>
                     <View style={[cookingStyles.itemPill, { backgroundColor: pill.bg }]}>
                       <Text style={[cookingStyles.itemPillText, { color: pill.fg }]}>{pill.label}</Text>
@@ -1252,7 +1328,7 @@ export default function ChefDashboard() {
                     setNotificationList(prev => prev.map(n => ({ ...n, is_read: true })));
                     setUnreadCount(0);
                     try {
-                      await api.patch('/notifications/read-all');
+                      await api.put('/notifications/waiter/read-all');
                     } catch (error) {
                       console.log('Error marking all notifications as read:', error);
                     }
@@ -1281,7 +1357,7 @@ export default function ChefDashboard() {
                   return (
                     <TouchableOpacity 
                       style={[notificationStyles.item, !item.is_read && notificationStyles.unreadItem]}
-                      onPress={() => handleNotificationTap(item)}
+                      onPress={() => markNotificationAsRead(item)}
                     >
                       <View style={[notificationStyles.iconContainer, { backgroundColor: typeConfig.color + '20' }]}>
                         <Ionicons name={typeConfig.icon as any} size={20} color={typeConfig.color} />

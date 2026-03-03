@@ -44,6 +44,16 @@ const translations: Record<string, Record<string, string>> = {
     'settings.maintenanceMode': 'Maintenance Mode',
     'settings.allowRegistration': 'Allow Registration',
     
+    // Dashboard
+    'dashboard.title': 'Dashboard',
+    'dashboard.totalRevenue': 'Total Revenue',
+    'dashboard.totalOrders': 'Total Orders',
+    'dashboard.menuItems': 'Menu Items',
+    'dashboard.branchUsers': 'Branch Users',
+    'dashboard.recentOrders': 'Recent Orders',
+    'dashboard.viewAll': 'View All',
+    'dashboard.noRecentOrders': 'No recent orders',
+    
     // Profile
     'profile.changeImage': 'Change Image',
     'profile.changeName': 'Change Name',
@@ -140,6 +150,16 @@ const translations: Record<string, Record<string, string>> = {
     'settings.businessHours': 'ساعات العمل',
     'settings.maintenanceMode': 'وضع الصيانة',
     'settings.allowRegistration': 'السماح بالتسجيل',
+    
+    // Dashboard
+    'dashboard.title': 'لوحة التحكم',
+    'dashboard.totalRevenue': 'إجمالي الإيرادات',
+    'dashboard.totalOrders': 'إجمالي الطلبات',
+    'dashboard.menuItems': 'عناصر القائمة',
+    'dashboard.branchUsers': 'مستخدمو الفرع',
+    'dashboard.recentOrders': 'الطلبات الأخيرة',
+    'dashboard.viewAll': 'عرض الكل',
+    'dashboard.noRecentOrders': 'لا توجد طلبات حديثة',
     
     // Profile
     'profile.changeImage': 'تغيير الصورة',
@@ -238,6 +258,16 @@ const translations: Record<string, Record<string, string>> = {
     'settings.maintenanceMode': 'دیکھ بھال موڈ',
     'settings.allowRegistration': 'رجسٹریشن کی اجازت',
     
+    // Dashboard
+    'dashboard.title': 'ڈیش بورڈ',
+    'dashboard.totalRevenue': 'کل آمدنی',
+    'dashboard.totalOrders': 'کل آرڈرز',
+    'dashboard.menuItems': 'مینو اشیاء',
+    'dashboard.branchUsers': 'برانچ کے صارفین',
+    'dashboard.recentOrders': 'حالیہ آرڈرز',
+    'dashboard.viewAll': 'سب دیکھیں',
+    'dashboard.noRecentOrders': 'کوئی حالیہ آرڈر نہیں',
+    
     // Profile
     'profile.changeImage': 'تصویر تبدیل کریں',
     'profile.changeName': 'نام تبدیل کریں',
@@ -245,12 +275,51 @@ const translations: Record<string, Record<string, string>> = {
     'profile.logout': 'لاگ آؤٹ',
     'profile.administrator': 'ایڈمنسٹریٹر',
     
+    // Products
+    'products.title': 'پروڈکٹس',
+    'products.addProduct': 'پروڈکٹ شامل کریں',
+    'products.allProducts': 'تمام پروڈکٹس',
+    'products.searchProducts': 'پروڈکٹس تلاش کریں...',
+    'products.noProducts': 'کوئی پروڈکٹ نہیں ملی',
+    
+    // Orders
+    'orders.title': 'آرڈرز',
+    'orders.pending': 'زیر التوا',
+    'orders.processing': 'پروسیسنگ',
+    'orders.completed': 'مکمل',
+    'orders.cancelled': 'منسوخ',
+    
+    // Users
+    'users.title': 'صارفین',
+    'users.allUsers': 'تمام صارفین',
+    'users.customers': 'صارفین',
+    'users.admins': 'ایڈمنز',
+    'users.chefs': 'شیفز',
+    'users.waiters': 'ویٹرز',
+    'users.riders': 'رائڈرز',
+    
+    // Branches
+    'branches.title': 'شاخیں',
+    'branches.total': 'کل شاخیں',
+    'branches.active': 'فعال شاخیں',
+    'branches.inactive': 'غیر فعال شاخیں',
+    
+    // Notifications
+    'notifications.title': 'اطلاعات',
+    'notifications.all': 'تمام',
+    'notifications.active': 'فعال',
+    'notifications.createNotification': 'اطلاع بنائیں',
+    
     // Messages
     'messages.settingsUpdated': 'ترتیبات کامیابی سے اپڈیٹ ہو گئیں',
     'messages.nameUpdated': 'نام کامیابی سے اپڈیٹ ہو گیا',
     'messages.imageUpdated': 'پروفائل تصویر کامیابی سے اپڈیٹ ہو گئی',
     'messages.passwordChanged': 'پاس ورڈ کامیابی سے تبدیل ہو گیا',
     'messages.logoutConfirm': 'کیا آپ واقعی لاگ آؤٹ کرنا چاہتے ہیں؟',
+    'messages.enterValidName': 'براہ کرم ایک درست نام درج کریں',
+    'messages.permissionRequired': 'اجازت درکار ہے',
+    'messages.allowGallery': 'براہ کرم تصویر اپلوڈ کرنے کے لیے اپنے فوٹو لائبریری تک رسائی کی اجازت دیں۔',
+    'messages.allowCamera': 'براہ کرم فوٹو لینے کے لیے اپنے کیمرے تک رسائی کی اجازت دیں۔',
   },
   fr: {
     // Common
@@ -300,8 +369,45 @@ const translations: Record<string, Record<string, string>> = {
     'profile.logout': 'Déconnexion',
     'profile.administrator': 'Administrateur',
     
+    // Products
+    'products.title': 'Produits',
+    'products.addProduct': 'Ajouter un produit',
+    'products.allProducts': 'Tous les produits',
+    'products.searchProducts': 'Rechercher des produits...',
+    'products.noProducts': 'Aucun produit trouvé',
+    
+    // Orders
+    'orders.title': 'Commandes',
+    'orders.pending': 'En attente',
+    'orders.processing': 'En cours',
+    'orders.completed': 'Terminées',
+    'orders.cancelled': 'Annulées',
+    
+    // Users
+    'users.title': 'Utilisateurs',
+    'users.allUsers': 'Tous les utilisateurs',
+    'users.customers': 'Clients',
+    'users.admins': 'Admins',
+    'users.chefs': 'Chefs',
+    'users.waiters': 'Serveurs',
+    'users.riders': 'Livreurs',
+    
+    // Branches
+    'branches.title': 'Filiales',
+    'branches.total': 'Total des filiales',
+    'branches.active': 'Filiales actives',
+    'branches.inactive': 'Filiales inactives',
+    
+    // Notifications
+    'notifications.title': 'Notifications',
+    'notifications.all': 'Toutes',
+    'notifications.active': 'Actives',
+    'notifications.createNotification': 'Créer une notification',
+    
     // Messages
-    'messages.settingsUpdated': 'Paramètres mis à jour avec succès',
+    'messages.permissionRequired': 'Permission requise',
+    'messages.allowGallery': 'Veuillez autoriser l\'accès à votre photothèque pour télécharger une image.',
+    'messages.allowCamera': 'Veuillez autoriser l\'accès à votre caméra pour prendre une photo.',
     'messages.nameUpdated': 'Nom mis à jour avec succès',
     'messages.imageUpdated': 'Image de profil mise à jour avec succès',
     'messages.passwordChanged': 'Mot de passe changé avec succès',
@@ -357,8 +463,45 @@ const translations: Record<string, Record<string, string>> = {
     'profile.logout': 'Cerrar sesión',
     'profile.administrator': 'Administrador',
     
+    // Products
+    'products.title': 'Productos',
+    'products.addProduct': 'Agregar producto',
+    'products.allProducts': 'Todos los productos',
+    'products.searchProducts': 'Buscar productos...',
+    'products.noProducts': 'No se encontraron productos',
+    
+    // Orders
+    'orders.title': 'Pedidos',
+    'orders.pending': 'Pendiente',
+    'orders.processing': 'Procesando',
+    'orders.completed': 'Completado',
+    'orders.cancelled': 'Cancelado',
+    
+    // Users
+    'users.title': 'Usuarios',
+    'users.allUsers': 'Todos los usuarios',
+    'users.customers': 'Clientes',
+    'users.admins': 'Admins',
+    'users.chefs': 'Cocineros',
+    'users.waiters': 'Meseros',
+    'users.riders': 'Repartidores',
+    
+    // Branches
+    'branches.title': 'Sucursales',
+    'branches.total': 'Total de sucursales',
+    'branches.active': 'Sucursales activas',
+    'branches.inactive': 'Sucursales inactivas',
+    
+    // Notifications
+    'notifications.title': 'Notificaciones',
+    'notifications.all': 'Todas',
+    'notifications.active': 'Activas',
+    'notifications.createNotification': 'Crear notificación',
+    
     // Messages
-    'messages.settingsUpdated': 'Configuración actualizada con éxito',
+    'messages.permissionRequired': 'Permiso requerido',
+    'messages.allowGallery': 'Por favor permita el acceso a su galería de fotos para subir una imagen.',
+    'messages.allowCamera': 'Por favor permita el acceso a su cámara para tomar una foto.',
     'messages.nameUpdated': 'Nombre actualizado con éxito',
     'messages.imageUpdated': 'Imagen de perfil actualizada con éxito',
     'messages.passwordChanged': 'Contraseña cambiada con éxito',
@@ -395,12 +538,83 @@ const translations: Record<string, Record<string, string>> = {
     'nav.notifications': 'Benachrichtigungen',
     'nav.productSizes': 'Produktgrößen',
     
+    // Settings
+    'settings.title': 'Einstellungen',
+    'settings.general': 'Allgemeine Einstellungen',
+    'settings.appName': 'App-Name',
+    'settings.appVersion': 'App-Version',
+    'settings.defaultCurrency': 'Standardwährung',
+    'settings.defaultLanguage': 'Standardsprache',
+    'settings.taxRate': 'Steuersatz (%)',
+    'settings.businessHours': 'Geschäftszeiten',
+    'settings.maintenanceMode': 'Wartungsmodus',
+    'settings.allowRegistration': 'Registrierung erlauben',
+    
+    // Dashboard
+    'dashboard.title': 'Dashboard',
+    'dashboard.totalRevenue': 'Gesamteinnahmen',
+    'dashboard.totalOrders': 'Gesamtbestellungen',
+    'dashboard.menuItems': 'Menüpunkte',
+    'dashboard.branchUsers': 'Filialbenutzer',
+    'dashboard.recentOrders': 'Neueste Bestellungen',
+    'dashboard.viewAll': 'Alle anzeigen',
+    'dashboard.noRecentOrders': 'Keine neuesten Bestellungen',
+    
     // Profile
     'profile.changeImage': 'Bild ändern',
     'profile.changeName': 'Name ändern',
     'profile.changePassword': 'Passwort ändern',
     'profile.logout': 'Abmelden',
     'profile.administrator': 'Administrator',
+    
+    // Products
+    'products.title': 'Produkte',
+    'products.addProduct': 'Produkt hinzufügen',
+    'products.allProducts': 'Alle Produkte',
+    'products.searchProducts': 'Produkte suchen...',
+    'products.noProducts': 'Keine Produkte gefunden',
+    
+    // Orders
+    'orders.title': 'Bestellungen',
+    'orders.pending': 'Ausstehend',
+    'orders.processing': 'In Bearbeitung',
+    'orders.completed': 'Abgeschlossen',
+    'orders.cancelled': 'Storniert',
+    
+    // Users
+    'users.title': 'Benutzer',
+    'users.allUsers': 'Alle Benutzer',
+    'users.customers': 'Kunden',
+    'users.admins': 'Admins',
+    'users.chefs': 'Köche',
+    'users.waiters': 'Kellner',
+    'users.riders': 'Fahrer',
+    
+    // Branches
+    'branches.title': 'Filialen',
+    'branches.total': 'Gesamtzahl der Filialen',
+    'branches.active': 'Aktive Filialen',
+    'branches.inactive': 'Inaktive Filialen',
+    
+    // Notifications
+    'notifications.title': 'Benachrichtigungen',
+    'notifications.all': 'Alle',
+    'notifications.active': 'Aktiv',
+    'notifications.createNotification': 'Benachrichtigung erstellen',
+    
+    // Messages
+    'messages.settingsUpdated': 'Einstellungen erfolgreich aktualisiert',
+    'messages.nameUpdated': 'Name erfolgreich aktualisiert',
+    'messages.imageUpdated': 'Profilbild erfolgreich aktualisiert',
+    'messages.passwordChanged': 'Passwort erfolgreich geändert',
+    'messages.logoutConfirm': 'Möchten Sie sich wirklich abmelden?',
+    'messages.enterValidName': 'Bitte geben Sie einen gültigen Namen ein',
+    'messages.permissionRequired': 'Berechtigung erforderlich',
+    'messages.allowGallery': 'Bitte erlauben Sie den Zugriff auf Ihre Fotogalerie, um ein Bild hochzuladen.',
+    'messages.allowCamera': 'Bitte erlauben Sie den Zugriff auf Ihre Kamera, um ein Foto aufzunehmen.',
+    'messages.takePhoto': 'Foto aufnehmen',
+    'messages.chooseFromGallery': 'Aus Galerie wählen',
+    'messages.enterName': 'Geben Sie Ihren Namen ein',
   },
   zh: {
     // Common
@@ -431,11 +645,80 @@ const translations: Record<string, Record<string, string>> = {
     'nav.notifications': '通知',
     'nav.productSizes': '产品尺寸',
     
+    // Settings
+    'settings.title': '设置',
+    'settings.general': '常规设置',
+    'settings.appName': '应用名称',
+    'settings.appVersion': '应用版本',
+    'settings.defaultCurrency': '默认货币',
+    'settings.defaultLanguage': '默认语言',
+    'settings.taxRate': '税率 (%)',
+    'settings.businessHours': '营业时间',
+    'settings.maintenanceMode': '维护模式',
+    'settings.allowRegistration': '允许注册',
+    
+    // Dashboard
+    'dashboard.title': '仪表板',
+    'dashboard.totalRevenue': '总收入',
+    'dashboard.totalOrders': '总订单',
+    'dashboard.menuItems': '菜单项',
+    'dashboard.branchUsers': '分店用户',
+    'dashboard.recentOrders': '最近订单',
+    'dashboard.viewAll': '查看全部',
+    'dashboard.noRecentOrders': '没有最近订单',
+    
     // Profile
     'profile.changeImage': '更改图片',
     'profile.changeName': '更改名称',
     'profile.changePassword': '更改密码',
     'profile.logout': '登出',
+    'profile.administrator': '管理员',
+    
+    // Products
+    'products.title': '产品',
+    'products.addProduct': '添加产品',
+    'products.allProducts': '所有产品',
+    'products.searchProducts': '搜索产品...',
+    'products.noProducts': '未找到产品',
+    
+    // Orders
+    'orders.title': '订单',
+    'orders.pending': '待处理',
+    'orders.processing': '处理中',
+    'orders.completed': '已完成',
+    'orders.cancelled': '已取消',
+    
+    // Users
+    'users.title': '用户',
+    'users.allUsers': '所有用户',
+    'users.customers': '客户',
+    'users.admins': '管理员',
+    'users.chefs': '厨师',
+    'users.waiters': '服务员',
+    'users.riders': '骑手',
+    
+    // Branches
+    'branches.title': '分店',
+    'branches.total': '总分店',
+    'branches.active': '活跃分店',
+    'branches.inactive': '非活跃分店',
+    
+    // Notifications
+    'notifications.title': '通知',
+    'notifications.all': '全部',
+    'notifications.active': '活跃',
+    'notifications.createNotification': '创建通知',
+    
+    // Messages
+    'messages.settingsUpdated': '设置更新成功',
+    'messages.nameUpdated': '名称更新成功',
+    'messages.imageUpdated': '头像更新成功',
+    'messages.passwordChanged': '密码修改成功',
+    'messages.logoutConfirm': '确定要退出登录吗？',
+    'messages.enterValidName': '请输入有效的名称',
+    'messages.permissionRequired': '需要权限',
+    'messages.allowGallery': '请允许访问您的相册以上传图片。',
+    'messages.allowCamera': '请允许访问您的相机以拍照。',
     'messages.takePhoto': '拍照',
     'messages.chooseFromGallery': '从图库选择',
     'messages.enterName': '输入您的姓名',
@@ -469,11 +752,80 @@ const translations: Record<string, Record<string, string>> = {
     'nav.notifications': 'सूचनाएं',
     'nav.productSizes': 'उत्पाद आकार',
     
+    // Settings
+    'settings.title': 'सेटिंग्स',
+    'settings.general': 'सामान्य सेटिंग्स',
+    'settings.appName': 'ऐप का नाम',
+    'settings.appVersion': 'ऐप संस्करण',
+    'settings.defaultCurrency': 'डिफ़ॉल्ट मुद्रा',
+    'settings.defaultLanguage': 'डिफ़ॉल्ट भाषा',
+    'settings.taxRate': 'कर दर (%)',
+    'settings.businessHours': 'व्यावसायिक घंटे',
+    'settings.maintenanceMode': 'रखरखाव मोड',
+    'settings.allowRegistration': 'पंजीकरण की अनुमति दें',
+    
+    // Dashboard
+    'dashboard.title': 'डैशबोर्ड',
+    'dashboard.totalRevenue': 'कुल राजस्व',
+    'dashboard.totalOrders': 'कुल ऑर्डर',
+    'dashboard.menuItems': 'मेनू आइटम',
+    'dashboard.branchUsers': 'शाखा उपयोगकर्ता',
+    'dashboard.recentOrders': 'हाल के ऑर्डर',
+    'dashboard.viewAll': 'सभी देखें',
+    'dashboard.noRecentOrders': 'कोई हालिया ऑर्डर नहीं',
+    
     // Profile
     'profile.changeImage': 'फोटो बदलें',
     'profile.changeName': 'नाम बदलें',
     'profile.changePassword': 'पासवर्ड बदलें',
     'profile.logout': 'लॉग आउट',
+    'profile.administrator': 'प्रशासक',
+    
+    // Products
+    'products.title': 'उत्पाद',
+    'products.addProduct': 'उत्पाद जोड़ें',
+    'products.allProducts': 'सभी उत्पाद',
+    'products.searchProducts': 'उत्पाद खोजें...',
+    'products.noProducts': 'कोई उत्पाद नहीं मिला',
+    
+    // Orders
+    'orders.title': 'ऑर्डर',
+    'orders.pending': 'लंबित',
+    'orders.processing': 'प्रसंस्करण',
+    'orders.completed': 'पूर्ण',
+    'orders.cancelled': 'रद्द',
+    
+    // Users
+    'users.title': 'उपयोगकर्ता',
+    'users.allUsers': 'सभी उपयोगकर्ता',
+    'users.customers': 'ग्राहक',
+    'users.admins': 'एडमिन',
+    'users.chefs': 'शेफ',
+    'users.waiters': 'वेटर',
+    'users.riders': 'राइडर',
+    
+    // Branches
+    'branches.title': 'शाखाएं',
+    'branches.total': 'कुल शाखाएं',
+    'branches.active': 'सक्रिय शाखाएं',
+    'branches.inactive': 'निष्क्रिय शाखाएं',
+    
+    // Notifications
+    'notifications.title': 'सूचनाएं',
+    'notifications.all': 'सभी',
+    'notifications.active': 'सक्रिय',
+    'notifications.createNotification': 'सूचना बनाएं',
+    
+    // Messages
+    'messages.settingsUpdated': 'सेटिंग्स सफलतापूर्वक अपडेट की गईं',
+    'messages.nameUpdated': 'नाम सफलतापूर्वक अपडेट किया गया',
+    'messages.imageUpdated': 'प्रोफाइल छवि सफलतापूर्वक अपडेट की गई',
+    'messages.passwordChanged': 'पासवर्ड सफलतापूर्वक बदल दिया गया',
+    'messages.logoutConfirm': 'क्या आप वास्तव में लॉग आउट करना चाहते हैं?',
+    'messages.enterValidName': 'कृपया एक मान्य नाम दर्ज करें',
+    'messages.permissionRequired': 'अनुमति आवश्यक',
+    'messages.allowGallery': 'कृपया एक छवि अपलोड करने के लिए अपनी फोटो गैलरी तक पहुंच की अनुमति दें।',
+    'messages.allowCamera': 'कृपया एक फोटो लेने के लिए अपने कैमरे तक पहुंच की अनुमति दें।',
     'messages.takePhoto': 'फोटो लें',
     'messages.chooseFromGallery': 'गैलरी से चुनें',
     'messages.enterName': 'अपना नाम दर्ज करें',
@@ -511,15 +863,11 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
       const authToken = await AsyncStorage.getItem('authToken');
       if (authToken) {
         try {
-          const response = await fetch('http://localhost:5000/api/settings', {
-            headers: {
-              'Authorization': `Bearer ${authToken}`,
-              'Content-Type': 'application/json',
-            },
-          });
-          const data = await response.json();
-          if (data.success && data.data?.defaultLanguage && data.data.defaultLanguage in translations) {
-            const backendLang = data.data.defaultLanguage as LanguageCode;
+          // Use the API client instead of direct fetch
+          const { api } = await import('../components/api/client');
+          const response = await api.get('/settings');
+          if (response.success && response.data?.defaultLanguage && response.data.defaultLanguage in translations) {
+            const backendLang = response.data.defaultLanguage as LanguageCode;
             setLanguageState(backendLang);
             await AsyncStorage.setItem('appLanguage', backendLang);
           }

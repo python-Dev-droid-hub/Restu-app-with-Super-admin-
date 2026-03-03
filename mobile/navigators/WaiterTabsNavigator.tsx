@@ -12,6 +12,7 @@ export default function WaiterTabsNavigator() {
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
+        tabBarStyle: { display: 'none' }, // Hide external tab bar - WaiterDashboard has its own
         tabBarIcon: ({ focused, color, size }) => {
           let iconName: any = 'home-outline';
 

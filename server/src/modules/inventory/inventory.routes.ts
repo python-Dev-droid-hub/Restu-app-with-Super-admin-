@@ -39,20 +39,20 @@ const stockOperationSchema = Joi.object({
 });
 
 // Routes - all require authentication
-router.get('/', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'CHEF'), inventoryController.getAll);
-router.get('/low-stock', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'CHEF'), inventoryController.getLowStock);
-router.get('/stats', authenticate, authorize('ADMIN', 'BRANCH_MANAGER'), inventoryController.getStats);
-router.get('/categories', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'CHEF'), inventoryController.getCategories);
-router.get('/branch/:branchId', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'CHEF'), inventoryController.getByBranch);
-router.get('/:id', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'CHEF'), inventoryController.getById);
+router.get('/', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'CHEF', 'SUPER_ADMIN'), inventoryController.getAll);
+router.get('/low-stock', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'CHEF', 'SUPER_ADMIN'), inventoryController.getLowStock);
+router.get('/stats', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), inventoryController.getStats);
+router.get('/categories', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'CHEF', 'SUPER_ADMIN'), inventoryController.getCategories);
+router.get('/branch/:branchId', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'CHEF', 'SUPER_ADMIN'), inventoryController.getByBranch);
+router.get('/:id', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'CHEF', 'SUPER_ADMIN'), inventoryController.getById);
 
-router.post('/', authenticate, authorize('ADMIN', 'BRANCH_MANAGER'), validate(createInventorySchema), inventoryController.create);
-router.post('/bulk-add', authenticate, authorize('ADMIN', 'BRANCH_MANAGER'), validate(bulkAddSchema), inventoryController.bulkAdd);
+router.post('/', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), validate(createInventorySchema), inventoryController.create);
+router.post('/bulk-add', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), validate(bulkAddSchema), inventoryController.bulkAdd);
 
-router.put('/:id', authenticate, authorize('ADMIN', 'BRANCH_MANAGER'), validate(updateInventorySchema), inventoryController.update);
-router.put('/:id/add-stock', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'CHEF'), validate(stockOperationSchema), inventoryController.addStock);
-router.put('/:id/remove-stock', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'CHEF'), validate(stockOperationSchema), inventoryController.removeStock);
+router.put('/:id', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), validate(updateInventorySchema), inventoryController.update);
+router.put('/:id/add-stock', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'CHEF', 'SUPER_ADMIN'), validate(stockOperationSchema), inventoryController.addStock);
+router.put('/:id/remove-stock', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'CHEF', 'SUPER_ADMIN'), validate(stockOperationSchema), inventoryController.removeStock);
 
-router.delete('/:id', authenticate, authorize('ADMIN'), inventoryController.delete);
+router.delete('/:id', authenticate, authorize('ADMIN', 'SUPER_ADMIN'), inventoryController.delete);
 
 export default router;

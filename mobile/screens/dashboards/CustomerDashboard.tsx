@@ -16,6 +16,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '../../components/api/client';
+import { useSettings } from '../../context/SettingsContext';
 import { Ionicons } from '@expo/vector-icons';
 import { CommonActions } from '@react-navigation/native';
 
@@ -50,6 +51,7 @@ interface UserData {
 
 export default function CustomerDashboard() {
   const navigation = useNavigation();
+  const { formatPrice } = useSettings();
   const [stats, setStats] = useState<CustomerStats>({
     totalOrders: 0,
     favoriteItems: 0,
@@ -184,7 +186,7 @@ export default function CustomerDashboard() {
           </View>
           <View style={[styles.statCard, styles.spentCard]}>
             <Ionicons name="wallet-outline" size={24} color="#fff" />
-            <Text style={styles.statValue}>${stats.totalSpent.toFixed(0)}</Text>
+            <Text style={styles.statValue}>{formatPrice(stats.totalSpent)}</Text>
             <Text style={styles.statLabel}>Total Spent</Text>
           </View>
           <View style={[styles.statCard, styles.favoritesCard]}>
@@ -251,7 +253,7 @@ export default function CustomerDashboard() {
                   <Text style={styles.orderNumber}>Order #{order.orderNumber || order._id?.slice(-6)}</Text>
                   <Text style={styles.orderTime}>{formatTime(order.createdAt || new Date().toISOString())}</Text>
                 </View>
-                <Text style={styles.orderAmount}>${order.total?.toFixed(2) || '0.00'}</Text>
+                <Text style={styles.orderAmount}>{formatPrice(order.total || 0)}</Text>
                 <View style={[styles.statusBadge, { backgroundColor: getStatusColor(order.status) + '20' }]}>
                   <Text style={[styles.statusText, { color: getStatusColor(order.status) }]}>
                     {order.status}

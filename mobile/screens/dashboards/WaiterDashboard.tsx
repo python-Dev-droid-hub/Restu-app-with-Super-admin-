@@ -751,7 +751,6 @@ export default function WaiterDashboard() {
       >
         {[
           { id: 'home', icon: 'home-outline', label: 'Home' },
-          { id: 'orders', icon: 'receipt-outline', label: 'Orders' },
           { id: 'tables', icon: 'grid-outline', label: 'Tables' },
           { id: 'profile', icon: 'person-outline', label: 'Profile' },
         ].map(tab => {

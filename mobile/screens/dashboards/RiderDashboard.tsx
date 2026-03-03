@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '../../components/api/client';
+import { useSettings } from '../../context/SettingsContext';
 import { CommonActions } from '@react-navigation/native';
 
 const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 0;
@@ -56,6 +57,7 @@ interface RiderEarnings {
 
 export default function RiderDashboard() {
   const navigation = useNavigation();
+  const { formatPrice } = useSettings();
   const [activeTab, setActiveTab] = useState<'overview' | 'deliveries' | 'earnings'>('overview');
   const [stats, setStats] = useState<RiderStats>({
     todayDeliveries: 0,
@@ -197,7 +199,7 @@ export default function RiderDashboard() {
 
       <View style={styles.itemsSummary}>
         <Text style={styles.itemsText}>{delivery.items.join(', ')}</Text>
-        <Text style={styles.amountText}>${delivery.totalAmount.toFixed(2)}</Text>
+        <Text style={styles.amountText}>{formatPrice(delivery.totalAmount)}</Text>
       </View>
 
       <View style={styles.actionButtons}>
@@ -299,7 +301,7 @@ export default function RiderDashboard() {
                   <Text style={styles.statIconText}>💰</Text>
                 </View>
                 <View style={styles.statContent}>
-                  <Text style={styles.statValue}>${stats.todayEarnings.toFixed(2)}</Text>
+                  <Text style={styles.statValue}>{formatPrice(stats.todayEarnings)}</Text>
                   <Text style={styles.statTitle}>Today's Earnings</Text>
                 </View>
               </View>
@@ -372,7 +374,7 @@ export default function RiderDashboard() {
             <View style={styles.earningsOverview}>
               <Text style={styles.earningsTitle}>Total Earnings</Text>
               <Text style={styles.earningsAmount}>
-                ${earnings?.totalEarnings?.toFixed(2) || '0.00'}
+                {formatPrice(earnings?.totalEarnings || 0)}
               </Text>
             </View>
 
@@ -380,19 +382,19 @@ export default function RiderDashboard() {
               <View style={styles.earningsCard}>
                 <Text style={styles.earningsCardTitle}>This Week</Text>
                 <Text style={styles.earningsCardAmount}>
-                  ${earnings?.thisWeekEarnings?.toFixed(2) || '0.00'}
+                  {formatPrice(earnings?.thisWeekEarnings || 0)}
                 </Text>
               </View>
               <View style={styles.earningsCard}>
                 <Text style={styles.earningsCardTitle}>This Month</Text>
                 <Text style={styles.earningsCardAmount}>
-                  ${earnings?.thisMonthEarnings?.toFixed(2) || '0.00'}
+                  {formatPrice(earnings?.thisMonthEarnings || 0)}
                 </Text>
               </View>
               <View style={styles.earningsCard}>
                 <Text style={styles.earningsCardTitle}>Last Month</Text>
                 <Text style={styles.earningsCardAmount}>
-                  ${earnings?.lastMonthEarnings?.toFixed(2) || '0.00'}
+                  {formatPrice(earnings?.lastMonthEarnings || 0)}
                 </Text>
               </View>
             </View>

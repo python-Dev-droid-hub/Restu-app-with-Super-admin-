@@ -33,9 +33,9 @@ const updateSizeSchema = Joi.object({
 // Public routes
 router.get('/', productSizeController.getAllSizes);
 
-// Admin routes - Size management
-router.post('/', authenticate, authorize('ADMIN'), validate(createSizeSchema), productSizeController.createSize);
-router.put('/:id', authenticate, authorize('ADMIN'), validate(updateSizeSchema), productSizeController.updateSize);
-router.delete('/:id', authenticate, authorize('ADMIN'), productSizeController.deleteSize);
+// Admin routes - Size management (BRANCH_MANAGER can also manage sizes)
+router.post('/', authenticate, authorize('ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER'), validate(createSizeSchema), productSizeController.createSize);
+router.put('/:id', authenticate, authorize('ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER'), validate(updateSizeSchema), productSizeController.updateSize);
+router.delete('/:id', authenticate, authorize('ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER'), productSizeController.deleteSize);
 
 export default router;

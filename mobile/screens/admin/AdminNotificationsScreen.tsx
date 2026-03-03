@@ -19,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '../../components/api/client';
 import { useLocalization } from '../../context/LocalizationContext';
+import { useUserData } from '../../hooks/useUserData';
 
 // Components
 import ResponsiveHeader from '../../components/layout/ResponsiveHeader';
@@ -54,6 +55,7 @@ export default function AdminNotificationsScreen() {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   const [userRole, setUserRole] = useState<string>('');
+  const { profileImage } = useUserData();
   const [assignedBranch, setAssignedBranch] = useState<{_id?: string; name?: string; code?: string}>({});
 
   // Load user role and branch on mount
@@ -234,6 +236,7 @@ export default function AdminNotificationsScreen() {
       <ResponsiveHeader
         title={t('nav.notifications')}
         notificationCount={0}
+        profileImage={profileImage}
         onNotificationPress={() => {
           // @ts-ignore
           navigation.navigate('AdminNotifications');

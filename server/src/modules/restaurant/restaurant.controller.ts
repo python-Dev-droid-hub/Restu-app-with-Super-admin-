@@ -62,8 +62,9 @@ export class RestaurantController {
     const isBranchManagerAssigned = req.user?.assignedBranch?.toString() === id.toString();
     const isBranchManager = userRole === 'BRANCH_MANAGER' && (isBranchManagerOwner || isBranchManagerAssigned);
     const isSuperAdmin = userRole === 'SUPER_ADMIN';
+    const isAdmin = userRole === 'ADMIN';
 
-    if (!isBranchManager && !isSuperAdmin) {
+    if (!isBranchManager && !isSuperAdmin && !isAdmin) {
       throw createError('Not authorized to update this restaurant', 403);
     }
 
@@ -83,7 +84,7 @@ export class RestaurantController {
     }
 
     // Check ownership or admin privileges
-    if (restaurant.branchManager?.toString() !== userId.toString() && userRole !== 'ADMIN') {
+    if (restaurant.branchManager?.toString() !== userId.toString() && userRole !== 'ADMIN' && userRole !== 'SUPER_ADMIN') {
       throw createError('Not authorized to delete this restaurant', 403);
     }
 

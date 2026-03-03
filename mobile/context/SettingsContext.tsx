@@ -36,15 +36,12 @@ interface SettingsProviderProps {
   children: ReactNode;
 }
 
+// Only functional currencies supported by backend
+const VALID_CURRENCIES = ['USD', 'PKR', 'EUR', 'GBP', 'AED', 'SAR', 'INR'];
+
 const currencySymbols: Record<string, string> = {
   USD: '$', EUR: '€', GBP: '£', SAR: '﷼', AED: 'د.إ',
-  PKR: '₨', INR: '₹', CAD: 'C$', AUD: 'A$', JPY: '¥',
-  CNY: '¥', RUB: '₽', BRL: 'R$', MXN: '$', ZAR: 'R',
-  CHF: 'Fr', SEK: 'kr', NZD: 'NZ$', SGD: 'S$', HKD: 'HK$',
-  NOK: 'kr', DKK: 'kr', PLN: 'zł', THB: '฿', IDR: 'Rp',
-  MYR: 'RM', PHP: '₱', VND: '₫', KRW: '₩', TWD: 'NT$',
-  TRY: '₺', ILS: '₪', EGP: 'E£', NGN: '₦', KES: 'KSh',
-  GHS: '₵', UAH: '₴',
+  PKR: '₨', INR: '₹'
 };
 
 export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) => {
@@ -58,6 +55,14 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
 
   const loadSettings = async () => {
     try {
+      // Check if user is authenticated first
+      const token = await AsyncStorage.getItem('authToken');
+      if (!token) {
+        console.log('[Settings] No auth token, skipping settings load');
+        setIsLoading(false);
+        return;
+      }
+      
       const response = await api.get('/settings');
       const systemSettings = response.success && response.data ? response.data : null;
 
@@ -73,8 +78,9 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
       if (userRole === 'BRANCH_MANAGER' && branchId) {
         const branchRes = await api.get(`/restaurants/${branchId}`);
         const branchCurrency = branchRes.success ? branchRes.data?.currency : undefined;
-        const currency = branchCurrency || systemSettings?.defaultCurrency || 'USD';
-        const symbol = currencySymbols[currency] || currency;
+        // Validate currency - fallback to USD if not supported
+        const currency = VALID_CURRENCIES.includes(branchCurrency) ? branchCurrency : (systemSettings?.defaultCurrency || 'USD');
+        const symbol = currencySymbols[currency] || '$';
 
         setSettings({
           defaultCurrency: currency,
@@ -83,8 +89,8 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
           appName: systemSettings?.appName || 'Restaurant App',
         });
       } else {
-        const currency = systemSettings?.defaultCurrency || 'USD';
-        const symbol = currencySymbols[currency] || currency;
+        const currency = VALID_CURRENCIES.includes(systemSettings?.defaultCurrency) ? systemSettings?.defaultCurrency : 'USD';
+        const symbol = currencySymbols[currency] || '$';
         setSettings({
           defaultCurrency: currency,
           taxRate: systemSettings?.taxRate || 8.5,
@@ -100,11 +106,11 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
       const cachedSettings = await AsyncStorage.getItem('appSettings');
       if (cachedSettings) {
         const parsed = JSON.parse(cachedSettings);
-        const currency = parsed.defaultCurrency || 'USD';
+        const currency = VALID_CURRENCIES.includes(parsed.defaultCurrency) ? parsed.defaultCurrency : 'USD';
         setSettings({
           defaultCurrency: currency,
           taxRate: parsed.taxRate || 8.5,
-          currencySymbol: currencySymbols[currency] || currency,
+          currencySymbol: currencySymbols[currency] || '$',
           appName: parsed.appName || 'Restaurant App',
         });
       }

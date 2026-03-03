@@ -17,6 +17,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '../../components/api/client';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalization } from '../../context/LocalizationContext';
+import { useUserData } from '../../hooks/useUserData';
 
 // Components
 import ResponsiveHeader from '../../components/layout/ResponsiveHeader';
@@ -49,6 +50,7 @@ export default function AdminUsersScreen() {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [userRole, setUserRole] = useState<string>('');
+  const { profileImage } = useUserData();
 
   // Load user role on mount
   useEffect(() => {
@@ -145,14 +147,19 @@ export default function AdminUsersScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
+              setLoading(true);
               const response = await api.delete(`/users/${userId}`);
               if (response.success) {
-                Alert.alert('Success', 'User deleted');
+                Alert.alert('Success', 'User deleted successfully');
                 loadUsers();
+              } else {
+                Alert.alert('Error', response.message || 'Failed to delete user');
               }
-            } catch (error) {
+            } catch (error: any) {
               console.error('Error deleting user:', error);
-              Alert.alert('Error', 'Failed to delete user');
+              Alert.alert('Error', error?.response?.data?.message || error?.message || 'Failed to delete user. Please try again.');
+            } finally {
+              setLoading(false);
             }
           },
         },
@@ -220,6 +227,7 @@ export default function AdminUsersScreen() {
     const isActive = activeTab === tab;
     return (
       <TouchableOpacity
+        key={tab}
         style={[styles.tab, isActive ? styles.tabActive : styles.tabInactive]}
         onPress={() => setActiveTab(tab)}
       >
@@ -237,6 +245,26 @@ export default function AdminUsersScreen() {
 
   const filteredUsers = getFilteredUsers();
 
+  // For managers, only show tabs for roles they can create
+  const getTabs = () => {
+    if (userRole === 'BRANCH_MANAGER') {
+      return [
+        { tab: 'all' as UserTab, label: 'All Users' },
+        { tab: 'chef' as UserTab, label: 'Chefs' },
+        { tab: 'waiter' as UserTab, label: 'Waiters' },
+        { tab: 'rider' as UserTab, label: 'Riders' },
+      ];
+    }
+    return [
+      { tab: 'all' as UserTab, label: 'All Users' },
+      { tab: 'customer' as UserTab, label: 'Customers' },
+      { tab: 'admin' as UserTab, label: 'Admins' },
+      { tab: 'chef' as UserTab, label: 'Chefs' },
+      { tab: 'waiter' as UserTab, label: 'Waiters' },
+      { tab: 'rider' as UserTab, label: 'Riders' },
+    ];
+  };
+
   return (
     <View style={[styles.container, { paddingBottom: insets.bottom }]}>
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
@@ -245,6 +273,7 @@ export default function AdminUsersScreen() {
       <ResponsiveHeader
         title={t('users.title')}
         notificationCount={0}
+        profileImage={profileImage}
         onNotificationPress={() => {
           // @ts-ignore
           navigation.navigate('AdminNotifications');
@@ -265,11 +294,7 @@ export default function AdminUsersScreen() {
           style={styles.tabsScrollView}
           contentContainerStyle={styles.tabsContainer}
         >
-          {renderTab('all', 'All Users')}
-          {renderTab('customer', 'Customers')}
-          {renderTab('admin', 'Admins')}
-          {renderTab('chef', 'Chefs')}
-          {renderTab('waiter', 'Waiters')}
+          {getTabs().map(({ tab, label }) => renderTab(tab, label))}
         </ScrollView>
 
         <View style={styles.usersContainer}>
@@ -283,7 +308,7 @@ export default function AdminUsersScreen() {
                activeTab === 'rider' ? 'Riders' :
                activeTab === 'branch_manager' ? 'Branch Managers' : 'Users'} ({filteredUsers.length})
             </Text>
-            {/* Add User Button */}
+            {/* Add User Button - All roles can add users, managers restricted to WAITER/CHEF/RIDER in AddUserScreen */}
             <TouchableOpacity 
               style={styles.addUserButton}
               onPress={() => { // @ts-ignore
@@ -350,7 +375,7 @@ export default function AdminUsersScreen() {
         <View style={styles.bottomSpacer} />
       </ScrollView>
 
-      {/* Floating Add User Button */}
+      {/* Floating Add User Button - All roles can add users */}
       <TouchableOpacity
         style={[
           styles.fab,
@@ -367,8 +392,12 @@ export default function AdminUsersScreen() {
       <ProfileMenu
         visible={showProfileMenu}
         onClose={() => setShowProfileMenu(false)}
-        onLogout={() => navigation.navigate('Welcome' as any)}
-        onChangePassword={() => navigation.navigate('ChangePassword' as any)}
+        onLogout={() => { // @ts-ignore
+          navigation.navigate('Welcome');
+        }}
+        onChangePassword={() => { // @ts-ignore
+          navigation.navigate('ChangePassword');
+        }}
       />
 
       {/* More Menu Modal */}

@@ -22,13 +22,21 @@ import { api } from '../../components/api/client';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const ROLES = [
+// All available roles
+const ALL_ROLES = [
   { value: 'admin', label: 'Admin' },
   { value: 'customer', label: 'Customer' },
   { value: 'rider', label: 'Rider' },
   { value: 'waiter', label: 'Waiter' },
   { value: 'chef', label: 'Chef' },
   { value: 'branch_manager', label: 'Branch Manager' },
+];
+
+// Manager can only add these roles
+const MANAGER_ROLES = [
+  { value: 'rider', label: 'Rider' },
+  { value: 'waiter', label: 'Waiter' },
+  { value: 'chef', label: 'Chef' },
 ];
 
 const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 0;
@@ -181,7 +189,7 @@ export default function AddUserScreen() {
               text: 'OK',
               onPress: () => {
                 // @ts-ignore
-                navigation.navigate('AdminUsers');
+                navigation.goBack();
               },
             },
           ]
@@ -248,8 +256,16 @@ export default function AddUserScreen() {
     setShowRoleDropdown(false);
   };
 
+  const getAvailableRoles = () => {
+    if (userRole === 'BRANCH_MANAGER') {
+      return MANAGER_ROLES;
+    }
+    return ALL_ROLES;
+  };
+
   const getRoleLabel = (value: string) => {
-    return ROLES.find(r => r.value === value)?.label || value;
+    const allRoles = getAvailableRoles();
+    return allRoles.find((r: {value: string; label: string}) => r.value === value)?.label || value;
   };
 
   return (
@@ -365,7 +381,7 @@ export default function AddUserScreen() {
               onPress={() => setShowRoleDropdown(true)}
             >
               <Text style={styles.dropdownText}>
-                {ROLES.find(r => r.value === formData.role)?.label || 'Select Role'}
+                {getAvailableRoles().find((r: {value: string; label: string}) => r.value === formData.role)?.label || 'Select Role'}
               </Text>
             </TouchableOpacity>
             {errors.role && (
@@ -545,7 +561,7 @@ export default function AddUserScreen() {
                 <Ionicons name="close" size={24} color="#666" />
               </TouchableOpacity>
             </View>
-            {ROLES.map((role) => (
+            {getAvailableRoles().map((role: {value: string; label: string}) => (
               <TouchableOpacity
                 key={role.value}
                 style={styles.roleOption}

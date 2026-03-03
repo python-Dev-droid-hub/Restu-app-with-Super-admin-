@@ -376,7 +376,7 @@ export default function AdminDashboard() {
               <Ionicons name="people-outline" size={24} color="#fff" />
             </View>
             <Text style={styles.statValue}>{(stats.totalUsers || 0).toLocaleString()}</Text>
-            <Text style={styles.statLabel}>Customers</Text>
+            <Text style={styles.statLabel}>Branch Users</Text>
           </TouchableOpacity>
         </View>
 

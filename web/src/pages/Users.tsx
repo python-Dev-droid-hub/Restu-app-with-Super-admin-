@@ -189,7 +189,7 @@ const Users: React.FC = () => {
               </div>
             </div>
             <div className="stat-card-content">
-              <p className="stat-card-label">Customers</p>
+              <p className="stat-card-label">Branch Users</p>
               <h3 className="stat-card-value">{users.filter(u => u.role === 'CUSTOMER').length}</h3>
             </div>
           </div>

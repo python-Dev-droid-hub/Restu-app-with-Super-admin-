@@ -1,6 +1,7 @@
 import mongoose, { Schema } from 'mongoose';
+import { IRestaurantTable, IRestaurantTableModel } from '@/types';
 
-const restaurantTableSchema = new Schema({
+const restaurantTableSchema = new Schema<IRestaurantTable, IRestaurantTableModel>({
   branch: {
     type: Schema.Types.ObjectId,
     ref: 'Branch',
@@ -51,8 +52,14 @@ const restaurantTableSchema = new Schema({
   timestamps: true
 });
 
-// Compound index for unique table number per branch
-restaurantTableSchema.index({ branch: 1, tableNumber: 1 }, { unique: true });
+// Compound index for unique table number per branch (only for non-deleted tables)
+restaurantTableSchema.index(
+  { branch: 1, tableNumber: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { deletedAt: null }
+  }
+);
 
 // Indexes for better performance
 restaurantTableSchema.index({ branch: 1 });
@@ -177,4 +184,4 @@ restaurantTableSchema.statics.getTableStats = function(branchId: string) {
   ]);
 };
 
-export const RestaurantTable = mongoose.model('RestaurantTable', restaurantTableSchema);
+export const RestaurantTable = mongoose.model<IRestaurantTable, IRestaurantTableModel>('RestaurantTable', restaurantTableSchema);

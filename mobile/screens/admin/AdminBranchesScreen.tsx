@@ -22,6 +22,7 @@ import { api } from '../../components/api/client';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalization } from '../../context/LocalizationContext';
+import { useUserData } from '../../hooks/useUserData';
 import { COLORS } from '../../constants/colors';
 import { getSpacing } from '../../utils/responsive';
 
@@ -56,6 +57,7 @@ export default function AdminBranchesScreen() {
   const [filteredBranches, setFilteredBranches] = useState<Branch[]>([]);
 
   const [userRole, setUserRole] = useState<string>('');
+  const { profileImage } = useUserData();
 
   // Load user role on mount
   useEffect(() => {
@@ -189,6 +191,7 @@ export default function AdminBranchesScreen() {
       <ResponsiveHeader
         title={t('nav.branches')}
         notificationCount={unreadCount}
+        profileImage={profileImage}
         onNotificationPress={() => {
           // @ts-ignore
           navigation.navigate('AdminNotifications');
@@ -257,17 +260,20 @@ export default function AdminBranchesScreen() {
         </View>
       </ScrollView>
 
-      <TouchableOpacity 
-        style={[
-          styles.floatingButton,
-          { bottom: getSpacing(22) + insets.bottom }
-        ]}
-        onPress={() => { // @ts-ignore
-          navigation.navigate('AddBranch');
-        }}
-      >
-        <Ionicons name="add" size={24} color="#fff" />
-      </TouchableOpacity>
+      {/* Only show Add button for SUPER_ADMIN and ADMIN, not BRANCH_MANAGER */}
+      {(userRole === 'SUPER_ADMIN' || userRole === 'ADMIN') && (
+        <TouchableOpacity 
+          style={[
+            styles.floatingButton,
+            { bottom: getSpacing(22) + insets.bottom }
+          ]}
+          onPress={() => { // @ts-ignore
+            navigation.navigate('AddBranch');
+          }}
+        >
+          <Ionicons name="add" size={24} color="#fff" />
+        </TouchableOpacity>
+      )}
 
       {/* Bottom Navigation */}
       <AdminBottomNavigation onMorePress={() => setShowMoreMenu(true)} />

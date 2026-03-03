@@ -20,14 +20,37 @@ import { api } from '../../components/api/client';
 import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import { useSettings } from '../../context/SettingsContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS } from '../../constants/colors';
 import { getSpacing } from '../../utils/responsive';
 import ResponsiveHeader from '../../components/layout/ResponsiveHeader';
 import ProfileMenu from '../../components/common/ProfileMenu';
+import AdminBottomNavigation from '../../components/navigation/AdminBottomNavigation';
 import { useLocalization } from '../../context/LocalizationContext';
 
 const { width } = Dimensions.get('window');
 const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 0;
+
+const DESIGN = {
+  colors: {
+    orange: '#FF7A59',
+    green: '#2BC48A',
+    blue: '#6C63FF',
+    red: '#FF4D4D',
+    darkText: '#1A1A2E',
+    lightBg: '#F8F9FA',
+    white: '#FFFFFF',
+    muted: '#8E8E93',
+    border: '#E5E5EA',
+    cardBg: '#FFFFFF',
+  },
+  radius: {
+    card: 16,
+    pill: 20,
+  },
+  spacing: {
+    pagePad: 16,
+    cardGap: 12,
+  },
+} as const;
 
 interface Branch {
   _id: string;
@@ -40,7 +63,9 @@ interface Order {
   status: string;
   customerName?: string;
   customerEmail?: string;
-  total: number;
+  total?: number;
+  totalAmount?: number;
+  finalAmount?: number;
   createdAt: string;
 }
 
@@ -145,7 +170,8 @@ export default function ManagerDashboard() {
       }
       params.append('period', activePeriod);
 
-      const statsResponse = await api.get(`/dashboard/admin/stats?${params.toString()}`);
+      // For manager, use the manager-specific endpoint
+      const statsResponse = await api.get(`/dashboard/manager/stats?${params.toString()}`);
       if (statsResponse.success && statsResponse.data) {
         setStats({
           totalOrders: statsResponse.data.totalOrders ?? 0,
@@ -233,19 +259,19 @@ export default function ManagerDashboard() {
   };
 
   const menuItems = [
-    { name: 'Notifications', icon: 'notifications-outline', screen: 'AdminNotifications' },
+    { name: t('notifications.title'), icon: 'notifications-outline', screen: 'AdminNotifications' },
     { name: 'Table Assignment', icon: 'grid-outline', screen: 'TableAssignment' },
-    { name: 'Categories', icon: 'grid-outline', screen: 'AdminCategories' },
-    { name: 'Products', icon: 'restaurant-outline', screen: 'AdminProducts' },
-    { name: 'Coupons', icon: 'ticket-outline', screen: 'AdminCoupons' },
+    { name: t('nav.categories'), icon: 'grid-outline', screen: 'AdminCategories' },
+    { name: t('products.title'), icon: 'restaurant-outline', screen: 'AdminProducts' },
+    { name: t('nav.coupons'), icon: 'ticket-outline', screen: 'AdminCoupons' },
     { name: 'Product Size', icon: 'resize-outline', screen: 'AdminProductSizes' },
-    { name: 'Reports', icon: 'bar-chart-outline', screen: 'AdminReports' },
-    { name: 'Settings', icon: 'settings-outline', screen: 'AdminSettings' },
+    { name: t('nav.reports'), icon: 'bar-chart-outline', screen: 'AdminReports' },
+    { name: t('nav.settings'), icon: 'settings-outline', screen: 'AdminSettings' },
   ];
 
   return (
     <View style={[styles.rootContainer, { paddingBottom: insets.bottom }]}>
-      <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
+      <StatusBar barStyle="dark-content" backgroundColor={DESIGN.colors.white} />
       
       {/* Responsive Header */}
       <ResponsiveHeader
@@ -263,7 +289,7 @@ export default function ManagerDashboard() {
         style={styles.scrollView}
         contentContainerStyle={[
           styles.scrollContent,
-          { paddingBottom: getSpacing(25) + insets.bottom }
+          { paddingBottom: getSpacing(30) + insets.bottom }
         ]}
         refreshControl={
           <RefreshControl refreshing={loading} onRefresh={onRefresh} />
@@ -292,7 +318,7 @@ export default function ManagerDashboard() {
               <Ionicons name="cash-outline" size={24} color="#fff" />
             </View>
             <Text style={styles.statValue}>{currencySymbol}{((stats.totalRevenue || 0)).toLocaleString()}</Text>
-            <Text style={styles.statLabel}>Total Revenue</Text>
+            <Text style={styles.statLabel}>{t('dashboard.totalRevenue')}</Text>
           </TouchableOpacity>
           
           <TouchableOpacity style={[styles.statCard, styles.ordersCard]} onPress={() => {
@@ -303,7 +329,7 @@ export default function ManagerDashboard() {
               <Ionicons name="receipt-outline" size={24} color="#fff" />
             </View>
             <Text style={styles.statValue}>{(stats.totalOrders || 0).toLocaleString()}</Text>
-            <Text style={styles.statLabel}>Total Orders</Text>
+            <Text style={styles.statLabel}>{t('dashboard.totalOrders')}</Text>
           </TouchableOpacity>
           
           <TouchableOpacity style={[styles.statCard, styles.menuCard]} onPress={() => {
@@ -314,32 +340,36 @@ export default function ManagerDashboard() {
               <Ionicons name="restaurant-outline" size={24} color="#fff" />
             </View>
             <Text style={styles.statValue}>{(stats.totalProducts || 0).toLocaleString()}</Text>
-            <Text style={styles.statLabel}>Menu Items</Text>
+            <Text style={styles.statLabel}>{t('dashboard.menuItems')}</Text>
           </TouchableOpacity>
           
-          <TouchableOpacity style={[styles.statCard, styles.customersCard]} onPress={() => {
-            // @ts-ignore
-            navigation.navigate('AdminUsers')
-          }}>
+          <TouchableOpacity 
+            style={[styles.statCard, styles.branchUsersCard]} 
+            activeOpacity={0.8}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            onPress={() => {
+              // @ts-ignore
+              navigation.navigate('AdminUsers')
+            }}>
             <View style={styles.statIconContainer}>
               <Ionicons name="people-outline" size={24} color="#fff" />
             </View>
             <Text style={styles.statValue}>{(stats.totalUsers || 0).toLocaleString()}</Text>
-            <Text style={styles.statLabel}>Customers</Text>
+            <Text style={styles.statLabel}>{t('dashboard.branchUsers')}</Text>
           </TouchableOpacity>
         </View>
 
         {/* Recent Orders */}
         <View style={styles.ordersSection}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Recent Orders</Text>
+            <Text style={styles.sectionTitle}>{t('dashboard.recentOrders')}</Text>
             <TouchableOpacity
               onPress={() => {
                 // @ts-ignore
                 navigation.navigate('AdminOrders');
               }}
             >
-              <Text style={styles.viewAllText}>View All</Text>
+              <Text style={styles.viewAllText}>{t('dashboard.viewAll')}</Text>
             </TouchableOpacity>
           </View>
 
@@ -355,7 +385,7 @@ export default function ManagerDashboard() {
                   </Text>
                   <Text style={styles.orderTime}>{formatTimeAgo(order.createdAt || new Date().toISOString())}</Text>
                 </View>
-                <Text style={styles.orderAmount}>${(order.total || 0).toFixed(2)}</Text>
+                <Text style={styles.orderAmount}>{formatPrice(order.totalAmount || order.finalAmount || order.total || 0)}</Text>
                 <View style={[styles.statusBadge, { backgroundColor: getStatusColor(order.status) + '20' }]}>
                   <Text style={[styles.statusText, { color: getStatusColor(order.status) }]}>
                     {order.status}
@@ -366,7 +396,7 @@ export default function ManagerDashboard() {
           ) : (
             <View style={styles.emptyContainer}>
               <Ionicons name="receipt-outline" size={48} color="#ddd" />
-              <Text style={styles.emptyText}>No recent orders</Text>
+              <Text style={styles.emptyText}>{t('dashboard.noRecentOrders')}</Text>
             </View>
           )}
         </View>
@@ -430,6 +460,14 @@ export default function ManagerDashboard() {
           navigation.navigate('AdminSettings');
         }}
       />
+
+      {/* Bottom Navigation */}
+      <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 999 }}>
+        <AdminBottomNavigation 
+          onMorePress={() => setShowMoreMenu(true)} 
+          currentRoute="ManagerDashboard"
+        />
+      </View>
     </View>
   );
 }
@@ -437,7 +475,7 @@ export default function ManagerDashboard() {
 const styles = StyleSheet.create({
   rootContainer: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: DESIGN.colors.lightBg,
     paddingTop: STATUSBAR_HEIGHT,
   },
   scrollView: {
@@ -450,14 +488,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 10,
-    paddingBottom: 15,
+    paddingHorizontal: DESIGN.spacing.pagePad,
+    paddingTop: 16,
+    paddingBottom: 12,
+    backgroundColor: DESIGN.colors.white,
   },
   headerTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#1a1a2e',
+    fontSize: 24,
+    fontWeight: '800',
+    color: DESIGN.colors.darkText,
   },
   headerRight: {
     flexDirection: 'row',
@@ -475,17 +514,17 @@ const styles = StyleSheet.create({
     width: 18,
     height: 18,
     borderRadius: 9,
-    backgroundColor: '#F44336',
+    backgroundColor: DESIGN.colors.red,
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 1,
     borderWidth: 2,
-    borderColor: '#fff',
+    borderColor: DESIGN.colors.white,
   },
   badgeText: {
     fontSize: 10,
     fontWeight: 'bold',
-    color: '#fff',
+    color: DESIGN.colors.white,
   },
   profileImage: {
     width: 40,
@@ -506,7 +545,7 @@ const styles = StyleSheet.create({
   branchInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFF3E0',
+    backgroundColor: DESIGN.colors.orange + '20',
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderRadius: 20,
@@ -514,11 +553,11 @@ const styles = StyleSheet.create({
   },
   branchInfoText: {
     fontSize: 14,
-    color: '#E87E35',
     fontWeight: '600',
+    color: DESIGN.colors.orange,
   },
   branchCodeBadge: {
-    backgroundColor: '#E87E35',
+    backgroundColor: DESIGN.colors.orange,
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 10,
@@ -526,13 +565,13 @@ const styles = StyleSheet.create({
   },
   branchCodeText: {
     fontSize: 12,
-    color: '#fff',
+    color: DESIGN.colors.white,
     fontWeight: '700',
   },
   branchSelector: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f5f5f5',
+    backgroundColor: DESIGN.colors.lightBg,
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 20,
@@ -540,12 +579,12 @@ const styles = StyleSheet.create({
   },
   branchText: {
     fontSize: 13,
-    color: '#1a1a2e',
+    color: DESIGN.colors.darkText,
     fontWeight: '500',
   },
   periodTabs: {
     flexDirection: 'row',
-    backgroundColor: '#f5f5f5',
+    backgroundColor: DESIGN.colors.lightBg,
     borderRadius: 20,
     padding: 2,
   },
@@ -555,7 +594,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
   },
   periodTabActive: {
-    backgroundColor: '#fff',
+    backgroundColor: DESIGN.colors.white,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
@@ -564,11 +603,11 @@ const styles = StyleSheet.create({
   },
   periodTabText: {
     fontSize: 13,
-    color: '#666',
+    color: DESIGN.colors.muted,
     fontWeight: '500',
   },
   periodTabTextActive: {
-    color: '#1a1a2e',
+    color: DESIGN.colors.darkText,
     fontWeight: '600',
   },
   liveStatusContainer: {
@@ -579,14 +618,14 @@ const styles = StyleSheet.create({
   },
   liveStatusText: {
     fontSize: 12,
-    color: '#666',
+    color: DESIGN.colors.muted,
   },
   dropdownContainer: {
     position: 'absolute',
     top: 100,
     left: 20,
     right: 100,
-    backgroundColor: '#fff',
+    backgroundColor: DESIGN.colors.white,
     borderRadius: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
@@ -601,40 +640,45 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   dropdownItemActive: {
-    backgroundColor: '#FFF3E0',
+    backgroundColor: DESIGN.colors.orange + '20',
   },
   dropdownText: {
     fontSize: 14,
-    color: '#1a1a2e',
+    color: DESIGN.colors.darkText,
   },
   dropdownTextActive: {
-    color: '#E87E35',
+    color: DESIGN.colors.orange,
     fontWeight: '600',
   },
   statsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    paddingHorizontal: 20,
-    gap: 12,
+    paddingHorizontal: DESIGN.spacing.pagePad,
+    gap: DESIGN.spacing.cardGap,
     marginBottom: 24,
   },
   statCard: {
-    width: (width - 52) / 2,
+    width: '48%',
     padding: 16,
-    borderRadius: 16,
-    minHeight: 100,
+    borderRadius: DESIGN.radius.card,
+    minHeight: 120,
+    justifyContent: 'center',
+    marginBottom: DESIGN.spacing.cardGap,
   },
   revenueCard: {
-    backgroundColor: '#2E7D52',
+    backgroundColor: DESIGN.colors.green,
   },
   ordersCard: {
-    backgroundColor: '#E87E35',
+    backgroundColor: DESIGN.colors.orange,
   },
   menuCard: {
-    backgroundColor: '#7B5CB8',
+    backgroundColor: DESIGN.colors.blue,
   },
   customersCard: {
-    backgroundColor: '#1E5AA8',
+    backgroundColor: DESIGN.colors.blue,
+  },
+  branchUsersCard: {
+    backgroundColor: DESIGN.colors.blue,
   },
   statIconContainer: {
     width: 48,
@@ -646,22 +690,23 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   statLabel: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.8)',
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.9)',
     marginBottom: 4,
+    fontWeight: '500',
   },
   statValue: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 8,
+    fontSize: 28,
+    fontWeight: '800',
+    color: DESIGN.colors.white,
+    marginBottom: 4,
   },
   ordersSection: {
-    paddingHorizontal: 20,
+    paddingHorizontal: DESIGN.spacing.pagePad,
     marginBottom: 24,
   },
   productsSection: {
-    paddingHorizontal: 20,
+    paddingHorizontal: DESIGN.spacing.pagePad,
     marginBottom: 24,
   },
   sectionHeader: {
@@ -669,22 +714,25 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 16,
+    paddingHorizontal: 4,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1a1a2e',
+    fontSize: 20,
+    fontWeight: '800',
+    color: DESIGN.colors.darkText,
   },
   viewAllText: {
     fontSize: 14,
-    color: '#666',
+    color: DESIGN.colors.muted,
   },
   orderItem: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    backgroundColor: DESIGN.colors.white,
+    borderRadius: 12,
+    marginBottom: 8,
+    paddingHorizontal: 12,
   },
   orderIconContainer: {
     width: 40,
@@ -697,31 +745,33 @@ const styles = StyleSheet.create({
   orderNumber: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#1a1a2e',
+    color: DESIGN.colors.darkText,
   },
   orderTime: {
     fontSize: 12,
-    color: '#888',
+    color: DESIGN.colors.muted,
     marginTop: 2,
   },
   orderAmount: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#1a1a2e',
+    color: DESIGN.colors.darkText,
     marginRight: 12,
   },
   productItem: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    backgroundColor: DESIGN.colors.white,
+    borderRadius: 12,
+    marginBottom: 8,
+    paddingHorizontal: 12,
   },
   productIconContainer: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#FFF3E0',
+    backgroundColor: DESIGN.colors.orange + '20',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -737,11 +787,11 @@ const styles = StyleSheet.create({
   productName: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#1a1a2e',
+    color: DESIGN.colors.darkText,
   },
   productDetails: {
     fontSize: 12,
-    color: '#888',
+    color: DESIGN.colors.muted,
     marginTop: 2,
   },
   statusText: {
@@ -760,7 +810,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 14,
-    color: '#888',
+    color: DESIGN.colors.muted,
     marginTop: 8,
   },
   bottomSpacer: {
@@ -770,10 +820,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
-    backgroundColor: COLORS.white,
+    backgroundColor: DESIGN.colors.white,
     paddingTop: getSpacing(2),
     borderTopWidth: 1,
-    borderTopColor: COLORS.border,
+    borderTopColor: DESIGN.colors.border,
     position: 'absolute',
     bottom: 0,
     left: 0,
@@ -786,11 +836,11 @@ const styles = StyleSheet.create({
   },
   navText: {
     fontSize: 12,
-    color: COLORS.tabInactive,
+    color: DESIGN.colors.muted,
     marginTop: getSpacing(1),
   },
   navTextActive: {
-    color: COLORS.tabActive,
+    color: DESIGN.colors.orange,
     fontWeight: '600',
   },
   modalOverlay: {
@@ -799,7 +849,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#fff',
+    backgroundColor: DESIGN.colors.white,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 20,
@@ -814,19 +864,19 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#1a1a2e',
+    color: DESIGN.colors.darkText,
   },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: DESIGN.colors.border,
   },
   menuItemText: {
     flex: 1,
     fontSize: 16,
-    color: '#1a1a2e',
+    color: DESIGN.colors.darkText,
     marginLeft: 16,
   },
   profileModalOverlay: {
@@ -838,7 +888,7 @@ const styles = StyleSheet.create({
     paddingRight: 20,
   },
   profileMenu: {
-    backgroundColor: '#fff',
+    backgroundColor: DESIGN.colors.white,
     borderRadius: 16,
     width: 220,
     shadowColor: '#000',
@@ -851,7 +901,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: DESIGN.colors.border,
   },
   profileMenuImage: {
     width: 60,
@@ -862,11 +912,11 @@ const styles = StyleSheet.create({
   profileMenuName: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#1a1a2e',
+    color: DESIGN.colors.darkText,
   },
   profileMenuEmail: {
     fontSize: 12,
-    color: '#666',
+    color: DESIGN.colors.muted,
     marginTop: 2,
   },
   profileMenuItem: {
@@ -877,12 +927,12 @@ const styles = StyleSheet.create({
   },
   profileMenuItemText: {
     fontSize: 14,
-    color: '#1a1a2e',
+    color: DESIGN.colors.darkText,
     marginLeft: 12,
   },
   profileMenuDivider: {
     height: 1,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: DESIGN.colors.border,
     marginHorizontal: 16,
   },
 });

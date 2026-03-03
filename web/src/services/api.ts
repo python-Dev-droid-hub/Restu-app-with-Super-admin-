@@ -12,7 +12,7 @@ class ApiClient {
 
   constructor() {
     this.instance = axios.create({
-      baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3000/api',
+      baseURL: import.meta.env.VITE_API_URL || 'http://192.168.18.179:3000/api',
       timeout: 10000,
       headers: {
         'Content-Type': 'application/json',
@@ -128,19 +128,19 @@ class ApiClient {
 
   // Restaurant/Branch Management
   async getAllRestaurants() {
-    return this.request('GET', '/restaurants');
+    return this.request('GET', '/branches');
   }
 
   async createRestaurant(data: any) {
-    return this.request('POST', '/restaurants', data);
+    return this.request('POST', '/branches', data);
   }
 
   async updateRestaurant(restaurantId: string, data: any) {
-    return this.request('PUT', `/restaurants/${restaurantId}`, data);
+    return this.request('PUT', `/branches/${restaurantId}`, data);
   }
 
   async deleteRestaurant(restaurantId: string) {
-    return this.request('DELETE', `/restaurants/${restaurantId}`);
+    return this.request('DELETE', `/branches/${restaurantId}`);
   }
 
   // Orders
@@ -157,9 +157,23 @@ class ApiClient {
     return this.request('GET', '/dashboard/admin/stats');
   }
 
-  async getReports(params?: { startDate?: string; endDate?: string }) {
-    const queryString = params ? `?${new URLSearchParams(params as Record<string, string>).toString()}` : '';
+  async getDashboardAnalytics(params?: { range?: string }) {
+    const queryString = params?.range ? `?range=${params.range}` : '';
     return this.request('GET', `/dashboard/admin/analytics${queryString}`);
+  }
+
+  // Super Admin Dashboard
+  async getSuperAdminStats() {
+    return this.request('GET', '/dashboard/superadmin/stats');
+  }
+
+  async getSuperAdminBranches() {
+    return this.request('GET', '/dashboard/superadmin/branches');
+  }
+
+  async getSuperAdminRevenue(params?: { range?: string }) {
+    const queryString = params?.range ? `?range=${params.range}` : '';
+    return this.request('GET', `/dashboard/superadmin/revenue${queryString}`);
   }
 
   // Notifications
@@ -179,6 +193,12 @@ class ApiClient {
 
   async markNotificationAsRead(notificationId: string) {
     return this.request('PUT', `/notifications/${notificationId}/read`);
+  }
+
+  // Reports/Analytics
+  async getReports(params?: { startDate?: string; endDate?: string }) {
+    const queryString = params ? `?${new URLSearchParams(params as Record<string, string>).toString()}` : '';
+    return this.request('GET', `/dashboard/admin/analytics${queryString}`);
   }
 
   // Settings

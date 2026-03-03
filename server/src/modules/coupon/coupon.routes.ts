@@ -51,10 +51,10 @@ router.get('/active', couponController.getActiveCoupons);
 router.get('/:id', couponController.getCouponById);
 
 // Admin routes
-router.post('/', authenticate, authorize('ADMIN'), validate(createCouponSchema), couponController.createCoupon);
-router.put('/:id', authenticate, authorize('ADMIN'), validate(updateCouponSchema), couponController.updateCoupon);
-router.delete('/:id', authenticate, authorize('ADMIN'), couponController.deleteCoupon);
-router.patch('/:id/restore', authenticate, authorize('ADMIN'), couponController.restoreCoupon);
+router.post('/', authenticate, authorize('ADMIN', 'SUPER_ADMIN'), validate(createCouponSchema), couponController.createCoupon);
+router.put('/:id', authenticate, authorize('ADMIN', 'SUPER_ADMIN'), validate(updateCouponSchema), couponController.updateCoupon);
+router.delete('/:id', authenticate, authorize('ADMIN', 'SUPER_ADMIN'), couponController.deleteCoupon);
+router.patch('/:id/restore', authenticate, authorize('ADMIN', 'SUPER_ADMIN'), couponController.restoreCoupon);
 
 // Validation route
 router.post('/validate', authenticate, validate(validateCouponSchema), couponController.validateCoupon);

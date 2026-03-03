@@ -3,6 +3,7 @@ import { OrderRepository } from './order.repository';
 import { MenuRepository } from '../menu/menu.repository';
 import { RestaurantRepository } from '../restaurant/restaurant.repository';
 import { NotificationService } from '../notification/notification.service';
+import { SystemSettings } from '@/models/SystemSettings';
 import { IAuthRequest, sendSuccess, asyncHandler } from '@/utils';
 import { createError } from '@/middleware/errorHandler';
 
@@ -20,73 +21,130 @@ export class OrderController {
   }
 
   createOrder = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
+    console.log('[ORDER DEBUG] ====== START ORDER CREATION ======');
+    console.log('[ORDER DEBUG] Request body:', JSON.stringify(req.body, null, 2));
+    
     const userId = req.user!._id;
     const { items, restaurantId, deliveryAddress, orderType, paymentMethod, deliveryInstructions } = req.body;
 
+    console.log('[ORDER DEBUG] userId:', userId);
+    console.log('[ORDER DEBUG] restaurantId:', restaurantId);
+    console.log('[ORDER DEBUG] items count:', items?.length);
+
     // Validate restaurant
+    console.log('[ORDER DEBUG] Validating restaurant...');
     const restaurant = await this.restaurantRepository.findById(restaurantId);
+    console.log('[ORDER DEBUG] Restaurant found:', !!restaurant);
+    
     if (!restaurant || !restaurant.isActive) {
+      console.log('[ORDER DEBUG] Restaurant validation FAILED:', { exists: !!restaurant, isActive: restaurant?.isActive });
       throw createError('Restaurant not available', 404);
     }
+    console.log('[ORDER DEBUG] Restaurant validated OK');
 
     // Validate menu items and calculate total
+    console.log('[ORDER DEBUG] Starting item validation...');
     let totalAmount = 0;
     const validatedItems = [];
 
-    for (const item of items) {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      console.log(`[ORDER DEBUG] Processing item ${i + 1}/${items.length}: menuItemId=${item.menuItemId}`);
+      
       const menuItem = await this.menuRepository.findMenuItemById(item.menuItemId);
-      if (!menuItem || !menuItem.isAvailable) {
+      console.log(`[ORDER DEBUG] Menu item lookup result:`, { found: !!menuItem, isAvailable: menuItem?.isAvailable });
+      
+      if (!menuItem) {
+        console.log(`[ORDER DEBUG] Item NOT FOUND: ${item.menuItemId}`);
+        throw createError(`Menu item ${item.menuItemId} not found`, 400);
+      }
+      
+      if (!menuItem.isAvailable) {
+        console.log(`[ORDER DEBUG] Item NOT AVAILABLE: ${item.menuItemId}`);
         throw createError(`Menu item ${item.menuItemId} is not available`, 400);
       }
 
-      if (menuItem.restaurant._id.toString() !== restaurantId) {
-        throw createError(`Menu item ${item.menuItemId} does not belong to this restaurant`, 400);
-      }
-
+      console.log(`[ORDER DEBUG] Item ${item.menuItemId} validated OK, price=${menuItem.price}`);
+      
       const itemTotal = menuItem.price * item.quantity;
       totalAmount += itemTotal;
 
       validatedItems.push({
-        menuItem: item.menuItemId,
+        product: item.menuItemId,
         quantity: item.quantity,
-        price: menuItem.price,
+        unitPrice: menuItem.price,
+        totalPrice: menuItem.price * item.quantity,
+        productName: menuItem.name,
         customizations: item.customizations || [],
       });
     }
+    
+    console.log('[ORDER DEBUG] All items validated, totalAmount:', totalAmount);
 
     // Check minimum order amount
+    console.log('[ORDER DEBUG] Checking minimum order amount:', { totalAmount, minOrderAmount: restaurant.minOrderAmount });
     if (totalAmount < restaurant.minOrderAmount) {
+      console.log('[ORDER DEBUG] Minimum order amount FAILED');
       throw createError(`Minimum order amount is $${restaurant.minOrderAmount}`, 400);
     }
+    console.log('[ORDER DEBUG] Minimum order amount OK');
 
     // Calculate fees
+    console.log('[ORDER DEBUG] Calculating fees...');
     const deliveryFee = orderType === 'delivery' ? restaurant.deliveryFee : 0;
-    const taxRate = 0.08; // 8% tax rate (should be configurable)
+    
+    // Fetch tax rate from settings (default to 0 if not set)
+    const settings = await SystemSettings.findOne();
+    const taxRate = (settings?.taxRate ?? 0) / 100; // Convert percentage to decimal
+    console.log('[ORDER DEBUG] Tax rate from settings:', settings?.taxRate ?? 0, '% =', taxRate);
+    
     const tax = totalAmount * taxRate;
     const finalAmount = totalAmount + deliveryFee + tax;
+    console.log('[ORDER DEBUG] Fees calculated:', { deliveryFee, taxRate, tax, finalAmount });
 
     // Calculate estimated delivery time
     const estimatedDeliveryTime = new Date();
     estimatedDeliveryTime.setMinutes(estimatedDeliveryTime.getMinutes() + restaurant.deliveryTime);
 
+    // Generate order number manually (pre-save hook should do this, but let's be safe)
+    const date = new Date();
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const randomNum = String(Math.floor(Math.random() * 9000) + 1000);
+    const orderNumber = `ORD${year}${month}${day}${randomNum}`;
+
     const orderData = {
-      customer: userId,
-      restaurant: restaurantId,
+      customer: userId, // The waiter is both customer and waiter for dine-in orders
+      branch: restaurantId,
+      orderNumber,
       items: validatedItems,
+      subtotal: totalAmount,
       totalAmount,
       deliveryFee,
-      tax,
+      taxAmount: tax,
       finalAmount,
       deliveryAddress,
       deliveryInstructions,
       estimatedDeliveryTime,
-      orderType,
+      orderType: orderType === 'pickup' ? 'DINE_IN' : orderType,
       paymentMethod,
+      status: 'PENDING',
+      paymentStatus: 'PENDING',
+      waiter: userId, // Set the waiter who created this order
     };
+    
+    console.log('[ORDER DEBUG] Order data prepared:', JSON.stringify(orderData, null, 2));
 
+    console.log('[ORDER DEBUG] Creating order in database...');
     const order = await this.orderRepository.create(orderData);
+    console.log('[ORDER DEBUG] Order created with ID:', order._id);
 
+    console.log('[ORDER DEBUG] Populating order...');
     const populatedOrder = await this.orderRepository.findById(order._id);
+    console.log('[ORDER DEBUG] Order populated successfully');
+    
+    console.log('[ORDER DEBUG] ====== ORDER CREATION SUCCESS ======');
 
     sendSuccess(res, populatedOrder, 'Order created successfully', 201);
   });

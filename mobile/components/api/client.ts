@@ -15,8 +15,10 @@ class ApiClient {
     // For mobile development, use the computer's IP address instead of localhost
     // Replace with your computer's IP address (run ipconfig/ifconfig to find it)
     this.baseURL = __DEV__
-      ? 'http://192.168.18.212:3000/api'  // Replace with your computer's IP
+      ? 'http://192.168.18.179:3000/api'  // Replace with your computer's IP
       : 'http://your-production-api-url/api'; // For production
+
+    console.log('[API] Base URL:', this.baseURL);
 
     this.instance = axios.create({
       baseURL: this.baseURL,
@@ -33,6 +35,7 @@ class ApiClient {
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
         }
+        console.log('[API Request]', config.method?.toUpperCase(), config.url);
         return config;
       },
       (error: any) => Promise.reject(error)
@@ -40,13 +43,15 @@ class ApiClient {
 
     // Response interceptor for error handling
     this.instance.interceptors.response.use(
-      (response: any) => response,
+      (response: any) => {
+        console.log('[API Response]', response.status, response.config.url);
+        return response;
+      },
       async (error: any) => {
+        console.error('[API Error]', error.message, error.code);
         if (error.response?.status === 401) {
-          // Token expired, clear storage and redirect to login
           await AsyncStorage.removeItem('authToken');
           await AsyncStorage.removeItem('userRole');
-          // Navigation would be handled by the app
         }
         return Promise.reject(error);
       }

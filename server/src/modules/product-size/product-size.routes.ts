@@ -50,14 +50,14 @@ router.get('/product/:productId', productSizeController.getProductSizes);
 router.get('/product/:productId/default', productSizeController.getDefaultProductSize);
 
 // Admin routes - Size management
-router.post('/sizes', authenticate, authorize('ADMIN'), validate(createSizeSchema), productSizeController.createSize);
-router.put('/sizes/:id', authenticate, authorize('ADMIN'), validate(updateSizeSchema), productSizeController.updateSize);
+router.post('/sizes', authenticate, authorize('ADMIN', 'SUPER_ADMIN'), validate(createSizeSchema), productSizeController.createSize);
+router.put('/sizes/:id', authenticate, authorize('ADMIN', 'SUPER_ADMIN'), validate(updateSizeSchema), productSizeController.updateSize);
 
 // Admin routes - Product Size management
-router.post('/', authenticate, authorize('ADMIN'), validate(createProductSizeSchema), productSizeController.createProductSize);
-router.put('/:id', authenticate, authorize('ADMIN'), validate(updateProductSizeSchema), productSizeController.updateProductSize);
-router.delete('/:id', authenticate, authorize('ADMIN'), productSizeController.deleteProductSize);
-router.patch('/:id/restore', authenticate, authorize('ADMIN'), productSizeController.restoreProductSize);
-router.patch('/:id/set-default', authenticate, authorize('ADMIN'), productSizeController.setDefaultSize);
+router.post('/', authenticate, authorize('ADMIN', 'SUPER_ADMIN'), validate(createProductSizeSchema), productSizeController.createProductSize);
+router.put('/:id', authenticate, authorize('ADMIN', 'SUPER_ADMIN'), validate(updateProductSizeSchema), productSizeController.updateProductSize);
+router.delete('/:id', authenticate, authorize('ADMIN', 'SUPER_ADMIN'), productSizeController.deleteProductSize);
+router.patch('/:id/restore', authenticate, authorize('ADMIN', 'SUPER_ADMIN'), productSizeController.restoreProductSize);
+router.patch('/:id/set-default', authenticate, authorize('ADMIN', 'SUPER_ADMIN'), productSizeController.setDefaultSize);
 
 export default router;

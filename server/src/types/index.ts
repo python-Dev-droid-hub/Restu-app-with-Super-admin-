@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import { Document, Types } from 'mongoose';
+import { Document, Types, Model } from 'mongoose';
 
 // Base interface for all documents
 export interface BaseDocument extends Document {
@@ -73,6 +73,32 @@ export interface IRestaurant extends BaseDocument {
     sunday: { open: string; close: string } | null;
   };
   images: string[];
+}
+
+// Restaurant Table related types
+export interface IRestaurantTable extends BaseDocument {
+  branch: Types.ObjectId;
+  tableNumber: string;
+  seatingCapacity: number;
+  section?: string;
+  floorNumber: number;
+  qrCodeUrl?: string;
+  status: 'AVAILABLE' | 'OCCUPIED' | 'RESERVED' | 'CLEANING' | 'OUT_OF_SERVICE';
+  currentWaiter?: Types.ObjectId;
+  deletedAt?: Date;
+  changeStatus(newStatus: string, waiterId?: string): Promise<IRestaurantTable>;
+  isAvailable(): boolean;
+  assignWaiter(waiterId: string): Promise<IRestaurantTable>;
+  releaseTable(): Promise<IRestaurantTable>;
+  softDelete(): Promise<IRestaurantTable>;
+  restore(): Promise<IRestaurantTable>;
+}
+
+export interface IRestaurantTableModel extends Model<IRestaurantTable> {
+  findByBranch(branchId: string, status?: string): Promise<IRestaurantTable[]>;
+  findAvailable(branchId: string, capacity?: number): Promise<IRestaurantTable[]>;
+  findByWaiter(waiterId: string): Promise<IRestaurantTable[]>;
+  getTableStats(branchId: string): Promise<any[]>;
 }
 
 // Menu related types
@@ -152,6 +178,7 @@ export interface IJWTPayload {
   userId: string;
   email: string;
   role: string;
+  assignedBranch?: string;
 }
 
 // API Response types

@@ -12,6 +12,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS } from '../../constants/colors';
 import { getSpacing } from '../../utils/responsive';
+import { useLocalization } from '../../context/LocalizationContext';
 
 const { width } = Dimensions.get('window');
 
@@ -28,15 +29,17 @@ export default function AdminBottomNavigation({ onMorePress, currentRoute: propR
   // Use prop if provided, otherwise fall back to useRoute
   const currentRoute = propRoute || route.name;
   
+  const { t } = useLocalization();
+  
   const navItems = [
-    { name: 'AdminDashboard', label: 'Home', icon: 'home-outline', activeIcon: 'home' },
-    { name: 'AdminOrders', label: 'Orders', icon: 'document-text-outline', activeIcon: 'document-text' },
-    { name: 'AdminProducts', label: 'Menu', icon: 'restaurant-outline', activeIcon: 'restaurant' },
-    { name: 'AdminUsers', label: 'Users', icon: 'people-outline', activeIcon: 'people' },
-    { name: 'More', label: 'More', icon: 'ellipsis-horizontal', activeIcon: 'ellipsis-horizontal' },
+    { name: 'AdminDashboard', label: t('nav.home'), icon: 'home-outline', activeIcon: 'home' },
+    { name: 'AdminOrders', label: t('nav.orders'), icon: 'document-text-outline', activeIcon: 'document-text' },
+    { name: 'AdminProducts', label: t('nav.menu'), icon: 'restaurant-outline', activeIcon: 'restaurant' },
+    { name: 'AdminUsers', label: t('nav.users'), icon: 'people-outline', activeIcon: 'people' },
+    { name: 'More', label: t('nav.more'), icon: 'ellipsis-horizontal', activeIcon: 'ellipsis-horizontal' },
   ];
 
-  const tabRouteNames = new Set(['AdminDashboard', 'AdminOrders', 'AdminProducts', 'AdminUsers']);
+  const tabRouteNames = new Set(['AdminDashboard', 'ManagerDashboard', 'AdminOrders', 'AdminProducts', 'AdminUsers']);
   
   const getDashboardRouteName = async (): Promise<string> => {
     try {
@@ -60,10 +63,14 @@ export default function AdminBottomNavigation({ onMorePress, currentRoute: propR
 
     // When used inside role-based dashboards, Home must route back to the correct dashboard navigator
     if (itemName === 'AdminDashboard') {
+      // Check which dashboard we're currently using
+      const isManager = currentRoute === 'ManagerDashboard' || await AsyncStorage.getItem('userRole') === 'BRANCH_MANAGER';
+      const homeRoute = isManager ? 'ManagerDashboard' : 'AdminDashboard';
+      
       // If we're already inside the tab navigator, keep navigation inside tabs
       if (tabRouteNames.has(currentRoute)) {
         // @ts-ignore
-        navigation.navigate('AdminDashboard');
+        navigation.navigate(homeRoute);
       } else {
         // For stack-pushed screens (details), jump back to the correct dashboard navigator
         const dashboardRoute = await getDashboardRouteName();

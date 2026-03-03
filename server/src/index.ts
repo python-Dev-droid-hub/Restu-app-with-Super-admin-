@@ -15,6 +15,7 @@ import { notFoundHandler } from '@/middleware/notFoundHandler';
 import authRoutes from '@/modules/auth/auth.routes';
 import userRoutes from '@/modules/user/user.routes';
 import restaurantRoutes from '@/modules/restaurant/restaurant.routes';
+import branchRoutes from '@/modules/branch/branch.routes';
 import menuRoutes from '@/modules/menu/menu.routes';
 import orderRoutes from '@/modules/order/order.routes';
 import dashboardRoutes from '@/modules/dashboard/dashboard.routes';
@@ -35,13 +36,14 @@ dotenv.config();
 const app: Express = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
-// Rate limiting
+// Rate limiting - more lenient for development
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000'), // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100'), // limit each IP to 100 requests per windowMs
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '1000'), // 1000 requests per window for development
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => process.env.NODE_ENV === 'development', // Skip rate limiting in dev
 });
 
 // Middleware
@@ -77,6 +79,7 @@ app.get('/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/restaurants', restaurantRoutes);
+app.use('/api/branches', branchRoutes);
 app.use('/api/menu', menuRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/dashboard', dashboardRoutes);

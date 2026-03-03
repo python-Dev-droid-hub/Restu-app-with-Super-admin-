@@ -3,6 +3,7 @@ import { Modal, Text, TouchableOpacity, View, StyleSheet } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import { useLocalization } from '../context/LocalizationContext';
 
 import ManagerDashboard from '../screens/dashboards/ManagerDashboard';
 import AdminOrdersScreen from '../screens/admin/AdminOrdersScreen';
@@ -16,18 +17,19 @@ const Tab = createBottomTabNavigator();
 function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const nav = useNavigation();
+  const { t } = useLocalization();
   
   const currentRoute = state.routes[state.index].name;
 
   const menuItems = [
-    { name: 'Notifications', icon: 'notifications-outline', screen: 'AdminNotifications' },
+    { name: t('notifications.title'), icon: 'notifications-outline', screen: 'AdminNotifications' },
     { name: 'Table Assignment', icon: 'grid-outline', screen: 'TableAssignment' },
-    { name: 'Categories', icon: 'grid-outline', screen: 'AdminCategories' },
-    { name: 'Products', icon: 'restaurant-outline', screen: 'AdminProducts' },
-    { name: 'Coupons', icon: 'ticket-outline', screen: 'AdminCoupons' },
+    { name: t('nav.categories'), icon: 'grid-outline', screen: 'AdminCategories' },
+    { name: t('products.title'), icon: 'restaurant-outline', screen: 'AdminProducts' },
+    { name: t('nav.coupons'), icon: 'ticket-outline', screen: 'AdminCoupons' },
     { name: 'Product Size', icon: 'resize-outline', screen: 'AdminProductSizes' },
-    { name: 'Reports', icon: 'bar-chart-outline', screen: 'AdminReports' },
-    { name: 'Settings', icon: 'settings-outline', screen: 'AdminSettings' },
+    { name: t('nav.reports'), icon: 'bar-chart-outline', screen: 'AdminReports' },
+    { name: t('nav.settings'), icon: 'settings-outline', screen: 'AdminSettings' },
   ];
 
   return (
@@ -46,7 +48,7 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>More</Text>
+              <Text style={styles.modalTitle}>{t('nav.more')}</Text>
               <TouchableOpacity onPress={() => setShowMoreMenu(false)}>
                 <Ionicons name="close" size={24} color="#666" />
               </TouchableOpacity>
@@ -81,7 +83,7 @@ export default function ManagerTabsNavigator() {
       }}
       tabBar={(props) => <CustomTabBar {...props} />}
     >
-      <Tab.Screen name="AdminDashboard" component={ManagerDashboard} />
+      <Tab.Screen name="ManagerDashboard" component={ManagerDashboard} />
       <Tab.Screen name="AdminOrders" component={AdminOrdersScreen} />
       <Tab.Screen name="AdminProducts" component={AdminProductsScreen} />
       <Tab.Screen name="AdminUsers" component={AdminUsersScreen} />

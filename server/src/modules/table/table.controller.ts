@@ -129,11 +129,11 @@ export class TableController {
     }
   };
 
-  // Delete table (soft delete)
+  // Delete table (hard delete - permanently removes from database)
   deleteTable = async (req: Request, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
-      const table = await this.tableRepository.softDelete(id);
+      const table = await this.tableRepository.hardDelete(id);
 
       if (!table) {
         res.status(404).json({

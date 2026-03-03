@@ -83,24 +83,39 @@ export class OrderRepository {
     limit: number = 10,
     status?: string
   ): Promise<{ orders: any[]; total: number }> {
-    const skip = (page - 1) * limit;
-    const filter: any = { branch: branchId };
-    
-    if (status) {
-      filter.status = status;
+    try {
+      const skip = (page - 1) * limit;
+      
+      // Convert string branchId to ObjectId if needed
+      const branchObjectId = typeof branchId === 'string' 
+        ? new Types.ObjectId(branchId) 
+        : branchId;
+      
+      const filter: any = { branch: branchObjectId };
+      
+      if (status) {
+        filter.status = status;
+      }
+
+      console.log('[findByBranchId] Query filter:', JSON.stringify(filter));
+
+      const [orders, total] = await Promise.all([
+        Order.find(filter)
+          .populate('customer', 'displayName phoneNumber')
+          .populate('items.product', 'name imageUrl')
+          .sort('-createdAt')
+          .skip(skip)
+          .limit(limit),
+        Order.countDocuments(filter)
+      ]);
+
+      console.log('[findByBranchId] Found orders:', orders.length, 'Total:', total);
+      return { orders, total };
+    } catch (error: any) {
+      console.error('[findByBranchId] ERROR:', error.message);
+      console.error('[findByBranchId] Stack:', error.stack);
+      throw error;
     }
-
-    const [orders, total] = await Promise.all([
-      Order.find(filter)
-        .populate('customer', 'displayName phoneNumber')
-        .populate('items.product', 'name imageUrl')
-        .sort('-createdAt')
-        .skip(skip)
-        .limit(limit),
-      Order.countDocuments(filter)
-    ]);
-
-    return { orders, total };
   }
 
   async findByRiderId(

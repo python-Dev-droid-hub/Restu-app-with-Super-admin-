@@ -18,6 +18,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalization } from '../../context/LocalizationContext';
 
+import { useUserData } from '../../hooks/useUserData';
+
 // Components
 import ResponsiveHeader from '../../components/layout/ResponsiveHeader';
 import ProfileMenu from '../../components/common/ProfileMenu';
@@ -50,29 +52,12 @@ export default function AdminOrdersScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { t } = useLocalization();
+  const { userRole, profileImage } = useUserData();
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState<Order[]>([]);
   const [activeTab, setActiveTab] = useState<OrderStatus>('all');
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
-  const [userRole, setUserRole] = useState<string>('');
-
-  // Load user role on mount
-  useEffect(() => {
-    loadUserRole();
-  }, []);
-
-  const loadUserRole = async () => {
-    try {
-      const stored = await AsyncStorage.getItem('userData');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        setUserRole(parsed.role || '');
-      }
-    } catch (error) {
-      console.error('Error loading user role:', error);
-    }
-  };
 
   const menuItems = [
     { name: t('nav.notifications'), icon: 'notifications-outline', screen: 'AdminNotifications' },
@@ -205,8 +190,9 @@ export default function AdminOrdersScreen() {
       
       {/* Responsive Header */}
       <ResponsiveHeader
-        title={t('nav.orders')}
+        title={t('orders.title')}
         notificationCount={0}
+        profileImage={profileImage}
         onNotificationPress={() => {
           // @ts-ignore
           navigation.navigate('AdminNotifications');

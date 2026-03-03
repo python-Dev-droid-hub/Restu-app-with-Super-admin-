@@ -14,6 +14,7 @@ const createCategorySchema = Joi.object({
   displayOrder: Joi.number().min(0).optional(),
   isActive: Joi.boolean().optional(),
   imageUrl: Joi.string().uri().optional().allow(''),
+  branchId: Joi.string().optional(),
 });
 
 const updateCategorySchema = Joi.object({
@@ -22,6 +23,7 @@ const updateCategorySchema = Joi.object({
   displayOrder: Joi.number().min(0).optional(),
   isActive: Joi.boolean().optional(),
   imageUrl: Joi.string().uri().optional().allow(''),
+  branchId: Joi.string().optional(),
 });
 
 const reorderCategoriesSchema = Joi.object({
@@ -53,6 +55,17 @@ const createMenuItemSchema = Joi.object({
     carbs: Joi.number().min(0).optional(),
     fat: Joi.number().min(0).optional(),
   }).optional(),
+  // Product sizes - optional array of size references
+  sizes: Joi.array().items(
+    Joi.object({
+      sizeId: Joi.string().optional(),
+      sizeName: Joi.string().optional(),
+      price: Joi.number().min(0).optional(),
+      isDefault: Joi.boolean().optional(),
+    })
+  ).optional(),
+  // Branch assignment
+  branchId: Joi.string().optional(),
 });
 
 const updateMenuItemSchema = Joi.object({
@@ -75,6 +88,17 @@ const updateMenuItemSchema = Joi.object({
     carbs: Joi.number().min(0).optional(),
     fat: Joi.number().min(0).optional(),
   }).optional(),
+  // Product sizes - optional array of size references
+  sizes: Joi.array().items(
+    Joi.object({
+      sizeId: Joi.string().optional(),
+      sizeName: Joi.string().optional(),
+      price: Joi.number().min(0).optional(),
+      isDefault: Joi.boolean().optional(),
+    })
+  ).optional(),
+  // Branch assignment
+  branchId: Joi.string().optional(),
 });
 
 const menuItemParamsSchema = Joi.object({
@@ -88,12 +112,12 @@ const categoryParamsSchema = Joi.object({
 });
 
 // Admin routes - System wide menu management (MUST be before public routes)
-router.get('/admin/products', authenticate, authorize('ADMIN', 'BRANCH_MANAGER'), menuController.getAllProducts);
-router.post('/admin/products', authenticate, authorize('ADMIN', 'BRANCH_MANAGER'), menuController.createAdminProduct);
-router.put('/admin/products/:id', authenticate, authorize('ADMIN', 'BRANCH_MANAGER'), validate(updateMenuItemSchema), menuController.updateAdminProduct);
-router.get('/admin/categories', authenticate, authorize('ADMIN', 'BRANCH_MANAGER'), menuController.getAllCategories);
-router.post('/admin/categories', authenticate, authorize('ADMIN', 'BRANCH_MANAGER'), validate(createCategorySchema), menuController.createAdminCategory);
-router.put('/admin/categories/:id', authenticate, authorize('ADMIN', 'BRANCH_MANAGER'), validate(updateCategorySchema), menuController.updateAdminCategory);
+router.get('/admin/products', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), menuController.getAllProducts);
+router.post('/admin/products', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), menuController.createAdminProduct);
+router.put('/admin/products/:id', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), validate(updateMenuItemSchema), menuController.updateAdminProduct);
+router.get('/admin/categories', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), menuController.getAllCategories);
+router.post('/admin/categories', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), validate(createCategorySchema), menuController.createAdminCategory);
+router.put('/admin/categories/:id', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), validate(updateCategorySchema), menuController.updateAdminCategory);
 
 // Public routes
 router.get('/menu', menuController.getFullMenu);

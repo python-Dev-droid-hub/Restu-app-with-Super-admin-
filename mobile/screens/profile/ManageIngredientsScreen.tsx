@@ -528,13 +528,41 @@ export default function ManageIngredientsScreen({ onBack, branchId }: ManageIngr
               </Text>
             </View>
           ) : (
-            <FlatList
-              data={filteredIngredients}
-              renderItem={renderIngredientCard}
-              keyExtractor={(item) => item.id}
-              scrollEnabled={false}
-              contentContainerStyle={styles.ingredientsList}
-            />
+            <ScrollView style={styles.ingredientsList} nestedScrollEnabled={true}>
+              {filteredIngredients.map((item) => {
+                const status = getStockStatus(item);
+                const isLow = status.status === 'LOW';
+                return (
+                  <View key={item.id} style={styles.ingredientCard}>
+                    <View style={styles.ingredientHeader}>
+                      <View style={styles.ingredientNameSection}>
+                        <Text style={styles.ingredientName}>{item.name}</Text>
+                        <View style={[styles.statusBadge, { backgroundColor: status.bg }]}>
+                          <Text style={[styles.statusText, { color: status.color }]}>
+                            {status.status === 'LOW' ? '⚠️ LOW' : status.status === 'APPROACHING' ? '⚡ LOW' : '✓ OK'}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={styles.categoryTag}>{item.category || 'General'}</Text>
+                    </View>
+                    <View style={styles.stockInfo}>
+                      <View style={styles.stockRow}>
+                        <Ionicons name="cube" size={16} color={isLow ? DESIGN.colors.red : DESIGN.colors.green} />
+                        <Text style={[styles.stockText, isLow && styles.lowStockText]}>
+                          Current: <Text style={styles.stockValue}>{item.quantity_available} {item.unit}</Text>
+                        </Text>
+                      </View>
+                      <View style={styles.stockRow}>
+                        <Ionicons name="alert-circle" size={16} color={DESIGN.colors.muted} />
+                        <Text style={styles.stockText}>
+                          Reorder: <Text style={styles.stockValue}>{item.reorder_level} {item.unit}</Text>
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                );
+              })}
+            </ScrollView>
           )}
         </View>
 

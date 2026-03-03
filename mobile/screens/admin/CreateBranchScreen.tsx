@@ -182,7 +182,7 @@ export default function CreateBranchScreen() {
         operating_hours: operatingHours,
       };
 
-      const response = await api.post('/branches', payload);
+      const response = await api.post('', payload);
 
       if (response.success) {
         Alert.alert('Success', 'Branch created successfully!', [

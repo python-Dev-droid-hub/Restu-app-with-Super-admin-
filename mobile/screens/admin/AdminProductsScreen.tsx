@@ -21,6 +21,8 @@ import { useSettings } from '../../context/SettingsContext';
 import { useLocalization } from '../../context/LocalizationContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useUserData } from '../../hooks/useUserData';
+
 // Components
 import ResponsiveHeader from '../../components/layout/ResponsiveHeader';
 import ProfileMenu from '../../components/common/ProfileMenu';
@@ -30,7 +32,7 @@ import AdminBottomNavigation from '../../components/navigation/AdminBottomNaviga
 import { getSpacing } from '../../utils/responsive';
 import { COLORS } from '../../constants/colors';
 
-type CategoryTab = 'all' | 'food' | 'drinks';
+type CategoryTab = 'all' | 'food' | 'drinks' | 'desserts';
 
 interface MenuItem {
   _id: string;
@@ -49,31 +51,13 @@ export default function AdminProductsScreen() {
   const { currencySymbol } = useSettings();
   const { t } = useLocalization();
   const insets = useSafeAreaInsets();
+  const { userRole, profileImage } = useUserData();
   const [loading, setLoading] = useState(true);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [activeTab, setActiveTab] = useState<CategoryTab>('all');
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
-
-  const [userRole, setUserRole] = useState<string>('');
-
-  // Load user role on mount
-  useEffect(() => {
-    loadUserRole();
-  }, []);
-
-  const loadUserRole = async () => {
-    try {
-      const stored = await AsyncStorage.getItem('userData');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        setUserRole(parsed.role || '');
-      }
-    } catch (error) {
-      console.error('Error loading user role:', error);
-    }
-  };
 
   const moreMenuItems = [
     { name: 'Notifications', icon: 'notifications-outline', screen: 'AdminNotifications' },
@@ -172,8 +156,9 @@ export default function AdminProductsScreen() {
     if (activeTab === 'all') return menuItems;
     return menuItems.filter(item => {
       const categoryName = getCategoryName(item.category).toLowerCase();
-      if (activeTab === 'food') return categoryName.includes('food') || categoryName.includes('burger') || categoryName.includes('pasta') || categoryName.includes('main');
-      if (activeTab === 'drinks') return categoryName.includes('drink') || categoryName.includes('beverage');
+      if (activeTab === 'food') return categoryName.includes('food') || categoryName.includes('burger') || categoryName.includes('pasta') || categoryName.includes('main') || categoryName.includes('meal');
+      if (activeTab === 'drinks') return categoryName.includes('drink') || categoryName.includes('beverage') || categoryName.includes('juice') || categoryName.includes('soda');
+      if (activeTab === 'desserts') return categoryName.includes('dessert') || categoryName.includes('sweet') || categoryName.includes('cake') || categoryName.includes('ice cream');
       return true;
     });
   };
@@ -216,6 +201,7 @@ export default function AdminProductsScreen() {
       <ResponsiveHeader
         title={t('nav.menu')}
         notificationCount={unreadCount}
+        profileImage={profileImage}
         onNotificationPress={() => {
           // @ts-ignore
           navigation.navigate('AdminNotifications');
@@ -236,9 +222,10 @@ export default function AdminProductsScreen() {
       >
         {/* Category Tabs */}
         <View style={styles.tabsContainer}>
-          {renderTab('all', 'All Dishes')}
+          {renderTab('all', 'All')}
           {renderTab('food', 'Food')}
           {renderTab('drinks', 'Drinks')}
+          {renderTab('desserts', 'Desserts')}
         </View>
 
         <View style={styles.menuContainer}>

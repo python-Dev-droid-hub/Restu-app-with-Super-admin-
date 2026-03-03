@@ -3,6 +3,7 @@ import { generateTokenPair, verifyRefreshToken } from '@/utils/jwt';
 import { IUser, IJWTPayload } from '@/types';
 import { createError } from '@/middleware/errorHandler';
 import jwt from 'jsonwebtoken';
+import mongoose from 'mongoose';
 
 export class AuthService {
   private userRepository: UserRepository;
@@ -54,7 +55,7 @@ export class AuthService {
     if (profileImage) userCreateData.profileImage = profileImage;
     if (vehicleNumber) userCreateData.vehicleNumber = vehicleNumber;
     if (vehicleType) userCreateData.vehicleType = vehicleType;
-    if (assignedBranchId) userCreateData.assignedBranch = assignedBranchId;
+    if (assignedBranchId) userCreateData.assignedBranch = new mongoose.Types.ObjectId(assignedBranchId);
 
     const user = await this.userRepository.create(userCreateData);
 
@@ -63,6 +64,7 @@ export class AuthService {
       userId: user._id.toString(),
       email: user.email,
       role: user.role,
+      assignedBranch: user.assignedBranch?.toString(),
     };
 
     const tokens = generateTokenPair(payload);
@@ -88,11 +90,23 @@ export class AuthService {
       throw createError('Invalid email or password', 401);
     }
 
-    // Generate tokens
+    // Generate tokens with proper assignedBranch handling
+    let assignedBranchId: string | undefined;
+    if (user.assignedBranch) {
+      if (typeof user.assignedBranch === 'string') {
+        assignedBranchId = user.assignedBranch;
+      } else if (user.assignedBranch instanceof mongoose.Types.ObjectId) {
+        assignedBranchId = user.assignedBranch.toString();
+      } else if (typeof user.assignedBranch === 'object' && (user.assignedBranch as any)._id) {
+        assignedBranchId = (user.assignedBranch as any)._id.toString();
+      }
+    }
+
     const payload: IJWTPayload = {
       userId: user._id.toString(),
       email: user.email,
       role: user.role,
+      assignedBranch: assignedBranchId,
     };
 
     const tokens = generateTokenPair(payload);

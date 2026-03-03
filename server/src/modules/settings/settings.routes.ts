@@ -54,7 +54,7 @@ const updateSettingsSchema = Joi.object({
 });
 
 // Admin-only routes
-router.get('/', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), settingsController.getSettings);
+router.get('/', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'WAITER', 'SUPER_ADMIN'), settingsController.getSettings);
 router.put('/', authenticate, authorize('ADMIN', 'SUPER_ADMIN'), validate(updateSettingsSchema), settingsController.updateSettings);
 router.post('/reset', authenticate, authorize('ADMIN', 'SUPER_ADMIN'), settingsController.resetSettings);
 

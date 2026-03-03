@@ -46,14 +46,47 @@ export class UserController {
     const role = req.query.role as string;
     const search = req.query.search as string;
     const userRole = req.user!.role;
-    const userBranchId = req.user!.assignedBranch;
+    // assignedBranch could be ObjectId, string, or populated object
+    const rawBranchId = req.user!.assignedBranch;
+    let userBranchId: string | undefined;
+    
+    if (rawBranchId) {
+      if (typeof rawBranchId === 'string') {
+        userBranchId = rawBranchId;
+      } else if (rawBranchId instanceof Types.ObjectId) {
+        userBranchId = rawBranchId.toString();
+      } else if (typeof rawBranchId === 'object' && '_id' in (rawBranchId as any)) {
+        // It's a populated object, extract the _id
+        userBranchId = (rawBranchId as any)._id?.toString();
+      }
+    }
+    
+    console.log('[USERS] Extracted branchId:', userBranchId, 'from:', rawBranchId);
+    const showInactive = req.query.showInactive === 'true' || userRole === 'SUPER_ADMIN';
 
-    let filter: any = { isActive: true };
-    if (role) filter.role = role;
+    let filter: any = {};
+    
+    // Only filter by isActive if not showing inactive and not SUPER_ADMIN
+    if (!showInactive) {
+      filter.isActive = true;
+    }
+    
+    // If a specific role is requested, use it
+    if (role) {
+      filter.role = role;
+    }
+    // If no role specified and user is BRANCH_MANAGER, exclude SUPER_ADMIN by default
+    else if (userRole === 'BRANCH_MANAGER') {
+      filter.role = { $ne: 'SUPER_ADMIN' };
+    }
 
-    // Branch managers can only see users from their branch and cannot see SUPER_ADMIN
-    if (userRole === 'BRANCH_MANAGER') {
-      filter.role = { $ne: 'SUPER_ADMIN' }; // Hide SUPER_ADMIN from branch managers
+    // SUPER_ADMIN sees all users, no branch filtering
+    if (userRole === 'SUPER_ADMIN') {
+      // No additional filters for SUPER_ADMIN
+      console.log('[USERS] SUPER_ADMIN - showing all users');
+    }
+    // Branch managers can only see users from their branch
+    else if (userRole === 'BRANCH_MANAGER') {
       // Filter by branch - only show users assigned to manager's branch
       if (userBranchId) {
         // Convert to ObjectId for proper MongoDB comparison
@@ -69,7 +102,7 @@ export class UserController {
     }
 
     console.log('[USERS] Filter:', JSON.stringify(filter));
-    console.log('[USERS] User branchId:', userBranchId);
+    console.log('[USERS] User role:', userRole, 'branchId:', userBranchId);
 
     let result;
     if (search) {

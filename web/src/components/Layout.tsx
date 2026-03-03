@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
+import { useLanguage } from '../context/LanguageContext';
 import NotificationDropdown from './NotificationDropdown';
 import './Layout.css';
 
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { t } = useLanguage();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -12,29 +14,69 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [userRole, setUserRole] = useState<string>('');
+  const [userName, setUserName] = useState<string>('');
+  const [profileImage, setProfileImage] = useState<string>('');
 
-  // Get user role on component mount
+  // Get user data on component mount
   useEffect(() => {
     const role = localStorage.getItem('userRole') || 'CUSTOMER';
     setUserRole(role);
+    
+    // Load user name
+    const userData = localStorage.getItem('userData');
+    if (userData) {
+      try {
+        const parsed = JSON.parse(userData);
+        setUserName(parsed.name || '');
+        setProfileImage(parsed.profileImage || parsed.avatar || '');
+      } catch (e) {
+        console.error('Error parsing user data:', e);
+      }
+    }
   }, []);
 
-  // Determine current page from pathname
-  const getCurrentPage = () => {
+  // Listen for storage changes (when profile is updated in another tab/page)
+  useEffect(() => {
+    const handleStorageChange = () => {
+      const userData = localStorage.getItem('userData');
+      if (userData) {
+        try {
+          const parsed = JSON.parse(userData);
+          setUserName(parsed.name || '');
+          setProfileImage(parsed.profileImage || parsed.avatar || '');
+        } catch (e) {
+          console.error('Error parsing user data:', e);
+        }
+      }
+    };
+    
+    // Listen for storage events (other tabs) and custom events (same window)
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('profileUpdated', handleStorageChange as EventListener);
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('profileUpdated', handleStorageChange as EventListener);
+    };
+  }, []);
+
+  // Determine current page from pathname (returns translation key)
+  const getCurrentPageKey = () => {
     const path = location.pathname;
-    if (path === '/' || path === '/dashboard') return 'Dashboard';
-    if (path === '/orders') return 'Orders';
-    if (path === '/products') return 'Products';
-    if (path === '/branches') return 'Branches';
-    if (path === '/tables') return 'Tables';
-    if (path === '/users') return 'Users';
-    if (path === '/reports') return 'Reports';
-    if (path === '/notifications') return 'Notifications';
-    if (path === '/settings') return 'Settings';
-    return 'Dashboard';
+    if (path === '/' || path === '/dashboard') return 'dashboard';
+    if (path === '/orders') return 'orders';
+    if (path === '/products') return 'products';
+    if (path === '/branches') return 'branches';
+    if (path === '/tables') return 'tables';
+    if (path === '/users') return 'users';
+    if (path === '/reports') return 'reports';
+    if (path === '/notifications') return 'notifications';
+    if (path === '/settings') return 'settings';
+    return 'dashboard';
   };
 
-  const currentPage = getCurrentPage();
+  const currentPageKey = getCurrentPageKey();
+  const currentPage = t(currentPageKey as any);
 
   // Load unread notification count on component mount
   useEffect(() => {
@@ -101,45 +143,45 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
         <nav className="sidebar-nav">
           {/* Dashboard - available to all (but only admin reaches here) */}
-          <Link to="/dashboard" className={`nav-item ${currentPage === 'Dashboard' ? 'active' : ''}`}>
+          <Link to="/dashboard" className={`nav-item ${currentPageKey === 'dashboard' ? 'active' : ''}`}>
             <span className="nav-icon">📊</span>
-            <span className="nav-text">Dashboard</span>
+            <span className="nav-text">{t('dashboard')}</span>
           </Link>
 
           {/* Admin-only navigation (all other roles use mobile apps) */}
-          <Link to="/orders" className={`nav-item ${currentPage === 'Orders' ? 'active' : ''}`}>
+          <Link to="/orders" className={`nav-item ${currentPageKey === 'orders' ? 'active' : ''}`}>
             <span className="nav-icon">🛒</span>
-            <span className="nav-text">Orders</span>
+            <span className="nav-text">{t('orders')}</span>
           </Link>
-          <Link to="/products" className={`nav-item ${currentPage === 'Products' ? 'active' : ''}`}>
+          <Link to="/products" className={`nav-item ${currentPageKey === 'products' ? 'active' : ''}`}>
             <span className="nav-icon">🍕</span>
-            <span className="nav-text">Products</span>
+            <span className="nav-text">{t('products')}</span>
           </Link>
-          <Link to="/branches" className={`nav-item ${currentPage === 'Branches' ? 'active' : ''}`}>
+          <Link to="/branches" className={`nav-item ${currentPageKey === 'branches' ? 'active' : ''}`}>
             <span className="nav-icon">🏢</span>
-            <span className="nav-text">Branches</span>
+            <span className="nav-text">{t('branches')}</span>
           </Link>
           <div className="nav-group">
-            <Link to="/tables" className={`nav-item nav-subitem ${currentPage === 'Tables' ? 'active' : ''}`}>
+            <Link to="/tables" className={`nav-item nav-subitem ${currentPageKey === 'tables' ? 'active' : ''}`}>
               <span className="nav-icon">🪑</span>
-              <span className="nav-text">Tables</span>
+              <span className="nav-text">{t('tables')}</span>
             </Link>
-            <Link to="/notifications" className={`nav-item nav-subitem ${currentPage === 'Notifications' ? 'active' : ''}`}>
-              <span className="nav-icon">�</span>
-              <span className="nav-text">Notifications</span>
+            <Link to="/notifications" className={`nav-item nav-subitem ${currentPageKey === 'notifications' ? 'active' : ''}`}>
+              <span className="nav-icon">🔔</span>
+              <span className="nav-text">{t('notifications')}</span>
             </Link>
           </div>
-          <Link to="/users" className={`nav-item ${currentPage === 'Users' ? 'active' : ''}`}>
-            <span className="nav-icon">�</span>
-            <span className="nav-text">Users</span>
+          <Link to="/users" className={`nav-item ${currentPageKey === 'users' ? 'active' : ''}`}>
+            <span className="nav-icon">👥</span>
+            <span className="nav-text">{t('users')}</span>
           </Link>
-          <Link to="/reports" className={`nav-item ${currentPage === 'Reports' ? 'active' : ''}`}>
-            <span className="nav-icon">�</span>
-            <span className="nav-text">Reports</span>
+          <Link to="/reports" className={`nav-item ${currentPageKey === 'reports' ? 'active' : ''}`}>
+            <span className="nav-icon">📊</span>
+            <span className="nav-text">{t('reports')}</span>
           </Link>
-          <Link to="/settings" className={`nav-item ${currentPage === 'Settings' ? 'active' : ''}`}>
+          <Link to="/settings" className={`nav-item ${currentPageKey === 'settings' ? 'active' : ''}`}>
             <span className="nav-icon">⚙️</span>
-            <span className="nav-text">Settings</span>
+            <span className="nav-text">{t('settings')}</span>
           </Link>
         </nav>
       </aside>
@@ -158,13 +200,19 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             </button>
             <div className="user-menu">
               <div className="user-avatar">
-                👤
+                {profileImage ? (
+                  <img 
+                    src={profileImage} 
+                    alt={userName || 'User'} 
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
+                  />
+                ) : (
+                  '👤'
+                )}
               </div>
               <div className="user-info">
                 <p className="user-name">
-                  {userRole === 'ADMIN' ? 'Admin User' :
-                   userRole === 'CUSTOMER' ? 'Customer' :
-                   userRole.charAt(0).toUpperCase() + userRole.slice(1).toLowerCase()}
+                  {userName || (userRole === 'ADMIN' ? 'Admin User' : userRole.charAt(0).toUpperCase() + userRole.slice(1).toLowerCase())}
                 </p>
                 <p className="user-role">
                   {userRole === 'ADMIN' ? 'Administrator' :

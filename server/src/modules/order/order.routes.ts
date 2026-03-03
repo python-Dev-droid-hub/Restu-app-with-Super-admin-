@@ -61,31 +61,31 @@ router.put('/:id/cancel', authenticate, authorize('CUSTOMER'), validate(cancelOr
 router.put('/:id/review', authenticate, authorize('CUSTOMER'), validate(addReviewSchema), orderController.addReview);
 
 // Protected routes - Restaurant owners
-router.get('/restaurant/:restaurantId', authenticate, authorize('BRANCH_MANAGER', 'ADMIN'), validateParams(restaurantParamsSchema), orderController.getRestaurantOrders);
-router.put('/:id/status', authenticate, authorize('BRANCH_MANAGER', 'ADMIN', 'CHEF', 'RIDER'), validate(updateStatusSchema), orderController.updateOrderStatus);
-router.put('/:id/cancel-restaurant', authenticate, authorize('BRANCH_MANAGER', 'ADMIN'), validate(cancelOrderSchema), orderController.cancelOrder);
-router.get('/stats/:restaurantId', authenticate, authorize('BRANCH_MANAGER', 'ADMIN'), validateParams(restaurantParamsSchema), orderController.getOrderStats);
+router.get('/restaurant/:restaurantId', authenticate, authorize('BRANCH_MANAGER', 'ADMIN', 'SUPER_ADMIN'), validateParams(restaurantParamsSchema), orderController.getRestaurantOrders);
+router.put('/:id/status', authenticate, authorize('BRANCH_MANAGER', 'ADMIN', 'CHEF', 'RIDER', 'SUPER_ADMIN'), validate(updateStatusSchema), orderController.updateOrderStatus);
+router.put('/:id/cancel-restaurant', authenticate, authorize('BRANCH_MANAGER', 'ADMIN', 'SUPER_ADMIN'), validate(cancelOrderSchema), orderController.cancelOrder);
+router.get('/stats/:restaurantId', authenticate, authorize('BRANCH_MANAGER', 'ADMIN', 'SUPER_ADMIN'), validateParams(restaurantParamsSchema), orderController.getOrderStats);
 
 // Protected routes - Drivers
-router.get('/driver/my-orders', authenticate, authorize('RIDER'), orderController.getDriverOrders);
-router.get('/driver/available', authenticate, authorize('RIDER'), orderController.getAvailableOrders);
-router.put('/:id/accept', authenticate, authorize('RIDER'), orderController.acceptOrder);
-router.put('/:id/deliver', authenticate, authorize('RIDER'), validate(updateStatusSchema), orderController.updateOrderStatus);
+router.get('/driver/my-orders', authenticate, authorize('RIDER', 'SUPER_ADMIN'), orderController.getDriverOrders);
+router.get('/driver/available', authenticate, authorize('RIDER', 'SUPER_ADMIN'), orderController.getAvailableOrders);
+router.put('/:id/accept', authenticate, authorize('RIDER', 'SUPER_ADMIN'), orderController.acceptOrder);
+router.put('/:id/deliver', authenticate, authorize('RIDER', 'SUPER_ADMIN'), validate(updateStatusSchema), orderController.updateOrderStatus);
 
 // Protected routes - Admins
-router.get('/admin/all', authenticate, authorize('ADMIN'), orderController.getMyOrders); // Reuse getMyOrders for admin with different logic
-router.get('/admin/stats', authenticate, authorize('ADMIN'), orderController.getOrderStats);
+router.get('/admin/all', authenticate, authorize('ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER'), orderController.getMyOrders); // Reuse getMyOrders for admin with different logic
+router.get('/admin/stats', authenticate, authorize('ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER'), orderController.getOrderStats);
 
 // Generic admin endpoint for listing all orders with filtering
-router.get('/', authenticate, authorize('ADMIN'), orderController.getAllOrders);
+router.get('/', authenticate, authorize('ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER'), orderController.getAllOrders);
 
 // Submit order to kitchen - Waiter, Branch Manager, Admin
-router.post('/:orderId/submit-to-kitchen', authenticate, authorize('WAITER', 'BRANCH_MANAGER', 'ADMIN'), orderController.submitToKitchen);
+router.post('/:orderId/submit-to-kitchen', authenticate, authorize('WAITER', 'BRANCH_MANAGER', 'ADMIN', 'SUPER_ADMIN'), orderController.submitToKitchen);
 
 // Get orders for waiter - filtered by status
-router.get('/waiter/my-orders', authenticate, authorize('WAITER'), orderController.getWaiterOrders);
+router.get('/waiter/my-orders', authenticate, authorize('WAITER', 'SUPER_ADMIN'), orderController.getWaiterOrders);
 
 // PATCH order status - Waiter can mark as PICKED_UP
-router.patch('/:orderId', authenticate, authorize('WAITER', 'BRANCH_MANAGER', 'ADMIN', 'CHEF'), orderController.patchOrderStatus);
+router.patch('/:orderId', authenticate, authorize('WAITER', 'BRANCH_MANAGER', 'ADMIN', 'CHEF', 'SUPER_ADMIN'), orderController.patchOrderStatus);
 
 export default router;

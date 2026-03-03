@@ -34,6 +34,6 @@ router.get('/:id', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADM
 router.put('/:id', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), userController.updateUser);
 router.put('/:id/activate', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), userController.activateUser);
 router.put('/:id/deactivate', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), userController.deactivateUser);
-router.delete('/:id', authenticate, authorize('ADMIN', 'SUPER_ADMIN'), userController.deleteUser);
+router.delete('/:id', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), userController.deleteUser);
 
 export default router;
