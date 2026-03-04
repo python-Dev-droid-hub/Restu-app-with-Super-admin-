@@ -29,6 +29,8 @@ import sizesRoutes from '@/modules/product-size/sizes.routes';
 import uploadRoutes from '@/modules/upload/upload.routes';
 import tableRoutes from '@/modules/table/table.routes';
 import inventoryRoutes from '@/modules/inventory/inventory.routes';
+import paymentRoutes from '@/modules/payment/payment.routes';
+import customerRoutes from './routes/customer.routes';
 
 // Load environment variables
 dotenv.config();
@@ -92,6 +94,8 @@ app.use('/api/product-sizes', productSizeRoutes);
 app.use('/api/sizes', sizesRoutes); // Dedicated routes for size CRUD
 app.use('/api/tables', tableRoutes); // Table management routes
 app.use('/api/inventory', inventoryRoutes); // Inventory management routes
+app.use('/api/payments', paymentRoutes); // Payment processing routes
+app.use('/api/customer', customerRoutes); // Customer app routes
 app.use('/api', uploadRoutes); // Upload routes at /api/upload
 
 // Error handling middleware (must be last)

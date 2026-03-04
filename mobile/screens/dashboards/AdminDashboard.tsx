@@ -342,7 +342,7 @@ export default function AdminDashboard() {
             <View style={styles.statIconContainer}>
               <Ionicons name="cash-outline" size={24} color="#fff" />
             </View>
-            <Text style={styles.statValue}>{currencySymbol}{((stats.totalRevenue || 0)).toLocaleString()}</Text>
+            <Text style={styles.statValue}>{formatPrice(stats.totalRevenue || 0)}</Text>
             <Text style={styles.statLabel}>Total Revenue</Text>
           </TouchableOpacity>
           
@@ -429,7 +429,7 @@ export default function AdminDashboard() {
       <Modal
         visible={showMoreMenu}
         transparent={true}
-        animationType="slide"
+        animationType="none"
         onRequestClose={() => setShowMoreMenu(false)}
       >
         <View style={styles.modalOverlay}>

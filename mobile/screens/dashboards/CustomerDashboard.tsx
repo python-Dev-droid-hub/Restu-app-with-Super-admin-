@@ -1,17 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
-  ScrollView,
-  TouchableOpacity,
   StyleSheet,
   SafeAreaView,
-  Alert,
-  RefreshControl,
   StatusBar,
-  Image,
   Platform,
-  Dimensions,
+  Image,
+  TouchableOpacity,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -20,53 +16,95 @@ import { useSettings } from '../../context/SettingsContext';
 import { Ionicons } from '@expo/vector-icons';
 import { CommonActions } from '@react-navigation/native';
 
-const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 0;
-const HEADER_MARGIN = Platform.OS === 'ios' ? 50 : 20;
-const FOOTER_MARGIN = Platform.OS === 'android' ? 20 : 10;
+// Import tab components
+import CustomerOverviewTab from './components/CustomerOverviewTab';
+import CustomerOrdersTab from './components/CustomerOrdersTab';
+import CustomerFavoritesTab from './components/CustomerFavoritesTab';
+import CustomerWalletTab from './components/CustomerWalletTab';
+import BranchSelector from './components/BranchSelector';
 
-const { width } = Dimensions.get('window');
+// Import location service
+import { getSavedBranch, fetchBranches, Branch } from '../../services/locationService';
+
+const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 0;
+const COLORS = {
+  primary: '#FF6B35',
+  success: '#2ECC71',
+  info: '#3498DB',
+  warning: '#F39C12',
+  danger: '#E74C3C',
+  darkText: '#2C3E50',
+  lightBg: '#F5F5F5',
+  white: '#FFFFFF',
+  gray: '#95A5A6',
+};
+
+type TabType = 'home' | 'menu' | 'orders' | 'favorites' | 'profile';
 
 interface CustomerStats {
   totalOrders: number;
   favoriteItems: number;
   totalSpent: number;
   activeOrders: number;
-}
-
-interface Order {
-  _id: string;
-  orderNumber?: string;
-  status: string;
-  customerName?: string;
-  customerEmail?: string;
-  total: number;
-  createdAt: string;
+  averageRating: number;
 }
 
 interface UserData {
   displayName?: string;
   role?: string;
   email?: string;
+  phone?: string;
+  avatar?: string;
 }
 
 export default function CustomerDashboard() {
   const navigation = useNavigation();
   const { formatPrice } = useSettings();
+  const [activeTab, setActiveTab] = useState<TabType>('home');
   const [stats, setStats] = useState<CustomerStats>({
     totalOrders: 0,
     favoriteItems: 0,
     totalSpent: 0,
     activeOrders: 0,
+    averageRating: 0,
   });
-  const [recentOrders, setRecentOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [userData, setUserData] = useState<UserData | null>(null);
+  const [userData, setUserData] = useState<UserData>({});
+  
+  // Branch selection state
+  const [showBranchSelector, setShowBranchSelector] = useState(false);
+  const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
+  const [branches, setBranches] = useState<Branch[]>([]);
 
   useEffect(() => {
     loadDashboardData();
     loadUserData();
+    checkAndLoadBranch();
   }, []);
+
+  // Check saved branch on load
+  const checkAndLoadBranch = async () => {
+    const savedBranchId = await getSavedBranch();
+    const allBranches = await fetchBranches();
+    setBranches(allBranches);
+
+    if (savedBranchId) {
+      const branch = allBranches.find((b) => b._id === savedBranchId);
+      if (branch) {
+        setSelectedBranch(branch);
+      } else {
+        setShowBranchSelector(true);
+      }
+    } else {
+      // No saved branch, show selector
+      setShowBranchSelector(true);
+    }
+  };
+
+  const handleBranchSelected = (branch: Branch) => {
+    setSelectedBranch(branch);
+  };
 
   const loadUserData = async () => {
     try {
@@ -82,8 +120,6 @@ export default function CustomerDashboard() {
   const loadDashboardData = async () => {
     try {
       setLoading(true);
-
-      // Load customer stats
       const statsResponse = await api.get('/dashboard/customer/stats');
       if (statsResponse.success && statsResponse.data) {
         setStats({
@@ -91,13 +127,8 @@ export default function CustomerDashboard() {
           favoriteItems: statsResponse.data.favoriteItems || 0,
           totalSpent: statsResponse.data.totalSpent || 0,
           activeOrders: statsResponse.data.activeOrders || 0,
+          averageRating: statsResponse.data.averageRating || 0,
         });
-      }
-
-      // Load recent orders
-      const ordersResponse = await api.get('/orders?limit=5');
-      if (ordersResponse.success && ordersResponse.data) {
-        setRecentOrders(ordersResponse.data.orders || []);
       }
     } catch (error) {
       console.error('Error loading dashboard data:', error);
@@ -131,24 +162,46 @@ export default function CustomerDashboard() {
     return 'Good evening';
   };
 
-  const formatTime = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status?.toLowerCase()) {
-      case 'completed':
-      case 'delivered':
-        return '#4CAF50';
-      case 'pending':
-        return '#FF9800';
-      case 'preparing':
-        return '#2196F3';
-      case 'cancelled':
-        return '#F44336';
+  // Render tab content based on active tab
+  const renderTabContent = () => {
+    switch (activeTab) {
+      case 'home':
+        return (
+          <CustomerOverviewTab
+            userData={{
+              name: userData.displayName || 'Customer',
+              email: userData.email || '',
+              phone: userData.phone || '',
+              avatar: userData.avatar || null,
+            }}
+            stats={{
+              totalOrders: stats.totalOrders,
+              totalSpent: stats.totalSpent,
+              averageRating: stats.averageRating,
+              pendingOrders: stats.activeOrders,
+            }}
+            formatPrice={formatPrice}
+            onViewOrders={() => setActiveTab('orders')}
+            onViewFavorites={() => setActiveTab('favorites')}
+          />
+        );
+      case 'orders':
+        return <CustomerOrdersTab formatPrice={formatPrice} />;
+      case 'favorites':
+        return <CustomerFavoritesTab />;
+      case 'profile':
+        return <CustomerWalletTab formatPrice={formatPrice} />;
+      case 'menu':
+        // Navigate to menu or show menu placeholder
+        return (
+          <View style={styles.placeholderContainer}>
+            <Ionicons name="restaurant-outline" size={64} color={COLORS.gray} />
+            <Text style={styles.placeholderText}>Menu Screen</Text>
+            <Text style={styles.placeholderSubtext}>Browse our delicious offerings</Text>
+          </View>
+        );
       default:
-        return '#666';
+        return null;
     }
   };
 
@@ -156,146 +209,74 @@ export default function CustomerDashboard() {
     <SafeAreaView style={[styles.container, { paddingTop: STATUSBAR_HEIGHT }]}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={{ paddingBottom: Platform.OS === 'android' ? 120 : 100 }}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-      >
-        {/* Header */}
-        <View style={[styles.header, { marginTop: HEADER_MARGIN }]}>
+      {/* Header */}
+      <View style={styles.header}>
+        <View style={styles.headerLeft}>
           <View>
             <Text style={styles.headerTitle}>My Dashboard</Text>
             <Text style={styles.greeting}>{getGreeting()}, {userData?.displayName?.split(' ')[0] || 'Customer'}!</Text>
           </View>
-          <TouchableOpacity onPress={handleLogout}>
-            <Image
-              source={{ uri: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop' }}
-              style={styles.profileImage}
-            />
+          {/* Branch Location Indicator */}
+          <TouchableOpacity
+            style={styles.locationButton}
+            onPress={() => setShowBranchSelector(true)}
+          >
+            <Ionicons name="location" size={14} color={COLORS.primary} />
+            <Text style={styles.locationText} numberOfLines={1}>
+              {selectedBranch ? `${selectedBranch.city} - ${selectedBranch.branchName}` : 'Select Location'}
+            </Text>
+            <Ionicons name="chevron-down" size={14} color={COLORS.gray} />
           </TouchableOpacity>
         </View>
+        <TouchableOpacity onPress={handleLogout}>
+          <Image
+            source={{ uri: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop' }}
+            style={styles.profileImage}
+          />
+        </TouchableOpacity>
+      </View>
 
-        {/* Stats Cards */}
-        <View style={styles.statsGrid}>
-          <View style={[styles.statCard, styles.ordersCard]}>
-            <Ionicons name="receipt-outline" size={24} color="#fff" />
-            <Text style={styles.statValue}>{stats.totalOrders}</Text>
-            <Text style={styles.statLabel}>Total Orders</Text>
-          </View>
-          <View style={[styles.statCard, styles.spentCard]}>
-            <Ionicons name="wallet-outline" size={24} color="#fff" />
-            <Text style={styles.statValue}>{formatPrice(stats.totalSpent)}</Text>
-            <Text style={styles.statLabel}>Total Spent</Text>
-          </View>
-          <View style={[styles.statCard, styles.favoritesCard]}>
-            <Ionicons name="heart-outline" size={24} color="#fff" />
-            <Text style={styles.statValue}>{stats.favoriteItems}</Text>
-            <Text style={styles.statLabel}>Favorites</Text>
-          </View>
-          <View style={[styles.statCard, styles.activeCard]}>
-            <Ionicons name="time-outline" size={24} color="#fff" />
-            <Text style={styles.statValue}>{stats.activeOrders}</Text>
-            <Text style={styles.statLabel}>Active</Text>
-          </View>
-        </View>
+      {/* Branch Selector Modal */}
+      <BranchSelector
+        visible={showBranchSelector}
+        onClose={() => setShowBranchSelector(false)}
+        onBranchSelected={handleBranchSelected}
+      />
 
-        {/* Quick Actions */}
-        <View style={styles.actionsSection}>
-          <Text style={styles.sectionTitle}>Quick Actions</Text>
-          <View style={styles.actionsGrid}>
-            <TouchableOpacity style={styles.actionButton} onPress={() => { // @ts-ignore
-              navigation.navigate('CustomerMenu');
-            }}>
-              <View style={[styles.actionIcon, { backgroundColor: '#E87E3520' }]}>
-                <Ionicons name="restaurant-outline" size={24} color="#E87E35" />
-              </View>
-              <Text style={styles.actionText}>Browse Menu</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.actionButton}>
-              <View style={[styles.actionIcon, { backgroundColor: '#4CAF5020' }]}>
-                <Ionicons name="cart-outline" size={24} color="#4CAF50" />
-              </View>
-              <Text style={styles.actionText}>My Orders</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.actionButton}>
-              <View style={[styles.actionIcon, { backgroundColor: '#FF980020' }]}>
-                <Ionicons name="heart" size={24} color="#FF9800" />
-              </View>
-              <Text style={styles.actionText}>Favorites</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.actionButton}>
-              <View style={[styles.actionIcon, { backgroundColor: '#2196F320' }]}>
-                <Ionicons name="location-outline" size={24} color="#2196F3" />
-              </View>
-              <Text style={styles.actionText}>Track Order</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Recent Orders */}
-        <View style={styles.ordersSection}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Recent Orders</Text>
-            <TouchableOpacity>
-              <Text style={styles.viewAllText}>View All &gt;</Text>
-            </TouchableOpacity>
-          </View>
-
-          {recentOrders.length > 0 ? (
-            recentOrders.map((order, index) => (
-              <View key={order._id || index} style={styles.orderItem}>
-                <View style={styles.orderAvatar}>
-                  <Ionicons name="restaurant" size={20} color="#fff" />
-                </View>
-                <View style={styles.orderInfo}>
-                  <Text style={styles.orderNumber}>Order #{order.orderNumber || order._id?.slice(-6)}</Text>
-                  <Text style={styles.orderTime}>{formatTime(order.createdAt || new Date().toISOString())}</Text>
-                </View>
-                <Text style={styles.orderAmount}>{formatPrice(order.total || 0)}</Text>
-                <View style={[styles.statusBadge, { backgroundColor: getStatusColor(order.status) + '20' }]}>
-                  <Text style={[styles.statusText, { color: getStatusColor(order.status) }]}>
-                    {order.status}
-                  </Text>
-                </View>
-              </View>
-            ))
-          ) : (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="receipt-outline" size={48} color="#ccc" />
-              <Text style={styles.emptyText}>No orders yet</Text>
-              <Text style={styles.emptySubtext}>Your order history will appear here</Text>
-            </View>
-          )}
-        </View>
-
-        {/* Bottom Spacer */}
-        <View style={styles.bottomSpacer} />
-      </ScrollView>
+      {/* Tab Content */}
+      <View style={styles.content}>
+        {renderTabContent()}
+      </View>
 
       {/* Bottom Navigation */}
-      <View style={[styles.bottomNav, { bottom: FOOTER_MARGIN, left: 10, right: 10, borderRadius: 16, elevation: 5 }]}>
-        <TouchableOpacity style={styles.navItem}>
-          <Ionicons name="home" size={24} color="#e87e35" />
-          <Text style={[styles.navText, styles.navTextActive]}>Home</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem}>
-          <Ionicons name="restaurant-outline" size={24} color="#999" />
-          <Text style={styles.navText}>Menu</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem}>
-          <Ionicons name="receipt-outline" size={24} color="#999" />
-          <Text style={styles.navText}>Orders</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem}>
-          <Ionicons name="heart-outline" size={24} color="#999" />
-          <Text style={styles.navText}>Favorites</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem}>
-          <Ionicons name="person-outline" size={24} color="#999" />
-          <Text style={styles.navText}>Profile</Text>
-        </TouchableOpacity>
+      <View style={styles.bottomNav}>
+        {[
+          { id: 'home', icon: 'home', label: 'Home' },
+          { id: 'menu', icon: 'restaurant', label: 'Menu' },
+          { id: 'orders', icon: 'receipt', label: 'Orders' },
+          { id: 'favorites', icon: 'heart', label: 'Favorites' },
+          { id: 'profile', icon: 'person', label: 'Profile' },
+        ].map((tab) => (
+          <TouchableOpacity
+            key={tab.id}
+            style={styles.navItem}
+            onPress={() => setActiveTab(tab.id as TabType)}
+          >
+            <Ionicons
+              name={tab.icon as any}
+              size={24}
+              color={activeTab === tab.id ? COLORS.primary : COLORS.gray}
+            />
+            <Text
+              style={[
+                styles.navText,
+                activeTab === tab.id && styles.navTextActive,
+              ]}
+            >
+              {tab.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
       </View>
     </SafeAreaView>
   );
@@ -306,16 +287,17 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
   },
-  scrollView: {
-    flex: 1,
-  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     paddingHorizontal: 20,
     paddingTop: 10,
-    paddingBottom: 20,
+    paddingBottom: 12,
+  },
+  headerLeft: {
+    flex: 1,
+    marginRight: 12,
   },
   headerTitle: {
     fontSize: 24,
@@ -325,157 +307,27 @@ const styles = StyleSheet.create({
   greeting: {
     fontSize: 14,
     color: '#888',
-    marginTop: 4,
+    marginTop: 2,
+  },
+  locationButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+    gap: 4,
+  },
+  locationText: {
+    fontSize: 13,
+    color: COLORS.darkText,
+    fontWeight: '500',
+    maxWidth: 200,
   },
   profileImage: {
     width: 44,
     height: 44,
     borderRadius: 22,
   },
-  statsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: 20,
-    gap: 12,
-    marginBottom: 24,
-  },
-  statCard: {
-    width: (width - 52) / 2,
-    padding: 16,
-    borderRadius: 16,
-    alignItems: 'center',
-  },
-  ordersCard: {
-    backgroundColor: '#E87E35',
-  },
-  spentCard: {
-    backgroundColor: '#2E7D52',
-  },
-  favoritesCard: {
-    backgroundColor: '#7B5CB8',
-  },
-  activeCard: {
-    backgroundColor: '#1E5AA8',
-  },
-  statValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginTop: 8,
-    marginBottom: 4,
-  },
-  statLabel: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.9)',
-  },
-  actionsSection: {
-    paddingHorizontal: 20,
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1a1a2e',
-    marginBottom: 16,
-  },
-  actionsGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  actionButton: {
-    alignItems: 'center',
-  },
-  actionIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  actionText: {
-    fontSize: 12,
-    color: '#666',
-  },
-  ordersSection: {
-    paddingHorizontal: 20,
+  content: {
     flex: 1,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  viewAllText: {
-    fontSize: 14,
-    color: '#666',
-  },
-  orderItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  orderAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#E87E35',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  orderInfo: {
-    flex: 1,
-  },
-  orderNumber: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#1a1a2e',
-  },
-  orderTime: {
-    fontSize: 12,
-    color: '#888',
-    marginTop: 2,
-  },
-  orderAmount: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#1a1a2e',
-    marginRight: 12,
-  },
-  statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  statusText: {
-    fontSize: 11,
-    fontWeight: '600',
-    textTransform: 'capitalize',
-  },
-  emptyContainer: {
-    backgroundColor: '#f9f9f9',
-    borderRadius: 16,
-    padding: 40,
-    alignItems: 'center',
-  },
-  emptyText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1a1a2e',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptySubtext: {
-    fontSize: 14,
-    color: '#888',
-    textAlign: 'center',
-  },
-  bottomSpacer: {
-    height: 80,
   },
   bottomNav: {
     flexDirection: 'row',
@@ -486,10 +338,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     borderTopWidth: 1,
     borderTopColor: '#f0f0f0',
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
   },
   navItem: {
     alignItems: 'center',
@@ -502,5 +350,22 @@ const styles = StyleSheet.create({
   navTextActive: {
     color: '#e87e35',
     fontWeight: '600',
+  },
+  placeholderContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  placeholderText: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#2C3E50',
+    marginTop: 16,
+  },
+  placeholderSubtext: {
+    fontSize: 14,
+    color: '#95A5A6',
+    marginTop: 8,
   },
 });

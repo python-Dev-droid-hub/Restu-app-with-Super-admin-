@@ -626,8 +626,9 @@ export class OrderController {
     // Authorization checks
     const isWaiter = order.waiter && order.waiter._id.toString() === userId.toString();
     const isChef = userRole === 'CHEF';
-    const isAdmin = userRole === 'ADMIN';
+    const isAdmin = userRole === 'ADMIN' || userRole === 'SUPER_ADMIN';
     const isBranchManager = order.branch?.branchManager && order.branch.branchManager.toString() === userId.toString();
+    const isManager = userRole === 'BRANCH_MANAGER';
 
     // Waiter can only mark as PICKED_UP
     if (isWaiter && status === 'PICKED_UP') {
@@ -641,9 +642,9 @@ export class OrderController {
       return;
     }
 
-    // Chef can update to PREPARING or READY (case-insensitive)
+    // Chef can update to PREPARING, READY, or DELIVERED (case-insensitive)
     const statusUpper = status?.toUpperCase();
-    if (isChef && ['PREPARING', 'READY'].includes(statusUpper)) {
+    if (isChef && ['PREPARING', 'READY', 'DELIVERED'].includes(statusUpper)) {
       const updateData: any = { status: statusUpper };
       if (statusUpper === 'READY' && ready_at) {
         updateData.readyAt = new Date(ready_at);
@@ -656,8 +657,8 @@ export class OrderController {
       return;
     }
 
-    // Admin/BranchManager can update to any valid status
-    if (isAdmin || isBranchManager) {
+    // Admin/BranchManager/Manager/SuperAdmin can update to any valid status
+    if (isAdmin || isBranchManager || isManager) {
       const updateData: any = { status };
       if (picked_up_at) updateData.pickedUpAt = new Date(picked_up_at);
       if (ready_at) updateData.readyAt = new Date(ready_at);

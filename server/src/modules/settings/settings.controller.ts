@@ -29,6 +29,43 @@ export class SettingsController {
     sendSuccess(res, settings, 'Settings retrieved successfully');
   });
 
+  // Get public settings (for customers - no auth required)
+  getPublicSettings = asyncHandler(async (req: Request, res: Response) => {
+    let settings = await SystemSettings.findOne();
+
+    // If no settings exist, create default settings
+    if (!settings) {
+      settings = new SystemSettings({
+        restaurantName: 'Restaurant App',
+        restaurantDescription: 'Welcome to our restaurant',
+        contactEmail: 'contact@restaurant.com',
+        contactPhone: '+1-234-567-8900',
+        address: {
+          street: '123 Main Street',
+          city: 'New York',
+          state: 'NY',
+          zipCode: '10001',
+          country: 'USA'
+        }
+      });
+      await settings.save();
+    }
+
+    // Return only public-safe fields
+    const publicSettings = {
+      restaurantName: settings.restaurantName,
+      restaurantDescription: settings.restaurantDescription,
+      contactEmail: settings.contactEmail,
+      contactPhone: settings.contactPhone,
+      address: settings.address,
+      businessHours: (settings as any).businessHours,
+      currency: (settings as any).currency || 'USD',
+      taxRate: (settings as any).taxRate || 5,
+    };
+
+    sendSuccess(res, publicSettings, 'Public settings retrieved successfully');
+  });
+
   // Update system settings
   updateSettings = asyncHandler(async (req: IAuthRequest, res: Response) => {
     const updateData = req.body;

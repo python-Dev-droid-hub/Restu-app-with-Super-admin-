@@ -53,8 +53,11 @@ const updateSettingsSchema = Joi.object({
   }).optional(),
 });
 
-// Allow all authenticated staff to read settings
-router.get('/', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'WAITER', 'CHEF', 'SUPER_ADMIN'), settingsController.getSettings);
+// Public settings for customers (no auth required)
+router.get('/public', settingsController.getPublicSettings);
+
+// Allow all authenticated users to read settings
+router.get('/', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'WAITER', 'CHEF', 'SUPER_ADMIN', 'RIDER', 'CUSTOMER'), settingsController.getSettings);
 router.put('/', authenticate, authorize('ADMIN', 'SUPER_ADMIN'), validate(updateSettingsSchema), settingsController.updateSettings);
 router.post('/reset', authenticate, authorize('ADMIN', 'SUPER_ADMIN'), settingsController.resetSettings);
 

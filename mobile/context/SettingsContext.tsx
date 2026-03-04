@@ -144,10 +144,10 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
   useEffect(() => {
     loadSettings();
     
-    // Set up polling to refresh settings every 30 seconds for real-time sync
+    // Set up polling to refresh settings every 5 seconds for real-time sync
     const pollInterval = setInterval(() => {
       loadSettings();
-    }, 30000);
+    }, 5000);
     
     return () => clearInterval(pollInterval);
   }, []);

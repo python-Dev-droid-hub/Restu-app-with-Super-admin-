@@ -115,7 +115,7 @@ export default function OrderCard({
       case 'CHEF':
       case 'KITCHEN':
       case 'COOK':
-        return ['preparing', 'ready', 'cancelled'];
+        return ['preparing', 'ready', 'delivered', 'cancelled'];
       case 'WAITER':
         return ['picked_up', 'served'];
       case 'MANAGER':
@@ -126,7 +126,7 @@ export default function OrderCard({
       case 'RIDER':
         return ['out_for_delivery', 'delivered'];
       default:
-        return ['preparing', 'ready', 'cancelled'];
+        return ['preparing', 'ready', 'delivered', 'cancelled'];
     }
   };
   
@@ -180,9 +180,17 @@ export default function OrderCard({
     <View style={[styles.card, { padding, borderLeftColor: statusColor }]}>
       <View style={[styles.headerRow, { marginBottom: gap }]}>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.orderNumber, { fontSize: isSmallScreen ? 15 : 16 }]}>
-            {order.orderNumber}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Text style={[styles.orderNumber, { fontSize: isSmallScreen ? 15 : 16 }]}>
+              {order.orderNumber}
+            </Text>
+            {/* Production Status Badge */}
+            <View style={[styles.statusBadge, { backgroundColor: statusColor + '20', borderColor: statusColor }]}>
+              <Text style={[styles.statusText, { color: statusColor }]}>
+                {String(order.status || 'PENDING').toUpperCase()}
+              </Text>
+            </View>
+          </View>
           {String(order.orderType).toUpperCase() === 'DINE_IN' && (
             <View style={[styles.tableBadge, { marginTop: 6 }]}>
               <Text style={styles.tableBadgeText}>Table {order.tableNumber || order.table || '-'}</Text>
@@ -349,6 +357,17 @@ export default function OrderCard({
               disabled={!!loadingStatus}
             >
               {loadingStatus === 'picked_up' ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.actionText}>Pick Up</Text>}
+            </TouchableOpacity>
+          ) : null}
+
+          {((order.status as any) === 'READY' || (order.status as any) === 'ready') && isActionAllowed('delivered') && !isActionAllowed('picked_up') ? (
+            <TouchableOpacity
+              onPress={() => handle('delivered')}
+              style={[styles.actionBtn, { backgroundColor: COLORS.success }]}
+              activeOpacity={0.85}
+              disabled={!!loadingStatus}
+            >
+              {loadingStatus === 'delivered' ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.actionText}>Mark Complete</Text>}
             </TouchableOpacity>
           ) : null}
 
@@ -553,6 +572,16 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: COLORS.primary,
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  statusText: {
+    fontSize: 11,
+    fontWeight: '700',
   },
   specialInstructionsBox: {
     backgroundColor: COLORS.warning + '15',

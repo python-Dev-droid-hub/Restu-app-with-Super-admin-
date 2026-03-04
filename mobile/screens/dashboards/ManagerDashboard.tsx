@@ -169,22 +169,6 @@ export default function ManagerDashboard() {
     loadUserData();
   }, []);
 
-  // Load dashboard data AFTER assignedBranch is set
-  useEffect(() => {
-    if (assignedBranch._id) {
-      loadDashboardData();
-      loadUnreadCount();
-      
-      // Set up polling for real-time updates (every 10 seconds)
-      const pollInterval = setInterval(() => {
-        loadDashboardData();
-        loadUnreadCount();
-      }, 10000);
-      
-      return () => clearInterval(pollInterval);
-    }
-  }, [assignedBranch._id]);
-
   const loadUserData = async () => {
     try {
       const stored = await AsyncStorage.getItem('userData');
@@ -383,7 +367,7 @@ export default function ManagerDashboard() {
             <View style={styles.statIconContainer}>
               <Ionicons name="cash-outline" size={24} color="#fff" />
             </View>
-            <Text style={styles.statValue}>{currencySymbol}{((stats.totalRevenue || 0)).toLocaleString()}</Text>
+            <Text style={styles.statValue}>{formatPrice(stats.totalRevenue || 0)}</Text>
             <Text style={styles.statLabel}>{t('dashboard.totalRevenue')}</Text>
           </TouchableOpacity>
           
@@ -441,7 +425,18 @@ export default function ManagerDashboard() {
 
           {recentOrders.length > 0 ? (
             recentOrders.map((order, index) => (
-              <View key={`recent-${order._id || index}`} style={styles.orderItem}>
+              <TouchableOpacity 
+                key={`recent-${order._id || index}`} 
+                style={styles.orderItem}
+                onPress={() => {
+                  // @ts-ignore
+                  navigation.navigate('AdminOrders', { 
+                    orderId: order._id,
+                    highlightOrder: true 
+                  });
+                }}
+                activeOpacity={0.8}
+              >
                 <View style={styles.orderIconContainer}>
                   <Ionicons name="receipt-outline" size={20} color="#E87E35" />
                 </View>
@@ -457,7 +452,7 @@ export default function ManagerDashboard() {
                     {String(order.status || 'PENDING')}
                   </Text>
                 </View>
-              </View>
+              </TouchableOpacity>
             ))
           ) : (
             <View style={styles.emptyContainer}>
@@ -474,7 +469,7 @@ export default function ManagerDashboard() {
       <Modal
         visible={showMoreMenu}
         transparent={true}
-        animationType="slide"
+        animationType="none"
         onRequestClose={() => setShowMoreMenu(false)}
       >
         <View style={styles.modalOverlay}>
@@ -799,6 +794,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 8,
     paddingHorizontal: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   orderIconContainer: {
     width: 40,

@@ -21,10 +21,21 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.anonymous.mobile"
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      [
+        "@stripe/stripe-react-native",
+        {
+          "publishableKey": "pk_test_your_stripe_publishable_key_here",
+          "merchantIdentifier": "merchant.com.restaurant.app",
+          "enableGooglePay": true
+        }
+      ]
+    ]
   }
 }

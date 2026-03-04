@@ -222,13 +222,17 @@ export default function WaiterDashboard() {
 
         setOrders(formattedOrders);
 
-        const activeOrders = formattedOrders.filter(o => o.status !== 'COMPLETED' && o.status !== 'CANCELLED');
+        const activeOrders = formattedOrders.filter(o => o.status !== 'COMPLETED' && o.status !== 'CANCELLED' && o.status !== 'SERVED');
         const readyToServe = formattedOrders.filter(o => o.status === 'READY');
-        setStats(prev => ({
-          active_orders: prev.active_orders || activeOrders.length,
-          ready_to_serve: prev.ready_to_serve || readyToServe.length,
-          served_today: prev.served_today,
-        }));
+        const servedToday = formattedOrders.filter(o => 
+          (o.status === 'COMPLETED' || o.status === 'SERVED') && 
+          new Date(o.created_at).toDateString() === new Date().toDateString()
+        ).length;
+        setStats({
+          active_orders: activeOrders.length,
+          ready_to_serve: readyToServe.length,
+          served_today: servedToday,
+        });
       }
 
       const tablesResponse = await api.get('/tables');
@@ -507,8 +511,8 @@ export default function WaiterDashboard() {
                   showPayment={true}
                   showActions={o.status === 'READY'}
                 />
-                {/* Edit button for editable orders */}
-                {['PENDING', 'KITCHEN_ACCEPTED'].includes(o.status) && (
+                {/* Edit button - show for orders that haven't been served yet */}
+                {['PENDING', 'KITCHEN_ACCEPTED', 'PREPARING', 'READY'].includes(o.status) && (
                   <TouchableOpacity
                     style={{
                       position: 'absolute',
@@ -611,8 +615,8 @@ export default function WaiterDashboard() {
                   showPayment={true}
                   showActions={o.status === 'READY'}
                 />
-                {/* Edit button for editable orders */}
-                {['PENDING', 'KITCHEN_ACCEPTED'].includes(o.status) && (
+                {/* Edit button - show for orders that haven't been served yet */}
+                {['PENDING', 'KITCHEN_ACCEPTED', 'PREPARING', 'READY'].includes(o.status) && (
                   <TouchableOpacity
                     style={{
                       position: 'absolute',

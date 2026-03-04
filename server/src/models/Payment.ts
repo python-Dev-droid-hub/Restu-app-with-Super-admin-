@@ -32,9 +32,14 @@ const paymentSchema = new Schema({
   },
   paymentMethod: {
     type: String,
+    enum: ['card', 'cash', 'wallet', 'apple_pay', 'google_pay', 'bank_transfer', 'stripe'],
     required: [true, 'Payment method is required'],
     trim: true,
-    maxlength: [50, 'Payment method cannot exceed 50 characters']
+  },
+  type: {
+    type: String,
+    enum: ['order_payment', 'payout'],
+    default: 'order_payment'
   },
   provider: {
     type: String,
@@ -43,7 +48,7 @@ const paymentSchema = new Schema({
   },
   status: {
     type: String,
-    enum: ['PENDING', 'PROCESSING', 'SUCCESS', 'FAILED', 'REFUNDED'],
+    enum: ['PENDING', 'PROCESSING', 'SUCCESS', 'FAILED', 'REFUNDED', 'APPROVED'],
     default: 'PENDING'
   },
   transactionId: {
@@ -81,6 +86,44 @@ const paymentSchema = new Schema({
   },
   completedAt: {
     type: Date
+  },
+  // Stripe Integration
+  stripePaymentIntentId: {
+    type: String,
+    trim: true,
+    sparse: true,
+    index: true
+  },
+  stripeChargeId: {
+    type: String,
+    trim: true,
+    sparse: true
+  },
+  stripeCustomerId: {
+    type: String,
+    trim: true,
+    sparse: true
+  },
+  // Rider Payout Fields
+  rider: {
+    type: Schema.Types.ObjectId,
+    ref: 'User',
+    sparse: true
+  },
+  bankAccountId: {
+    type: String,
+    trim: true
+  },
+  bankTransferId: {
+    type: String,
+    trim: true
+  },
+  approvedBy: {
+    type: Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  approvedAt: {
+    type: Date
   }
 }, {
   timestamps: true
@@ -89,10 +132,13 @@ const paymentSchema = new Schema({
 // Indexes for better performance
 paymentSchema.index({ order: 1 });
 paymentSchema.index({ customer: 1 });
+paymentSchema.index({ rider: 1 });
 paymentSchema.index({ status: 1 });
 paymentSchema.index({ transactionId: 1 });
 paymentSchema.index({ idempotencyKey: 1 });
+paymentSchema.index({ stripePaymentIntentId: 1 });
 paymentSchema.index({ createdAt: -1 });
+paymentSchema.index({ type: 1, status: 1 });
 
 // Pre-save middleware to set payment number
 paymentSchema.pre('save', async function(next: any) {

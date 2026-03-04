@@ -1,764 +1,571 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
   ScrollView,
-  TouchableOpacity,
   StyleSheet,
   SafeAreaView,
-  Alert,
-  RefreshControl,
-  Modal,
   StatusBar,
-  Image,
-  Platform,
-  Dimensions,
+  TouchableOpacity,
+  RefreshControl,
+  Alert,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { CommonActions, useNavigation } from '@react-navigation/native';
+
+import RiderHomeHeader from './components/RiderHomeHeader';
+import RiderHomeContent from './components/RiderHomeContent';
+import RiderEarningsTab from './components/RiderEarningsTab';
+import RiderOrdersTab from './components/RiderOrdersTab';
+import RiderSettingsTab from './components/RiderSettingsTab';
+import RiderNotificationsTab from './components/RiderNotificationsTab';
 import { api } from '../../components/api/client';
 import { useSettings } from '../../context/SettingsContext';
-import { CommonActions } from '@react-navigation/native';
 
-const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 0;
-const HEADER_MARGIN = Platform.OS === 'ios' ? 50 : 20;
+// App Styling System
+export const COLORS = {
+  primary: '#FF6B35',
+  success: '#2ECC71',
+  info: '#3498DB',
+  warning: '#F39C12',
+  danger: '#E74C3C',
+  darkText: '#2C3E50',
+  lightBg: '#F5F5F5',
+  white: '#FFFFFF',
+  gray: '#95A5A6',
+  lightGray: '#ECEFF1',
+  green: '#2ECC71',
+  blue: '#3498DB',
+  orange: '#FF6B35',
+  red: '#E74C3C',
+};
 
-const { width } = Dimensions.get('window');
+export const FONTS = {
+  pageTitle: { fontSize: 24, fontWeight: '700' as const },
+  sectionTitle: { fontSize: 16, fontWeight: '700' as const },
+  body: { fontSize: 14, fontWeight: '400' as const },
+  small: { fontSize: 12, fontWeight: '400' as const },
+  button: { fontSize: 14, fontWeight: '700' as const },
+  tab: { fontSize: 12, fontWeight: '400' as const },
+};
 
-interface Delivery {
-  id: string;
-  orderNumber: string;
-  restaurantName: string;
-  customerName: string;
-  customerPhone: string;
-  deliveryAddress: string;
-  items: string[];
-  totalAmount: number;
-  status: 'ASSIGNED' | 'PICKED_UP' | 'IN_TRANSIT' | 'DELIVERED';
-  estimatedTime: string;
-  distance: string;
-}
+export const SPACING = {
+  horizontal: 16,
+  verticalGap: 12,
+  sectionGap: 20,
+  cardPadding: 16,
+  headerHeight: 56,
+  footerHeight: 60,
+};
 
-interface RiderStats {
-  todayDeliveries: number;
-  todayEarnings: number;
-  totalDeliveries: number;
-  rating: number;
-  isOnline: boolean;
-}
+type TabType = 'Home' | 'Orders' | 'Earnings' | 'Settings' | 'Notifications';
 
-interface RiderEarnings {
-  totalEarnings: number;
-  thisWeekEarnings: number;
-  thisMonthEarnings: number;
-  lastMonthEarnings: number;
-}
+type RiderOrderStatus = 'pending' | 'assigned' | 'picked_up' | 'in_delivery' | 'delivered' | 'cancelled';
+
+const normalizeRiderStatus = (status: string | undefined): RiderOrderStatus => {
+  if (!status) return 'pending';
+
+  const normalized = String(status).toUpperCase();
+
+  const statusMap: Record<string, RiderOrderStatus> = {
+    PENDING: 'pending',
+    CONFIRMED: 'pending',
+    PREPARING: 'pending',
+    READY: 'pending',
+
+    ASSIGNED: 'assigned',
+
+    PICKED_UP: 'picked_up',
+    PICKUP_COMPLETE: 'picked_up',
+
+    IN_DELIVERY: 'in_delivery',
+    OUT_FOR_DELIVERY: 'in_delivery',
+
+    DELIVERED: 'delivered',
+    COMPLETED: 'delivered',
+
+    CANCELLED: 'cancelled',
+    REJECTED: 'cancelled',
+  };
+
+  return statusMap[normalized] || 'pending';
+};
 
 export default function RiderDashboard() {
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { formatPrice } = useSettings();
-  const [activeTab, setActiveTab] = useState<'overview' | 'deliveries' | 'earnings'>('overview');
-  const [stats, setStats] = useState<RiderStats>({
-    todayDeliveries: 0,
-    todayEarnings: 0,
-    totalDeliveries: 0,
-    rating: 4.8,
-    isOnline: true,
-  });
-  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
-  const [earnings, setEarnings] = useState<RiderEarnings | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<TabType>('Home');
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadDashboardData();
+  // Data states
+  const [riderData, setRiderData] = useState({
+    name: 'Rider',
+    avatar: null as string | null,
+    onDuty: true,
+    rating: 5.0,
+    verification: 100,
+  });
+
+  const [stats, setStats] = useState({
+    activeDeliveries: 0,
+    todayEarnings: 0,
+    weekEarnings: 0,
+    totalDeliveries: 0,
+  });
+
+  const [activeOrder, setActiveOrder] = useState<any>(null);
+  const [newOrderAlert, setNewOrderAlert] = useState<any>(null);
+  const [orders, setOrders] = useState<any[]>([]);
+  const [earnings, setEarnings] = useState<any>(null);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  // Load rider data
+  const loadRiderData = useCallback(async () => {
+    try {
+      const userDataRaw = await AsyncStorage.getItem('userData');
+      if (userDataRaw) {
+        const userData = JSON.parse(userDataRaw);
+        setRiderData(prev => ({
+          ...prev,
+          name: userData?.display_name || userData?.name || 'Rider',
+          avatar: userData?.avatar || userData?.image || null,
+        }));
+      }
+    } catch (error) {
+      console.error('Error loading rider data:', error);
+    }
   }, []);
 
-  const loadDashboardData = async () => {
+  // Fetch dashboard stats
+  const fetchStats = useCallback(async () => {
     try {
-      setLoading(true);
-
-      // Load rider stats
-      const statsResponse = await api.get('/dashboard/rider/stats');
-      if (statsResponse.success && statsResponse.data) {
+      const response = await api.get('/dashboard/rider/stats');
+      if (response.success && response.data) {
         setStats({
-          todayDeliveries: statsResponse.data.assignedDeliveries || 0,
-          todayEarnings: statsResponse.data.todayEarnings || 0,
-          totalDeliveries: statsResponse.data.completedDeliveries || 0,
-          rating: 4.8,
-          isOnline: true,
+          activeDeliveries: response.data.assignedDeliveries || 0,
+          todayEarnings: response.data.todayEarnings || 0,
+          weekEarnings: response.data.thisWeekEarnings || 0,
+          totalDeliveries: response.data.completedDeliveries || 0,
         });
       }
+    } catch (error) {
+      console.error('Error fetching stats:', error);
+    }
+  }, []);
 
-      // Load assigned deliveries
-      const deliveriesResponse = await api.get('/orders/driver/my-orders');
-      if (deliveriesResponse.success && deliveriesResponse.data) {
-        const formattedDeliveries = deliveriesResponse.data.deliveries?.map((order: any) => ({
+  // Fetch active delivery
+  const fetchActiveDelivery = useCallback(async () => {
+    try {
+      const response = await api.get('/orders/driver/my-orders');
+      if (response.success && response.data) {
+        // Find first active/pending order
+        const active = response.data.deliveries?.find((o: any) => 
+          o.status === 'ASSIGNED' || o.status === 'PICKED_UP' || o.status === 'IN_DELIVERY'
+        );
+        setActiveOrder(active || null);
+      }
+    } catch (error) {
+      console.error('Error fetching active delivery:', error);
+    }
+  }, []);
+
+  // Fetch orders
+  const fetchOrders = useCallback(async () => {
+    try {
+      console.log('[RiderDashboard] Fetching orders...');
+      const response = await api.get('/orders/driver/my-orders');
+      console.log('[RiderDashboard] Orders response:', { success: response.success, hasData: !!response.data, deliveriesCount: response.data?.deliveries?.length || 0 });
+      
+      if (response.success && response.data) {
+        // ===== TEMPORARY: Log first delivery for coordinate verification =====
+        const deliveries = response.data.deliveries || [];
+        console.log('[RiderDashboard] Raw deliveries array length:', deliveries.length);
+        
+        if (deliveries.length === 0) {
+          console.log('⚠️ NO DELIVERIES FOUND - Cannot show map without orders');
+        } else {
+          const firstDelivery = deliveries[0];
+          console.log('═══════════════════════════════════════════════════');
+          console.log('FIRST DELIVERY OBJECT (for coordinate verification)');
+          console.log('═══════════════════════════════════════════════════');
+          console.log(JSON.stringify(firstDelivery, null, 2));
+          console.log('═══════════════════════════════════════════════════');
+          
+          console.log('\n📍 COORDINATE FIELDS CHECK:');
+          console.log('branch.location:', firstDelivery.branch?.location);
+          console.log('branch.location.latitude:', firstDelivery.branch?.location?.latitude);
+          console.log('branch.location.lat:', firstDelivery.branch?.location?.lat);
+          console.log('branch.location.coordinates:', firstDelivery.branch?.location?.coordinates);
+          
+          console.log('\ndeliveryAddress.location:', firstDelivery.deliveryAddress?.location);
+          console.log('deliveryAddress.location.latitude:', firstDelivery.deliveryAddress?.location?.latitude);
+          console.log('deliveryAddress.location.lat:', firstDelivery.deliveryAddress?.location?.lat);
+          console.log('deliveryAddress.coordinates:', firstDelivery.deliveryAddress?.coordinates);
+          console.log('deliveryAddress.coords:', firstDelivery.deliveryAddress?.coords);
+          
+          console.log('\npickupLocation.location:', firstDelivery.pickupLocation?.location);
+          console.log('pickupLocation.coordinates:', firstDelivery.pickupLocation?.coordinates);
+          
+          console.log('\n✅ After mapping, pickupCoords will be:', {
+            branchExists: !!firstDelivery.branch,
+            locationExists: !!firstDelivery.branch?.location,
+            latitude: firstDelivery.branch?.location?.latitude || firstDelivery.branch?.location?.lat
+          });
+          console.log('═══════════════════════════════════════════════════');
+        }
+        // ===== END TEMPORARY LOGGING =====
+        
+        const formattedOrders = deliveries.map((order: any) => ({
+          _id: order._id,
           id: order._id,
-          orderNumber: order.orderNumber || `ORD-${order._id.toString().slice(-6).toUpperCase()}`,
+          orderNumber: order.orderNumber || `ORD-${order._id?.toString().slice(-6).toUpperCase()}`,
+          customerName: order.customer?.displayName || order.customer?.name || 'Unknown Customer',
+          pickupLocation: order.branch?.branchName || order.branch?.name || 'Restaurant',
+          deliveryLocation: order.deliveryAddress?.street || order.deliveryAddress?.address || 'Delivery Address',
+          distance: order.distance || 2.3,
+          estimatedTime: order.estimatedTime || 15,
+          estimatedEarning: order.deliveryFee || order.estimatedEarning || 0,
+          status: normalizeRiderStatus(order.status),
+          backendStatus: order.status,
+          customerPhone: order.customer?.phoneNumber || order.customer?.phone || 'N/A',
+          // Map coordinates
+          pickupCoords: order.branch?.location ? {
+            latitude: order.branch.location.latitude || order.branch.location.lat,
+            longitude: order.branch.location.longitude || order.branch.location.lng,
+          } : undefined,
+          deliveryCoords: order.deliveryAddress?.location ? {
+            latitude: order.deliveryAddress.location.latitude || order.deliveryAddress.location.lat,
+            longitude: order.deliveryAddress.location.longitude || order.deliveryAddress.location.lng,
+          } : order.deliveryAddress?.coordinates ? {
+            latitude: order.deliveryAddress.coordinates[1],
+            longitude: order.deliveryAddress.coordinates[0],
+          } : undefined,
+          // Additional fields
           restaurantName: order.branch?.branchName || 'Unknown Restaurant',
-          customerName: order.customer?.displayName || 'Unknown Customer',
-          customerPhone: order.customer?.phoneNumber || 'N/A',
           deliveryAddress: order.deliveryAddress?.street || 'N/A',
           items: order.items?.map((item: any) => item.product?.name || 'Unknown Item') || [],
           totalAmount: order.totalAmount || 0,
-          status: order.status || 'ASSIGNED',
-          estimatedTime: '15 min',
-          distance: '2.3 km',
         })) || [];
-        setDeliveries(formattedDeliveries);
-      }
-
-      // Load earnings data
-      const earningsResponse = await api.get('/dashboard/rider/earnings');
-      if (earningsResponse.success && earningsResponse.data) {
-        setEarnings(earningsResponse.data);
+        setOrders(formattedOrders);
       }
     } catch (error) {
-      console.error('Error loading dashboard data:', error);
-    } finally {
+      console.error('Error fetching orders:', error);
+    }
+  }, []);
+
+  // Fetch earnings
+  const fetchEarnings = useCallback(async () => {
+    try {
+      const response = await api.get('/dashboard/rider/earnings');
+      if (response.success && response.data) {
+        setEarnings(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching earnings:', error);
+    }
+  }, []);
+
+  // Fetch notifications
+  const fetchNotifications = useCallback(async () => {
+    try {
+      const response = await api.get('/notifications');
+      if (response.success && response.data) {
+        const notifs = response.data.notifications || [];
+        setNotifications(notifs);
+        const unread = notifs.filter((n: any) => !n.read).length;
+        setUnreadCount(unread);
+      }
+    } catch (error) {
+      console.error('Error fetching notifications:', error);
+    }
+  }, []);
+  const checkNewOrders = useCallback(async () => {
+    try {
+      const response = await api.get('/orders/driver/available');
+      if (response.success && response.data && response.data.orders?.length > 0) {
+        const newOrder = response.data.orders[0];
+        if (!activeOrder && !newOrderAlert) {
+          setNewOrderAlert(newOrder);
+        }
+      }
+    } catch (error) {
+      console.error('Error checking new orders:', error);
+    }
+  }, [activeOrder, newOrderAlert]);
+
+  // Initial load
+  useEffect(() => {
+    const loadData = async () => {
+      setLoading(true);
+      await Promise.all([
+        loadRiderData(),
+        fetchStats(),
+        fetchActiveDelivery(),
+        fetchOrders(),
+        fetchEarnings(),
+        fetchNotifications(),
+      ]);
       setLoading(false);
+    };
+    loadData();
+  }, [loadRiderData, fetchStats, fetchActiveDelivery, fetchOrders, fetchEarnings, fetchNotifications]);
+
+  // Polling for updates
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchStats();
+      fetchActiveDelivery();
+      checkNewOrders();
+      fetchNotifications();
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [fetchStats, fetchActiveDelivery, checkNewOrders, fetchNotifications]);
+
+  // Handle refresh
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([
+      fetchStats(),
+      fetchActiveDelivery(),
+      fetchOrders(),
+      fetchEarnings(),
+      fetchNotifications(),
+    ]);
+    setRefreshing(false);
+  }, [fetchStats, fetchActiveDelivery, fetchOrders, fetchEarnings, fetchNotifications]);
+
+  // Accept order
+  const handleAcceptOrder = async (orderId: string) => {
+    // ... (rest of the code remains the same)
+    try {
+      const response = await api.put(`/orders/${orderId}/accept`);
+      if (response.success) {
+        setNewOrderAlert(null);
+        setActiveOrder(response.data.order);
+        fetchStats();
+        fetchOrders();
+      }
+    } catch (error) {
+      console.error('Error accepting order:', error);
+      Alert.alert('Error', 'Failed to accept order');
     }
   };
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await loadDashboardData();
-    setRefreshing(false);
+  // Decline order
+  const handleDeclineOrder = () => {
+    setNewOrderAlert(null);
   };
 
+  // Mark delivered
+  const handleMarkDelivered = async (orderId: string) => {
+    try {
+      const response = await api.put(`/orders/${orderId}/deliver`, { status: 'DELIVERED' });
+      if (response.success) {
+        setActiveOrder(null);
+        fetchStats();
+        fetchOrders();
+        Alert.alert('Success', 'Order marked as delivered!');
+      }
+    } catch (error) {
+      console.error('Error marking delivered:', error);
+      Alert.alert('Error', 'Failed to mark as delivered');
+    }
+  };
+
+  // Toggle duty status
+  const toggleDuty = () => {
+    setRiderData(prev => ({ ...prev, onDuty: !prev.onDuty }));
+    // API call would go here
+  };
+
+  // Logout
   const handleLogout = async () => {
-    await AsyncStorage.removeItem('authToken');
-    await AsyncStorage.removeItem('userRole');
-    await AsyncStorage.removeItem('userData');
+    await AsyncStorage.multiRemove(['authToken', 'userRole', 'userData']);
     navigation.dispatch(
       CommonActions.reset({
         index: 0,
-        routes: [{ name: 'RoleSelection' as any }],
+        routes: [{ name: 'Login' }],
       })
     );
   };
 
-  const toggleOnlineStatus = async () => {
-    setStats(prev => ({ ...prev, isOnline: !prev.isOnline }));
-    // API call would go here to update online status
-  };
-
-  const getStatusColor = (status: string) => {
-    const colors: Record<string, string> = {
-      ASSIGNED: '#ff9800',
-      PICKED_UP: '#9c27b0',
-      IN_TRANSIT: '#2196f3',
-      DELIVERED: '#4caf50',
-    };
-    return colors[status] || '#757575';
-  };
-
-  const updateDeliveryStatus = async (deliveryId: string, newStatus: string) => {
-    try {
-      // Optimistic update
-      setDeliveries(prevDeliveries =>
-        prevDeliveries.map(delivery =>
-          delivery.id === deliveryId ? { ...delivery, status: newStatus as any } : delivery
-        )
-      );
-
-      // API call would go here
-      await api.put(`/orders/${deliveryId}`, { status: newStatus });
-    } catch (error) {
-      console.error('Error updating delivery status:', error);
-      // Revert optimistic update on error
-      loadDashboardData();
-    }
-  };
-
-  const DeliveryCard = ({ delivery }: { delivery: Delivery }) => (
-    <View style={[styles.deliveryCard, { borderLeftColor: getStatusColor(delivery.status) }]}>
-      <View style={styles.deliveryHeader}>
-        <View>
-          <Text style={styles.orderNumber}>{delivery.orderNumber}</Text>
-          <Text style={styles.restaurantName}>{delivery.restaurantName}</Text>
-        </View>
-        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(delivery.status) + '20' }]}>
-          <Text style={[styles.statusText, { color: getStatusColor(delivery.status) }]}>
-            {delivery.status.replace('_', ' ')}
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.customerInfo}>
-        <Text style={styles.customerName}>👤 {delivery.customerName}</Text>
-        <Text style={styles.customerPhone}>📞 {delivery.customerPhone}</Text>
-      </View>
-
-      <View style={styles.deliveryInfo}>
-        <Text style={styles.deliveryAddress}>📍 {delivery.deliveryAddress}</Text>
-        <Text style={styles.deliveryDetails}>🚴 {delivery.distance} • ⏱️ {delivery.estimatedTime}</Text>
-      </View>
-
-      <View style={styles.itemsSummary}>
-        <Text style={styles.itemsText}>{delivery.items.join(', ')}</Text>
-        <Text style={styles.amountText}>{formatPrice(delivery.totalAmount)}</Text>
-      </View>
-
-      <View style={styles.actionButtons}>
-        {delivery.status === 'ASSIGNED' && (
-          <TouchableOpacity
-            style={[styles.actionButton, { backgroundColor: '#9c27b0' }]}
-            onPress={() => updateDeliveryStatus(delivery.id, 'PICKED_UP')}
-          >
-            <Text style={styles.actionButtonText}>🛍️ Pick Up Order</Text>
-          </TouchableOpacity>
-        )}
-        {delivery.status === 'PICKED_UP' && (
-          <TouchableOpacity
-            style={[styles.actionButton, { backgroundColor: '#2196f3' }]}
-            onPress={() => updateDeliveryStatus(delivery.id, 'IN_TRANSIT')}
-          >
-            <Text style={styles.actionButtonText}>🚴 Start Delivery</Text>
-          </TouchableOpacity>
-        )}
-        {delivery.status === 'IN_TRANSIT' && (
-          <TouchableOpacity
-            style={[styles.actionButton, { backgroundColor: '#4caf50' }]}
-            onPress={() => updateDeliveryStatus(delivery.id, 'DELIVERED')}
-          >
-            <Text style={styles.actionButtonText}>✅ Mark Delivered</Text>
-          </TouchableOpacity>
-        )}
-        <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#f5f5f5' }]}>
-          <Text style={[styles.actionButtonText, { color: '#666' }]}>🗺️ Navigate</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
-  const renderTabNavigation = () => (
-    <View style={styles.tabNavigation}>
-      {[
-        { id: 'overview', label: 'Overview', icon: '📊' },
-        { id: 'deliveries', label: 'Deliveries', icon: '🚚' },
-        { id: 'earnings', label: 'Earnings', icon: '💰' },
-      ].map((tab) => (
-        <TouchableOpacity
-          key={tab.id}
-          style={[styles.tabButton, activeTab === tab.id && styles.tabButtonActive]}
-          onPress={() => setActiveTab(tab.id as any)}
-        >
-          <Text style={styles.tabIcon}>{tab.icon}</Text>
-          <Text style={[styles.tabText, activeTab === tab.id && styles.tabTextActive]}>
-            {tab.label}
-          </Text>
-        </TouchableOpacity>
-      ))}
-    </View>
-  );
-
-  const renderTabContent = () => {
-    switch (activeTab) {
-      case 'overview':
-        return (
-          <ScrollView style={styles.tabContent}>
-            {renderTabNavigation()}
-
-            {/* Online Status Toggle */}
-            <View style={styles.onlineStatusCard}>
-              <View style={styles.onlineStatusContent}>
-                <View>
-                  <Text style={styles.onlineStatusText}>
-                    {stats.isOnline ? '🟢 Online' : '🔴 Offline'}
-                  </Text>
-                  <Text style={styles.onlineStatusSubtext}>
-                    {stats.isOnline ? 'You are receiving delivery requests' : 'You are not receiving orders'}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={[styles.onlineToggle, { backgroundColor: stats.isOnline ? '#dc3545' : '#28a745' }]}
-                  onPress={toggleOnlineStatus}
-                >
-                  <Text style={styles.onlineToggleText}>
-                    {stats.isOnline ? 'Go Offline' : 'Go Online'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Stats Cards */}
-            <View style={styles.statsContainer}>
-              <View style={[styles.statCard, { borderLeftColor: '#1976d2' }]}>
-                <View style={styles.statIcon}>
-                  <Text style={styles.statIconText}>📦</Text>
-                </View>
-                <View style={styles.statContent}>
-                  <Text style={styles.statValue}>{stats.todayDeliveries}</Text>
-                  <Text style={styles.statTitle}>Today's Deliveries</Text>
-                </View>
-              </View>
-
-              <View style={[styles.statCard, { borderLeftColor: '#4caf50' }]}>
-                <View style={styles.statIcon}>
-                  <Text style={styles.statIconText}>💰</Text>
-                </View>
-                <View style={styles.statContent}>
-                  <Text style={styles.statValue}>{formatPrice(stats.todayEarnings)}</Text>
-                  <Text style={styles.statTitle}>Today's Earnings</Text>
-                </View>
-              </View>
-
-              <View style={[styles.statCard, { borderLeftColor: '#ff9800' }]}>
-                <View style={styles.statIcon}>
-                  <Text style={styles.statIconText}>🚴</Text>
-                </View>
-                <View style={styles.statContent}>
-                  <Text style={styles.statValue}>{stats.totalDeliveries}</Text>
-                  <Text style={styles.statTitle}>Total Deliveries</Text>
-                </View>
-              </View>
-
-              <View style={[styles.statCard, { borderLeftColor: '#9c27b0' }]}>
-                <View style={styles.statIcon}>
-                  <Text style={styles.statIconText}>⭐</Text>
-                </View>
-                <View style={styles.statContent}>
-                  <Text style={styles.statValue}>{stats.rating}</Text>
-                  <Text style={styles.statTitle}>Rating</Text>
-                </View>
-              </View>
-            </View>
-
-            {/* Current Deliveries */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Current Deliveries</Text>
-              {deliveries.filter(d => d.status !== 'DELIVERED').length > 0 ? (
-                deliveries.filter(d => d.status !== 'DELIVERED').slice(0, 2).map((delivery) => (
-                  <DeliveryCard delivery={delivery} />
-                ))
-              ) : (
-                <View style={styles.emptyContainer}>
-                  <Text style={styles.emptyIcon}>🚚</Text>
-                  <Text style={styles.emptyText}>No active deliveries</Text>
-                  <Text style={styles.emptySubtext}>New deliveries will appear here</Text>
-                </View>
-              )}
-            </View>
-          </ScrollView>
-        );
-
-      case 'deliveries':
-        return (
-          <ScrollView style={styles.tabContent}>
-            {renderTabNavigation()}
-            <Text style={styles.pageTitle}>My Deliveries</Text>
-
-            {deliveries.length > 0 ? (
-              deliveries.map((delivery) => (
-                <DeliveryCard key={delivery.id} delivery={delivery} />
-              ))
-            ) : (
-              <View style={styles.emptyContainer}>
-                <Text style={styles.emptyIcon}>🚚</Text>
-                <Text style={styles.emptyText}>No deliveries assigned</Text>
-                <Text style={styles.emptySubtext}>Deliveries will appear here when assigned</Text>
-              </View>
-            )}
-          </ScrollView>
-        );
-
-      case 'earnings':
-        return (
-          <ScrollView style={styles.tabContent}>
-            {renderTabNavigation()}
-            <Text style={styles.pageTitle}>Earnings</Text>
-
-            <View style={styles.earningsOverview}>
-              <Text style={styles.earningsTitle}>Total Earnings</Text>
-              <Text style={styles.earningsAmount}>
-                {formatPrice(earnings?.totalEarnings || 0)}
-              </Text>
-            </View>
-
-            <View style={styles.earningsGrid}>
-              <View style={styles.earningsCard}>
-                <Text style={styles.earningsCardTitle}>This Week</Text>
-                <Text style={styles.earningsCardAmount}>
-                  {formatPrice(earnings?.thisWeekEarnings || 0)}
-                </Text>
-              </View>
-              <View style={styles.earningsCard}>
-                <Text style={styles.earningsCardTitle}>This Month</Text>
-                <Text style={styles.earningsCardAmount}>
-                  {formatPrice(earnings?.thisMonthEarnings || 0)}
-                </Text>
-              </View>
-              <View style={styles.earningsCard}>
-                <Text style={styles.earningsCardTitle}>Last Month</Text>
-                <Text style={styles.earningsCardAmount}>
-                  {formatPrice(earnings?.lastMonthEarnings || 0)}
-                </Text>
-              </View>
-            </View>
-          </ScrollView>
-        );
-
-      default:
-        return null;
-    }
-  };
-
   return (
-    <SafeAreaView style={[styles.container, { paddingTop: STATUSBAR_HEIGHT }]}>
-      <StatusBar barStyle="light-content" backgroundColor="#1a1a2e" />
+    <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
 
-      {/* Header */}
-      <View style={[styles.header, { marginTop: HEADER_MARGIN }]}>
-        <Text style={styles.headerTitle}>Rider Dashboard</Text>
-        <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
-          <Text style={styles.logoutText}>Logout</Text>
-        </TouchableOpacity>
-      </View>
+      {/* Professional Header */}
+      <RiderHomeHeader
+        riderName={riderData.name}
+        riderAvatar={riderData.avatar || undefined}
+        isOnDuty={riderData.onDuty}
+        onToggleDuty={toggleDuty}
+        stats={{
+          inProgress: stats.activeDeliveries,
+          earnings: stats.todayEarnings,
+          last7Days: stats.weekEarnings,
+        }}
+        onNotificationPress={() => setActiveTab('Notifications')}
+        onSettingsPress={() => setActiveTab('Settings')}
+        notificationCount={unreadCount}
+      />
 
+      {/* Content */}
       <ScrollView
-        style={styles.scrollView}
+        style={styles.content}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
+        showsVerticalScrollIndicator={false}
       >
-        {renderTabContent()}
+        {activeTab === 'Home' && (
+          <RiderHomeContent
+            deliveries={orders}
+            hasActiveDeliveries={orders.length > 0 || !!activeOrder}
+            isLoading={loading}
+            onAcceptOrders={() => setActiveTab('Orders')}
+            onAcceptDelivery={(deliveryId) => handleAcceptOrder(deliveryId)}
+            onMarkDelivered={(deliveryId) => handleMarkDelivered(deliveryId)}
+            onCallCustomer={(phone) => {
+              if (phone) {
+                // Open phone dialer
+              }
+            }}
+          />
+        )}
+
+        {activeTab === 'Orders' && (
+          <RiderOrdersTab orders={orders} />
+        )}
+
+        {activeTab === 'Earnings' && (
+          <RiderEarningsTab
+            todayEarnings={stats.todayEarnings}
+            weekEarnings={stats.weekEarnings}
+            totalDeliveries={stats.totalDeliveries}
+            earnings={earnings}
+            formatPrice={formatPrice}
+          />
+        )}
+
+        {activeTab === 'Settings' && (
+          <RiderSettingsTab
+            riderData={riderData}
+            onLogout={handleLogout}
+            onEditProfile={() => {}}
+          />
+        )}
+
+        {activeTab === 'Notifications' && (
+          <RiderNotificationsTab
+            onNotificationCountChange={setUnreadCount}
+          />
+        )}
+
+        {/* Bottom padding for footer */}
+        <View style={{ height: SPACING.footerHeight + insets.bottom + 20 }} />
       </ScrollView>
+
+      {/* Professional Bottom Navigation */}
+      <View style={styles.footer}>
+        <TouchableOpacity
+          style={[styles.tabButton, activeTab === 'Home' && styles.activeTabButton]}
+          onPress={() => setActiveTab('Home')}
+        >
+          <Ionicons
+            name="home"
+            size={24}
+            color={activeTab === 'Home' ? COLORS.primary : COLORS.gray}
+          />
+          <Text style={[styles.tabLabel, activeTab === 'Home' && styles.activeTabLabel]}>
+            Home
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.tabButton, activeTab === 'Orders' && styles.activeTabButton]}
+          onPress={() => setActiveTab('Orders')}
+        >
+          <Ionicons
+            name="receipt-outline"
+            size={24}
+            color={activeTab === 'Orders' ? COLORS.primary : COLORS.gray}
+          />
+          <Text style={[styles.tabLabel, activeTab === 'Orders' && styles.activeTabLabel]}>
+            Orders
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.tabButton, activeTab === 'Earnings' && styles.activeTabButton]}
+          onPress={() => setActiveTab('Earnings')}
+        >
+          <Ionicons
+            name="trending-up"
+            size={24}
+            color={activeTab === 'Earnings' ? COLORS.primary : COLORS.gray}
+          />
+          <Text style={[styles.tabLabel, activeTab === 'Earnings' && styles.activeTabLabel]}>
+            Earnings
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.tabButton, activeTab === 'Settings' && styles.activeTabButton]}
+          onPress={() => setActiveTab('Settings')}
+        >
+          <Ionicons
+            name="person-outline"
+            size={24}
+            color={activeTab === 'Settings' ? COLORS.primary : COLORS.gray}
+          />
+          <Text style={[styles.tabLabel, activeTab === 'Settings' && styles.activeTabLabel]}>
+            Profile
+          </Text>
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
   );
-}
+};
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: COLORS.lightBg,
   },
-  header: {
-    backgroundColor: '#1a1a2e',
-    padding: 20,
-    paddingTop: 50, // Add top padding to prevent merge with status bar
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  logoutButton: {
-    padding: 8,
-  },
-  logoutText: {
-    color: '#fff',
-    fontSize: 16,
-  },
-  scrollView: {
+  content: {
     flex: 1,
   },
-  tabNavigation: {
+  footer: {
     flexDirection: 'row',
-    backgroundColor: '#fff',
-    marginHorizontal: 20,
-    marginTop: 20,
-    borderRadius: 12,
-    padding: 4,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    backgroundColor: COLORS.white,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.lightGray,
+    paddingVertical: 8,
+    paddingBottom: 8,
   },
   tabButton: {
-    flex: 1,
-    paddingVertical: 12,
     alignItems: 'center',
-    borderRadius: 8,
-  },
-  tabButtonActive: {
-    backgroundColor: '#1976d2',
-  },
-  tabIcon: {
-    fontSize: 16,
-    marginBottom: 4,
-  },
-  tabText: {
-    fontSize: 12,
-    color: '#666',
-  },
-  tabTextActive: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-  tabContent: {
-    flex: 1,
-  },
-  onlineStatusCard: {
-    backgroundColor: '#fff',
-    marginHorizontal: 20,
-    marginTop: 20,
-    borderRadius: 12,
-    padding: 20,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  onlineStatusContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  onlineStatusText: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#1a1a2e',
-  },
-  onlineStatusSubtext: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 4,
-  },
-  onlineToggle: {
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-  },
-  onlineToggleText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  statsContainer: {
-    padding: 20,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
-  statCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    borderLeftWidth: 4,
-    width: (width - 40 - 16) / 2,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  statIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#f0f0f0',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  statIconText: {
-    fontSize: 20,
-  },
-  statContent: {
-    alignItems: 'center',
-  },
-  statValue: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1a1a2e',
-    marginBottom: 4,
-  },
-  statTitle: {
-    fontSize: 12,
-    color: '#666',
-    textAlign: 'center',
-  },
-  section: {
-    padding: 20,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1a1a2e',
-    marginBottom: 16,
-  },
-  deliveryCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginHorizontal: 20,
-    marginBottom: 12,
-    borderLeftWidth: 4,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-  },
-  deliveryHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12,
-  },
-  orderNumber: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1a1a2e',
-  },
-  restaurantName: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 4,
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 12,
   },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '600',
-    textTransform: 'capitalize',
+  activeTabButton: {
+    // Active styling
   },
-  customerInfo: {
-    marginBottom: 12,
-  },
-  customerName: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#1a1a2e',
-  },
-  customerPhone: {
-    fontSize: 14,
-    color: '#666',
+  tabLabel: {
+    fontSize: 11,
+    color: COLORS.gray,
     marginTop: 4,
   },
-  deliveryInfo: {
-    marginBottom: 12,
-  },
-  deliveryAddress: {
-    fontSize: 14,
-    color: '#666',
-  },
-  deliveryDetails: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 4,
-  },
-  itemsSummary: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  itemsText: {
-    fontSize: 14,
-    color: '#666',
-    flex: 1,
-  },
-  amountText: {
-    fontSize: 18,
+  activeTabLabel: {
+    color: COLORS.primary,
     fontWeight: '600',
-    color: '#4caf50',
-  },
-  actionButtons: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  actionButton: {
-    flex: 1,
-    padding: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  actionButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  pageTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1a1a2e',
-    margin: 20,
-  },
-  earningsOverview: {
-    backgroundColor: '#fff',
-    marginHorizontal: 20,
-    marginTop: 20,
-    borderRadius: 12,
-    padding: 24,
-    alignItems: 'center',
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  earningsTitle: {
-    fontSize: 16,
-    color: '#666',
-    marginBottom: 8,
-  },
-  earningsAmount: {
-    fontSize: 36,
-    fontWeight: 'bold',
-    color: '#1a1a2e',
-  },
-  earningsGrid: {
-    padding: 20,
-  },
-  earningsCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 12,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-  },
-  earningsCardTitle: {
-    fontSize: 16,
-    color: '#666',
-    marginBottom: 8,
-  },
-  earningsCardAmount: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1a1a2e',
-  },
-  emptyContainer: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 40,
-    marginHorizontal: 20,
-    alignItems: 'center',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-  },
-  emptyIcon: {
-    fontSize: 48,
-    marginBottom: 16,
-  },
-  emptyText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1a1a2e',
-    marginBottom: 8,
-  },
-  emptySubtext: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
   },
 });

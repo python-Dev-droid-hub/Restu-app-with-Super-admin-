@@ -4,7 +4,18 @@ const notificationSchema = new Schema({
   recipient: {
     type: Schema.Types.ObjectId,
     ref: 'User',
-    required: [true, 'Recipient is required']
+    required: [true, 'Recipient is required'],
+    index: true
+  },
+  recipientRole: {
+    type: String,
+    enum: ['CUSTOMER', 'WAITER', 'CHEF', 'RIDER', 'BRANCH_MANAGER', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'],
+    index: true
+  },
+  recipientBranch: {
+    type: Schema.Types.ObjectId,
+    ref: 'Branch',
+    index: true
   },
   title: {
     type: String,
@@ -23,8 +34,23 @@ const notificationSchema = new Schema({
     trim: true,
     maxlength: [50, 'Type cannot exceed 50 characters'],
     enum: [
-      'ORDER_UPDATE', 'PAYMENT', 'PROMOTION', 'SYSTEM', 
-      'DELIVERY', 'RESTAURANT', 'COUPON', 'DEAL', 'GENERAL'
+      // Customer notifications
+      'ORDER_PLACED', 'ORDER_CONFIRMED', 'ORDER_PREPARING', 'ORDER_READY',
+      'ORDER_OUT_FOR_DELIVERY', 'ORDER_DELIVERED', 'PAYMENT_SUCCESS', 
+      'PAYMENT_FAILED', 'RIDER_ASSIGNED', 'PROMOTION', 'ORDER_CANCELLED', 'ORDER_DELAYED',
+      // Waiter/Staff notifications
+      'NEW_ORDER', 'KITCHEN_STARTED', 'KITCHEN_READY', 'CALL_BELL', 'RIDER_ARRIVED', 'DELIVERY_UPDATE',
+      // Manager notifications
+      'BRANCH_ORDER', 'KITCHEN_ALERT', 'DELIVERY_ALERT', 'REVENUE_UPDATE', 'STAFF_ALERT', 'PEAK_HOURS', 'PERFORMANCE_ALERT',
+      // Chef notifications
+      'NEW_COOKING_ORDER', 'ORDER_PRIORITY', 'EQUIPMENT_ALERT', 'INGREDIENT_ALERT', 'EFFICIENCY_ALERT',
+      // Rider notifications
+      'DELIVERY_ASSIGNED', 'DELIVERY_UPDATED', 'CUSTOMER_CONTACTED', 'DELIVERY_COMPLETED', 
+      'PAYMENT_COLLECTED', 'EARNINGS_UPDATE', 'PAYOUT_APPROVED',
+      // Admin notifications
+      'NEW_USER', 'PAYMENT_ALERT', 'SYSTEM_ALERT', 'SECURITY_ALERT', 'TECHNICAL_ISSUE',
+      // Legacy
+      'ORDER_UPDATE', 'PAYMENT', 'PROMOTION', 'SYSTEM', 'DELIVERY', 'RESTAURANT', 'COUPON', 'DEAL', 'GENERAL'
     ],
     default: 'GENERAL'
   },
@@ -36,14 +62,25 @@ const notificationSchema = new Schema({
     type: Boolean,
     default: false
   },
+  readAt: {
+    type: Date
+  },
   data: {
     type: Schema.Types.Mixed,
     default: null
   },
   priority: {
     type: String,
-    enum: ['LOW', 'NORMAL', 'HIGH', 'URGENT'],
+    enum: ['LOW', 'NORMAL', 'MEDIUM', 'HIGH', 'URGENT'],
     default: 'NORMAL'
+  },
+  deliveryMethod: {
+    type: String,
+    enum: ['IN_APP', 'PUSH', 'SMS', 'EMAIL'],
+    default: 'IN_APP'
+  },
+  actionUrl: {
+    type: String
   },
   scheduledFor: {
     type: Date,
@@ -58,9 +95,6 @@ const notificationSchema = new Schema({
     default: ['IN_APP']
   },
   sentAt: {
-    type: Date
-  },
-  readAt: {
     type: Date
   }
 }, {

@@ -13,7 +13,27 @@ export const populateOrdersWithProductDetails = async (orders: any[]): Promise<a
   const plainOrders = orders.map(order => {
     // Handle Mongoose document with _doc or toObject
     if (order._doc) {
-      return { ...order._doc, id: order.id || order._id };
+      // Preserve populated fields that are not in _doc
+      const populatedFields: any = {};
+      
+      // Check for populated table data
+      if (order.table && typeof order.table === 'object' && order.table._id) {
+        populatedFields.table = order.table;
+      }
+      // Check for populated customer data
+      if (order.customer && typeof order.customer === 'object' && order.customer._id) {
+        populatedFields.customer = order.customer;
+      }
+      // Check for populated waiter data
+      if (order.waiter && typeof order.waiter === 'object' && order.waiter._id) {
+        populatedFields.waiter = order.waiter;
+      }
+      // Check for populated branch data
+      if (order.branch && typeof order.branch === 'object' && order.branch._id) {
+        populatedFields.branch = order.branch;
+      }
+      
+      return { ...order._doc, ...populatedFields, id: order.id || order._id };
     }
     if (order.toObject) {
       return order.toObject();

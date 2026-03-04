@@ -162,7 +162,7 @@ export default function App() {
           />
           <Stack.Screen
             name="RiderDashboard"
-            component={RiderTabsNavigator}
+            component={RiderDashboard}
           />
           <Stack.Screen
             name="AdminDeals"

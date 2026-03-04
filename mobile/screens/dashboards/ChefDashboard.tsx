@@ -394,13 +394,16 @@ export default function ChefDashboard() {
       const response = await api.patch(`/orders/${order.id}/status`, { status: 'delivered' });
       if (!response.success && checkAuthError(response)) return;
       
-      const updatedOrders = orders.map(o => 
-        o.id === order.id ? { ...o, status: 'COMPLETED' as const } : o
-      );
-      setOrders(updatedOrders);
+      // Update both orders and cookingOrders states
+      const updateOne = (o: any) => (o.id === order.id ? { ...o, status: 'COMPLETED' as const } : o);
+      setOrders(prev => prev.map(updateOne));
+      setCookingOrders(prev => prev.map(updateOne));
       
       showToast('Order marked as complete', 'success');
       setShowOrderDetailsModal(false);
+      
+      // Reload data to ensure consistency
+      await loadDashboardData();
     } catch (error) {
       showToast('Failed to complete order', 'error');
     }
@@ -586,7 +589,7 @@ export default function ChefDashboard() {
     const filteredOrders = homeOrders.filter(order => {
       if (homeActiveTab === 'Active') return order.status === 'PENDING' || order.status === 'PREPARING' || order.status === 'COOKING';
       if (homeActiveTab === 'Ready') return order.status === 'READY';
-      if (homeActiveTab === 'Completed') return order.status === 'COMPLETED';
+      if (homeActiveTab === 'Completed') return order.status === 'COMPLETED' || order.status === 'DELIVERED' || order.status === 'delivered';
       if (homeActiveTab === 'Cancelled') return order.status === 'CANCELLED';
       return true;
     });
@@ -600,7 +603,11 @@ export default function ChefDashboard() {
       <View style={{ flex: 1 }}>
         {/* Header with Profile */}
         <View style={homeStyles.header}>
-          <View style={homeStyles.profileSection}>
+          <TouchableOpacity 
+            style={homeStyles.profileSection}
+            onPress={() => setBottomTab('profile')}
+            activeOpacity={0.8}
+          >
             <View style={homeStyles.avatar}>
               {userData?.avatar ? (
                 <Image source={{ uri: userData.avatar }} style={homeStyles.avatarImage} />
@@ -615,7 +622,7 @@ export default function ChefDashboard() {
                 <Text style={homeStyles.onlineText}>Online</Text>
               </View>
             </View>
-          </View>
+          </TouchableOpacity>
           <TouchableOpacity 
             style={homeStyles.iconBtn} 
             onPress={() => setShowNotificationPanel(true)}
@@ -737,7 +744,7 @@ export default function ChefDashboard() {
     const filteredOrders = currentOrders.filter(o => {
       if (cookingFilterTab === 'ACTIVE') return o.status === 'PENDING' || o.status === 'PREPARING' || o.status === 'COOKING';
       if (cookingFilterTab === 'READY') return o.status === 'READY';
-      if (cookingFilterTab === 'COMPLETED') return o.status === 'COMPLETED';
+      if (cookingFilterTab === 'COMPLETED') return o.status === 'COMPLETED' || o.status === 'DELIVERED' || o.status === 'delivered';
       return true;
     });
 
@@ -987,10 +994,7 @@ export default function ChefDashboard() {
           {[
             { icon: 'person-outline', label: 'Edit Profile', action: () => setProfileSubScreen('edit'), hasArrow: true },
             { icon: 'notifications-outline', label: 'Notifications', action: () => setProfileSubScreen('notifications'), badge: unreadCount, hasArrow: true },
-            { icon: 'time-outline', label: 'Operating Hours', action: () => setProfileSubScreen('hours'), hasArrow: true },
-            { icon: 'calendar-outline', label: 'Cooking Schedule', action: () => setProfileSubScreen('schedule'), hasArrow: true },
             { icon: 'lock-closed-outline', label: 'Change Password', action: () => setProfileSubScreen('password'), hasArrow: true },
-            { icon: 'restaurant-outline', label: 'Kitchen Settings', action: () => setProfileSubScreen('kitchen'), hasArrow: true },
             { icon: 'log-out-outline', label: 'Logout', action: () => setProfileSubScreen('logout'), hasArrow: true, color: DESIGN.colors.red },
           ].map((item, index) => (
             <TouchableOpacity key={index} style={styles.profileMenuItem} onPress={item.action}>

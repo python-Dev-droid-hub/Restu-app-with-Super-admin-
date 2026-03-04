@@ -168,6 +168,12 @@ export default function AdminOrdersScreen() {
 
   const getFilteredOrders = () => {
     if (activeTab === 'all') return orders;
+    if (activeTab === 'completed') {
+      return orders.filter(o => {
+        const status = o.status?.toLowerCase();
+        return status === 'completed' || status === 'delivered' || status === 'served';
+      });
+    }
     return orders.filter(o => o.status?.toLowerCase() === activeTab);
   };
 
@@ -226,6 +232,7 @@ export default function AdminOrdersScreen() {
   const filteredOrders = getFilteredOrders();
   const pendingCount = orders.filter(o => o.status?.toLowerCase() === 'pending').length;
   const cancelledCount = orders.filter(o => o.status?.toLowerCase() === 'cancelled').length;
+  const completedCount = orders.filter(o => o.status?.toLowerCase() === 'completed' || o.status?.toLowerCase() === 'delivered').length;
 
   return (
     <View style={[styles.container, { paddingBottom: insets.bottom }]}>
@@ -252,6 +259,7 @@ export default function AdminOrdersScreen() {
         >
           {renderTab('all', 'All Orders')}
           {renderTab('pending', 'Pending', pendingCount)}
+          {renderTab('completed', 'Completed', completedCount)}
           {renderTab('cancelled', 'Cancelled', cancelledCount)}
         </ScrollView>
         <TouchableOpacity style={styles.filterButton}>

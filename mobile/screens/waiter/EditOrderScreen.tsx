@@ -251,7 +251,7 @@ export default function EditOrderScreen() {
           />
         </View>
 
-        {/* Current Items */}
+        {/* Order Items */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Order Items ({items.length})</Text>
@@ -270,27 +270,35 @@ export default function EditOrderScreen() {
               <Text style={styles.emptySubtext}>Tap "Add Item" to add products</Text>
             </View>
           ) : (
-            items.map((item) => (
-              <View key={item.id} style={styles.itemCard}>
-                {item.image ? (
-                  <Image source={{ uri: item.image }} style={styles.itemImage} />
-                ) : (
-                  <View style={styles.itemImagePlaceholder}>
-                    <Ionicons name="restaurant" size={24} color="#FF7A59" />
-                  </View>
-                )}
+            items.map((item, index) => (
+              <View key={item.id} style={[styles.itemCard, index === items.length - 1 && styles.itemCardLast]}>
+                {/* Product Image */}
+                <View style={styles.itemImageContainer}>
+                  {item.image ? (
+                    <Image source={{ uri: item.image }} style={styles.itemImage} />
+                  ) : (
+                    <View style={styles.itemImagePlaceholder}>
+                      <Ionicons name="restaurant" size={28} color="#FF7A59" />
+                    </View>
+                  )}
+                </View>
                 
-                <View style={styles.itemInfo}>
-                  <Text style={styles.itemName} numberOfLines={2}>{item.productName}</Text>
+                {/* Product Info */}
+                <View style={styles.itemDetails}>
+                  <Text style={styles.itemName} numberOfLines={1} ellipsizeMode="tail">
+                    {item.productName}
+                  </Text>
                   <Text style={styles.itemPrice}>${item.unitPrice.toFixed(2)} each</Text>
                 </View>
 
-                <View style={styles.quantityControls}>
+                {/* Quantity Controls */}
+                <View style={styles.quantitySection}>
                   <TouchableOpacity 
                     style={styles.quantityBtn}
                     onPress={() => updateQuantity(item.id, item.quantity - 1)}
+                    activeOpacity={0.8}
                   >
-                    <Ionicons name="remove" size={16} color="#FF7A59" />
+                    <Text style={styles.quantityBtnText}>−</Text>
                   </TouchableOpacity>
                   
                   <Text style={styles.quantityText}>{item.quantity}</Text>
@@ -298,11 +306,13 @@ export default function EditOrderScreen() {
                   <TouchableOpacity 
                     style={styles.quantityBtn}
                     onPress={() => updateQuantity(item.id, item.quantity + 1)}
+                    activeOpacity={0.8}
                   >
-                    <Ionicons name="add" size={16} color="#FF7A59" />
+                    <Text style={styles.quantityBtnText}>+</Text>
                   </TouchableOpacity>
                 </View>
 
+                {/* Total Price */}
                 <Text style={styles.itemTotal}>${(item.unitPrice * item.quantity).toFixed(2)}</Text>
               </View>
             ))
@@ -550,37 +560,52 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 12,
   },
+  itemImageContainer: {
+    width: 70,
+    height: 70,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#FFE5DE',
+  },
   itemImage: {
-    width: 60,
-    height: 60,
-    borderRadius: 8,
+    width: 70,
+    height: 70,
+    borderRadius: 12,
   },
   itemImagePlaceholder: {
-    width: 60,
-    height: 60,
-    borderRadius: 8,
+    width: 70,
+    height: 70,
+    borderRadius: 12,
     backgroundColor: '#FFE5DE',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  itemInfo: {
+  itemCardLast: {
+    marginBottom: 0,
+  },
+  itemDetails: {
     flex: 1,
     marginLeft: 12,
+    justifyContent: 'center',
   },
   itemName: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
     color: '#1A1A2E',
+    marginBottom: 4,
+    flexShrink: 1,
   },
   itemPrice: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#8E8E93',
-    marginTop: 2,
   },
-  quantityControls: {
+  quantitySection: {
     flexDirection: 'row',
     alignItems: 'center',
     marginHorizontal: 12,
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    padding: 4,
   },
   quantityBtn: {
     width: 32,
@@ -590,10 +615,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowRadius: 2,
     elevation: 2,
+  },
+  quantityBtnText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#FF7A59',
   },
   quantityText: {
     fontSize: 16,
@@ -604,10 +634,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   itemTotal: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
     color: '#1A1A2E',
-    minWidth: 60,
+    minWidth: 70,
     textAlign: 'right',
   },
   totalSection: {
