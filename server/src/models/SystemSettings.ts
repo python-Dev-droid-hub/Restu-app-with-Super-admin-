@@ -3,11 +3,18 @@ import mongoose, { Document, Schema } from 'mongoose';
 export interface ISystemSettings extends Document {
   restaurantName: string;
   restaurantDescription?: string;
+  appName?: string;
+  appVersion?: string;
   contactEmail: string;
   contactPhone: string;
   defaultCurrency?: string;
+  currency?: string;
   defaultLanguage?: string;
+  language?: string;
   taxRate?: number;
+  serviceCharge?: number;
+  maintenanceMode?: boolean;
+  allowRegistration?: boolean;
   address: {
     street: string;
     city: string;
@@ -64,6 +71,16 @@ const SystemSettingsSchema: Schema = new Schema({
     trim: true,
     maxLength: 500
   },
+  appName: {
+    type: String,
+    trim: true,
+    default: 'Restaurant App'
+  },
+  appVersion: {
+    type: String,
+    trim: true,
+    default: '1.0.0'
+  },
   contactEmail: {
     type: String,
     required: true,
@@ -81,9 +98,17 @@ const SystemSettingsSchema: Schema = new Schema({
     default: 'USD',
     trim: true
   },
+  currency: {
+    type: String,
+    trim: true
+  },
   defaultLanguage: {
     type: String,
     default: 'en',
+    trim: true
+  },
+  language: {
+    type: String,
     trim: true
   },
   taxRate: {
@@ -91,6 +116,19 @@ const SystemSettingsSchema: Schema = new Schema({
     default: 0,
     min: 0,
     max: 100
+  },
+  serviceCharge: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  maintenanceMode: {
+    type: Boolean,
+    default: false
+  },
+  allowRegistration: {
+    type: Boolean,
+    default: true
   },
   address: {
     street: { type: String, required: true },

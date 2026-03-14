@@ -1,9 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
 import { MenuRepository } from './menu.repository';
 import { RestaurantRepository } from '../restaurant/restaurant.repository';
-import { IAuthRequest, sendSuccess, asyncHandler } from '@/utils';
+import { IAuthRequest, sendSuccess, sendError, asyncHandler } from '@/utils';
 import { createError } from '@/middleware/errorHandler';
 import { logger } from '@/utils/logger';
+import { ProductSize } from '@/models/ProductSize';
 
 console.log('✅ MenuController file LOADED');
 
@@ -15,6 +16,59 @@ export class MenuController {
     this.menuRepository = new MenuRepository();
     this.restaurantRepository = new RestaurantRepository();
   }
+
+  private syncProductSizes = async (
+    productId: any,
+    sizes: Array<{ sizeId?: string; sizeName?: string; price?: number; isDefault?: boolean }> | undefined
+  ): Promise<void> => {
+    if (!sizes || !Array.isArray(sizes) || sizes.length === 0) return;
+
+    console.log('🔍 [SERVER PRODUCT SIZES] Sync start:', {
+      productId: String(productId),
+      sizesCount: sizes.length,
+      sizes
+    });
+
+    const normalized = sizes
+      .filter((s) => !!s?.sizeId)
+      .map((s) => ({
+        sizeId: String(s.sizeId),
+        price: typeof s.price === 'number' && !Number.isNaN(s.price) ? s.price : 0,
+        isDefault: !!s.isDefault,
+      }));
+
+    if (normalized.length === 0) return;
+
+    const defaultSizeId = normalized.find((s) => s.isDefault)?.sizeId || normalized[0].sizeId;
+    const activeSizeIds = normalized.map((s) => s.sizeId);
+
+    // Soft-delete any previously assigned sizes that are not present anymore
+    await ProductSize.updateMany(
+      { product: productId, size: { $nin: activeSizeIds }, deletedAt: null },
+      { deletedAt: new Date(), isAvailable: false }
+    );
+
+    // Upsert sizes and enforce exactly one default
+    for (const s of normalized) {
+      await ProductSize.findOneAndUpdate(
+        { product: productId, size: s.sizeId },
+        {
+          product: productId,
+          size: s.sizeId,
+          price: s.price,
+          isDefault: s.sizeId === defaultSizeId,
+          isAvailable: true,
+          deletedAt: null,
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+    }
+
+    console.log('✅ [SERVER PRODUCT SIZES] Sync complete:', {
+      productId: String(productId),
+      activeSizeIds
+    });
+  };
 
   // Category methods
   createCategory = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
@@ -280,6 +334,7 @@ export class MenuController {
           console.log('🔍 [SERVER MENU DEBUG] Sample product:', {
             id: products[0]._id,
             name: products[0].name,
+            price: products[0].price,
             isAvailable: products[0].isAvailable,
             deletedAt: products[0].deletedAt
           });
@@ -289,6 +344,7 @@ export class MenuController {
           _id: category._id,
           name: category.name,
           description: category.description,
+          imageUrl: (category as any).imageUrl,
           products: products.filter(p => !p.deletedAt) // Exclude soft-deleted products
         };
       })
@@ -314,7 +370,7 @@ export class MenuController {
 
   // Admin methods for system-wide menu management
   getAllProducts = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
-    const { search, category, page = '1', limit = '10' } = req.query;
+    const { search, category, page = '1', limit = '10', branchId, branch } = req.query;
     const pageNum = parseInt(page as string, 10);
     const limitNum = parseInt(limit as string, 10);
 
@@ -327,6 +383,11 @@ export class MenuController {
     }
     if (category && category !== 'all') {
       filter.category = category;
+    }
+
+    const branchFilter = (branchId || branch) as string | undefined;
+    if (branchFilter && branchFilter !== 'all') {
+      filter.branchId = branchFilter;
     }
 
     const products = await this.menuRepository.findAllProducts(filter, pageNum, limitNum);
@@ -358,7 +419,11 @@ export class MenuController {
     // Add product count for each category
     const categoriesWithCounts = await Promise.all(
       categories.map(async (category) => {
-        const productCount = await this.menuRepository.countProducts({ category: category._id, deletedAt: null });
+        // Count products by category ObjectId
+        const productCount = await this.menuRepository.countProducts({
+          category: category._id,
+          deletedAt: null
+        });
         return {
           ...category.toObject(),
           productCount
@@ -380,20 +445,64 @@ export class MenuController {
   updateAdminCategory = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
     const { id } = req.params;
     const categoryData = req.body;
+    console.log('🔍 [DEBUG] updateAdminCategory - ID:', id);
+    console.log('🔍 [DEBUG] updateAdminCategory - Body:', JSON.stringify(categoryData, null, 2));
     const category = await this.menuRepository.updateCategory(id, categoryData);
     sendSuccess(res, category, 'Category updated successfully');
   });
 
   createAdminProduct = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
-    const productData = req.body;
+    const { sizes, ...productData } = req.body as any;
+
+    // If sizes are provided, this product supports sizes.
+    if (Array.isArray(sizes) && sizes.length > 0) {
+      productData.hasSizes = true;
+    }
+
     const product = await this.menuRepository.createProduct(productData);
+
+    await this.syncProductSizes(product?._id, sizes);
     sendSuccess(res, product, 'Product created successfully', 201);
   });
 
   updateAdminProduct = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
     const { id } = req.params;
-    const productData = req.body;
+    const { sizes, ...productData } = req.body as any;
+
+    // If sizes are provided, this product supports sizes.
+    if (Array.isArray(sizes) && sizes.length > 0) {
+      productData.hasSizes = true;
+    }
+    
+    console.log('🔍 [SERVER UPDATE PRODUCT] ID:', id);
+    console.log('🔍 [SERVER UPDATE PRODUCT] Incoming data:', JSON.stringify(productData, null, 2));
+    console.log('🔍 [SERVER UPDATE PRODUCT] Price received:', productData.price, typeof productData.price);
+    
     const product = await this.menuRepository.updateProduct(id, productData);
+
+    await this.syncProductSizes(product?._id || id, sizes);
+    
+    console.log('🔍 [SERVER UPDATE PRODUCT] Updated product:', {
+      id: product?._id,
+      name: product?.name,
+      price: product?.price,
+      hasSizes: product?.hasSizes
+    });
+    
     sendSuccess(res, product, 'Product updated successfully');
+  });
+
+  deleteAdminProduct = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
+    const { id } = req.params;
+    console.log('🔍 [SERVER DELETE PRODUCT] ID:', id);
+    
+    const deleted = await this.menuRepository.deleteProduct(id);
+    
+    if (!deleted) {
+      res.status(404).json({ success: false, message: 'Product not found' });
+      return;
+    }
+    
+    sendSuccess(res, null, 'Product deleted successfully');
   });
 }

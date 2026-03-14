@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -35,6 +35,7 @@ interface BranchSelectorProps {
   visible: boolean;
   onClose: () => void;
   onBranchSelected: (branch: Branch) => void;
+  requireSelection?: boolean;
 }
 
 // City icons mapping (using Ionicons as fallback for landmarks)
@@ -64,12 +65,15 @@ export default function BranchSelector({
   visible,
   onClose,
   onBranchSelected,
+  requireSelection = false,
 }: BranchSelectorProps) {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [userLocation, setUserLocation] = useState<Coordinates | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
   const [permissionDenied, setPermissionDenied] = useState(false);
+  const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null);
+  const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
 
   useEffect(() => {
     if (visible) {
@@ -80,10 +84,24 @@ export default function BranchSelector({
   const loadBranchesAndLocation = async () => {
     setLoading(true);
     setPermissionDenied(false);
+    setSelectedBranchId(null);
+    setBranchDropdownOpen(false);
 
     // Fetch branches
     const branchData = await fetchBranches();
     setBranches(branchData);
+
+    // If only 1 branch, auto-select it
+    if (branchData.length === 1) {
+      const singleBranch = branchData[0];
+      setSelectedCity(singleBranch.city);
+      setSelectedBranchId(singleBranch._id);
+      // Auto-confirm selection for single branch
+      await saveSelectedBranch(singleBranch._id);
+      onBranchSelected(singleBranch);
+      setLoading(false);
+      return;
+    }
 
     // Try to get location
     const location = await getCurrentLocation();
@@ -120,12 +138,7 @@ export default function BranchSelector({
       const nearest = findNearestBranch(location, branches);
       if (nearest) {
         setSelectedCity(nearest.city);
-        
-        // Auto-select if within reasonable distance (e.g., 50km)
-        if (nearest.distance && nearest.distance <= 50) {
-          handleSelectBranch(nearest);
-          return;
-        }
+        setSelectedBranchId(nearest._id);
       }
     } else {
       Alert.alert(
@@ -140,7 +153,21 @@ export default function BranchSelector({
     setLoading(false);
   };
 
-  const handleSelectBranch = async (branch: Branch) => {
+  const handleConfirmSelection = async () => {
+    if (!selectedCity) {
+      Alert.alert('Select City', 'Please select a city first.');
+      return;
+    }
+    if (!selectedBranchId) {
+      Alert.alert('Select Branch', 'Please select a branch first.');
+      return;
+    }
+    const branch = branches.find((b) => b._id === selectedBranchId);
+    if (!branch) {
+      Alert.alert('Select Branch', 'Please select a valid branch.');
+      return;
+    }
+
     await saveSelectedBranch(branch._id);
     onBranchSelected(branch);
     onClose();
@@ -148,6 +175,8 @@ export default function BranchSelector({
 
   const handleManualCitySelect = (city: string) => {
     setSelectedCity(city);
+    setSelectedBranchId(null);
+    setBranchDropdownOpen(true);
   };
 
   // Get unique cities from branches
@@ -156,16 +185,28 @@ export default function BranchSelector({
   // Get branches for selected city
   const cityBranches = branches.filter((b) => b.city === selectedCity);
 
+  const selectedBranch = useMemo(
+    () => (selectedBranchId ? branches.find((b) => b._id === selectedBranchId) : null),
+    [branches, selectedBranchId]
+  );
+
+  const handleClose = () => {
+    if (requireSelection) return;
+    onClose();
+  };
+
   return (
-    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="none" onRequestClose={handleClose}>
       <View style={styles.overlay}>
         <View style={styles.container}>
           {/* Header */}
           <View style={styles.header}>
             <Text style={styles.title}>Select Your Location</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <Ionicons name="close" size={24} color={COLORS.darkText} />
-            </TouchableOpacity>
+            {!requireSelection && (
+              <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                <Ionicons name="close" size={24} color={COLORS.darkText} />
+              </TouchableOpacity>
+            )}
           </View>
 
           {/* Use Current Location Button */}
@@ -237,28 +278,51 @@ export default function BranchSelector({
                 {selectedCity && cityBranches.length > 0 && (
                   <>
                     <Text style={styles.sectionTitle}>Select Branch in {selectedCity}</Text>
-                    {cityBranches.map((branch) => (
-                      <TouchableOpacity
-                        key={branch._id}
-                        style={styles.branchCard}
-                        onPress={() => handleSelectBranch(branch)}
-                      >
-                        <View style={styles.branchInfo}>
-                          <Text style={styles.branchName}>{branch.branchName}</Text>
-                          <Text style={styles.branchAddress} numberOfLines={2}>
-                            {branch.addressLine}
-                          </Text>
-                          {branch.distance !== undefined && (
-                            <Text style={styles.branchDistance}>
-                              {branch.distance < 1
-                                ? `${(branch.distance * 1000).toFixed(0)} m away`
-                                : `${branch.distance.toFixed(1)} km away`}
-                            </Text>
-                          )}
-                        </View>
-                        <Ionicons name="chevron-forward" size={20} color={COLORS.gray} />
-                      </TouchableOpacity>
-                    ))}
+
+                    <TouchableOpacity
+                      style={styles.branchDropdown}
+                      onPress={() => setBranchDropdownOpen((p) => !p)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={selectedBranch ? styles.branchDropdownText : styles.branchDropdownPlaceholder}>
+                        {selectedBranch?.branchName || 'Please select your location'}
+                      </Text>
+                      <Ionicons name={branchDropdownOpen ? 'chevron-up' : 'chevron-down'} size={20} color={COLORS.gray} />
+                    </TouchableOpacity>
+
+                    {branchDropdownOpen && (
+                      <View style={styles.branchListContainer}>
+                        {cityBranches.map((branch) => {
+                          const isSelected = selectedBranchId === branch._id;
+                          return (
+                            <TouchableOpacity
+                              key={branch._id}
+                              style={[styles.branchCard, isSelected && styles.branchCardSelected]}
+                              onPress={() => setSelectedBranchId(branch._id)}
+                            >
+                              <View style={styles.branchInfo}>
+                                <Text style={[styles.branchName, isSelected && styles.branchNameSelected]}>{branch.branchName}</Text>
+                                <Text style={styles.branchAddress} numberOfLines={2}>
+                                  {branch.addressLine}
+                                </Text>
+                                {branch.distance !== undefined && (
+                                  <Text style={styles.branchDistance}>
+                                    {branch.distance < 1
+                                      ? `${(branch.distance * 1000).toFixed(0)} m away`
+                                      : `${branch.distance.toFixed(1)} km away`}
+                                  </Text>
+                                )}
+                              </View>
+                              {isSelected ? (
+                                <Ionicons name="checkmark-circle" size={22} color={COLORS.success} />
+                              ) : (
+                                <View style={styles.branchRadio} />
+                              )}
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    )}
                   </>
                 )}
 
@@ -273,6 +337,16 @@ export default function BranchSelector({
               </>
             )}
           </ScrollView>
+
+          <View style={styles.footer}>
+            <TouchableOpacity
+              style={[styles.selectButton, (!selectedCity || !selectedBranchId) && styles.selectButtonDisabled]}
+              onPress={handleConfirmSelection}
+              disabled={!selectedCity || !selectedBranchId || loading}
+            >
+              <Text style={styles.selectButtonText}>Select</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </Modal>
@@ -326,6 +400,26 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: 16,
+  },
+  footer: {
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.lightGray,
+    backgroundColor: COLORS.white,
+  },
+  selectButton: {
+    backgroundColor: COLORS.primary,
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  selectButtonDisabled: {
+    backgroundColor: COLORS.gray,
+  },
+  selectButtonText: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: '700',
   },
   loadingContainer: {
     alignItems: 'center',
@@ -399,6 +493,34 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
     fontWeight: '600',
   },
+  branchDropdown: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: COLORS.white,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.lightGray,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    marginBottom: 10,
+  },
+  branchDropdownPlaceholder: {
+    color: COLORS.gray,
+    fontSize: 14,
+    flex: 1,
+    marginRight: 12,
+  },
+  branchDropdownText: {
+    color: COLORS.darkText,
+    fontSize: 14,
+    fontWeight: '600',
+    flex: 1,
+    marginRight: 12,
+  },
+  branchListContainer: {
+    marginBottom: 10,
+  },
   branchCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -406,6 +528,11 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     marginBottom: 8,
+  },
+  branchCardSelected: {
+    borderWidth: 1,
+    borderColor: COLORS.success,
+    backgroundColor: COLORS.success + '10',
   },
   branchInfo: {
     flex: 1,
@@ -416,6 +543,9 @@ const styles = StyleSheet.create({
     color: COLORS.darkText,
     marginBottom: 4,
   },
+  branchNameSelected: {
+    color: COLORS.darkText,
+  },
   branchAddress: {
     fontSize: 13,
     color: COLORS.gray,
@@ -425,6 +555,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: COLORS.primary,
     fontWeight: '500',
+  },
+  branchRadio: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2,
+    borderColor: COLORS.gray,
   },
   noBranchesContainer: {
     alignItems: 'center',

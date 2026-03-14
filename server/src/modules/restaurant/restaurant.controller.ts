@@ -12,15 +12,56 @@ export class RestaurantController {
 
   createRestaurant = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
     const userId = req.user!._id;
-    const restaurantData = { ...req.body, branchManager: userId };
+    
+    // Transform frontend field names to match Restaurant model
+    const transformedData: any = {
+      name: req.body.branchName,
+      description: req.body.description || `${req.body.branchName} branch`,
+      owner: userId,
+      branchManager: userId,
+      branchCode: req.body.branchCode,
+      address: {
+        street: req.body.addressLine || '',
+        city: req.body.city || '',
+        state: req.body.state || '',
+        zipCode: req.body.postalCode || '',
+        country: req.body.country || 'Pakistan',
+        coordinates: {
+          lat: req.body.lat || 0,
+          lng: req.body.lng || 0,
+        },
+      },
+      phone: req.body.phoneNumber || '',
+      email: req.body.email || '',
+      cuisine: req.body.cuisine || ['Other'],
+      priceRange: req.body.priceRange || '$$',
+      deliveryTime: req.body.deliveryTime || 30,
+      deliveryFee: req.body.deliveryFee || 0,
+      minOrderAmount: req.body.minOrderAmount || 0,
+      isActive: req.body.isActive !== false,
+      acceptsDelivery: req.body.acceptsDelivery !== false,
+      acceptsDineIn: req.body.acceptsDineIn !== false,
+      acceptsTakeaway: req.body.acceptsTakeaway !== false,
+      currency: req.body.currency || 'PKR',
+      deliveryRadius: req.body.deliveryRadius || 5000,
+      operatingHours: req.body.operatingHours || {
+        monday: { open: '09:00', close: '22:00', isOpen: true },
+        tuesday: { open: '09:00', close: '22:00', isOpen: true },
+        wednesday: { open: '09:00', close: '22:00', isOpen: true },
+        thursday: { open: '09:00', close: '22:00', isOpen: true },
+        friday: { open: '09:00', close: '22:00', isOpen: true },
+        saturday: { open: '09:00', close: '22:00', isOpen: true },
+        sunday: { open: '09:00', close: '22:00', isOpen: true },
+      },
+    };
 
     // Check if user already has a restaurant
     const existingRestaurants = await this.restaurantRepository.findByOwnerId(userId);
-    if (existingRestaurants.length > 0 && req.user!.role !== 'ADMIN') {
+    if (existingRestaurants.length > 0 && req.user!.role !== 'ADMIN' && req.user!.role !== 'SUPER_ADMIN') {
       throw createError('You can only own one restaurant', 400);
     }
 
-    const restaurant = await this.restaurantRepository.create(restaurantData);
+    const restaurant = await this.restaurantRepository.create(transformedData);
 
     sendSuccess(res, restaurant, 'Restaurant created successfully', 201);
   });
@@ -34,6 +75,8 @@ export class RestaurantController {
     const total = restaurants.length;
     
     const paginatedRestaurants = restaurants.slice((page - 1) * limit, page * limit);
+
+    console.log('[RESTAURANT] GetMyRestaurants - Count:', restaurants.length, 'First branch currency:', restaurants[0]?.currency);
 
     sendSuccess(res, {
       branches: paginatedRestaurants,
@@ -68,7 +111,11 @@ export class RestaurantController {
       throw createError('Not authorized to update this restaurant', 403);
     }
 
+    console.log('[RESTAURANT] Update - ID:', id, 'Body:', req.body, 'Currency:', req.body.currency);
+
     const updatedRestaurant = await this.restaurantRepository.updateById(id, req.body);
+
+    console.log('[RESTAURANT] Updated - ID:', id, 'Saved Currency:', updatedRestaurant?.currency);
 
     sendSuccess(res, updatedRestaurant, 'Restaurant updated successfully');
   });
@@ -135,6 +182,8 @@ export class RestaurantController {
     if (!restaurant || !restaurant.isActive) {
       throw createError('Restaurant not found', 404);
     }
+
+    console.log('[RESTAURANT] Get by ID:', id, 'Currency:', restaurant.currency);
 
     sendSuccess(res, restaurant, 'Restaurant retrieved successfully');
   });

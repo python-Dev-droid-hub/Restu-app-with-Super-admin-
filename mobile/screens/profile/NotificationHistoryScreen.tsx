@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  ScrollView,
   TouchableOpacity,
   StyleSheet,
   FlatList,
@@ -78,9 +77,9 @@ export default function NotificationHistoryScreen({ onBack }: NotificationHistor
 
   const markAsRead = async (id: string) => {
     try {
-      await api.patch(`/notifications/${id}/read`);
+      await api.put(`/notifications/${id}/read`);
       setNotifications(prev => prev.map(n => 
-        n.id === id ? { ...n, is_read: true } : n
+        (n.id === id || n._id === id) ? { ...n, isRead: true, is_read: true } : n
       ));
     } catch (error) {
       console.log('Error marking notification as read:', error);
@@ -89,8 +88,8 @@ export default function NotificationHistoryScreen({ onBack }: NotificationHistor
 
   const markAllAsRead = async () => {
     try {
-      await api.patch('/notifications/read-all');
-      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+      await api.put('/notifications/mark-all-read');
+      setNotifications(prev => prev.map(n => ({ ...n, isRead: true, is_read: true })));
     } catch (error) {
       console.log('Error marking all notifications as read:', error);
     }
@@ -98,8 +97,10 @@ export default function NotificationHistoryScreen({ onBack }: NotificationHistor
 
   const deleteNotification = async (id: string) => {
     try {
-      await api.delete(`/notifications/${id}`);
-      setNotifications(prev => prev.filter(n => n.id !== id));
+      const response = await api.delete(`/notifications/${id}`);
+      if (response.success) {
+        setNotifications(prev => prev.filter(n => (n.id !== id && n._id !== id)));
+      }
     } catch (error) {
       console.log('Error deleting notification:', error);
     }
@@ -129,20 +130,28 @@ export default function NotificationHistoryScreen({ onBack }: NotificationHistor
 
   const filteredNotifications = notifications.filter(n => {
     if (filter === 'ALL') return true;
-    if (filter === 'UNREAD') return !n.is_read;
-    if (filter === 'READ') return n.is_read;
+    if (filter === 'UNREAD') return !n.isRead && !n.is_read;
+    if (filter === 'READ') return n.isRead || n.is_read;
     return true;
   });
 
-  const unreadCount = notifications.filter(n => !n.is_read).length;
+  const unreadCount = notifications.filter(n => !n.isRead && !n.is_read).length;
 
   const renderNotificationItem = ({ item }: { item: any }) => {
     const typeConfig = NOTIFICATION_TYPES[item.type as keyof typeof NOTIFICATION_TYPES] || NOTIFICATION_TYPES.SYSTEM_MESSAGE;
+    const isUnread = !item.isRead && !item.is_read;
     
     return (
       <TouchableOpacity 
-        style={[styles.item, !item.is_read && styles.unreadItem]}
-        onPress={() => markAsRead(item.id)}
+        style={[styles.item, isUnread && styles.unreadItem]}
+        onPress={() => {
+          markAsRead(item.id || item._id);
+          // Navigate to related order if available
+          if (item.relatedOrder || item.orderId || item.data?.orderId) {
+            // Could navigate to order details here
+            console.log('Navigate to order:', item.relatedOrder || item.orderId || item.data?.orderId);
+          }
+        }}
       >
         <View style={[styles.iconContainer, { backgroundColor: typeConfig.color + '20' }]}>
           <Ionicons name={typeConfig.icon as any} size={22} color={typeConfig.color} />
@@ -161,7 +170,7 @@ export default function NotificationHistoryScreen({ onBack }: NotificationHistor
           {!item.is_read && <View style={styles.unreadDot} />}
           <TouchableOpacity 
             style={styles.deleteBtn}
-            onPress={() => deleteNotification(item.id)}
+            onPress={() => deleteNotification(item.id || item._id)}
           >
             <Ionicons name="trash-outline" size={18} color="#999" />
           </TouchableOpacity>
@@ -171,7 +180,7 @@ export default function NotificationHistoryScreen({ onBack }: NotificationHistor
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={onBack} style={styles.backBtn}>
@@ -211,7 +220,7 @@ export default function NotificationHistoryScreen({ onBack }: NotificationHistor
       {/* Notification List */}
       <FlatList
         data={filteredNotifications}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item, index) => String(item?.id || item?._id || item?.notificationId || index)}
         renderItem={renderNotificationItem}
         contentContainerStyle={styles.list}
         refreshControl={

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
 
 interface UserData {
   _id?: string;
@@ -50,7 +51,8 @@ export function useUserData() {
         setUserRole(parsed.role || '');
         
         // Extract profile image from various possible fields
-        const image = parsed.image || parsed.profileImage || parsed.avatar || '';
+        const image = parsed.profileImage || parsed.image || parsed.avatar || '';
+        console.log('[useUserData] Profile image:', image, 'from fields:', { profileImage: parsed.profileImage, image: parsed.image, avatar: parsed.avatar });
         setProfileImage(image);
         
         // Extract branch info
@@ -73,6 +75,13 @@ export function useUserData() {
   useEffect(() => {
     loadUserData();
   }, [loadUserData]);
+
+  // Reload user data when screen comes into focus (for 3-dot menu navigation)
+  useFocusEffect(
+    useCallback(() => {
+      loadUserData();
+    }, [loadUserData])
+  );
 
   return {
     userData,

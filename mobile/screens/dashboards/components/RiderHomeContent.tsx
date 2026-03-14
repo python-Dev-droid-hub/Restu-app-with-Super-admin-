@@ -52,6 +52,9 @@ interface RiderHomeContentProps {
   onAcceptDelivery?: (deliveryId: string) => void;
   onViewDeliveryDetails?: (delivery: Delivery) => void;
   onMarkDelivered?: (deliveryId: string) => void;
+  onStartRide?: (deliveryId: string) => void;
+  onNavigateToPickup?: (deliveryId: string) => void;
+  onNavigateToDelivery?: (deliveryId: string) => void;
   onCallCustomer?: (phone: string) => void;
   isLoading?: boolean;
 }
@@ -69,6 +72,9 @@ const RiderHomeContent: React.FC<RiderHomeContentProps> = ({
   onAcceptDelivery,
   onViewDeliveryDetails,
   onMarkDelivered,
+  onStartRide,
+  onNavigateToPickup,
+  onNavigateToDelivery,
   onCallCustomer,
   isLoading = false,
 }) => {
@@ -186,6 +192,9 @@ const RiderHomeContent: React.FC<RiderHomeContentProps> = ({
           onAccept={() => onAcceptDelivery?.(delivery._id)}
           onViewDetails={() => onViewDeliveryDetails?.(delivery)}
           onMarkDelivered={() => onMarkDelivered?.(delivery._id)}
+          onStartRide={() => onStartRide?.(delivery._id)}
+          onNavigateToPickup={() => onNavigateToPickup?.(delivery._id)}
+          onNavigateToDelivery={() => onNavigateToDelivery?.(delivery._id)}
           onCallCustomer={() => onCallCustomer?.(delivery.customerPhone || '')}
         />
       ))}

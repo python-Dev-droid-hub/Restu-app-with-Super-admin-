@@ -17,7 +17,7 @@ export default function SuperAdminTabsNavigator() {
       }}
       tabBar={() => <AdminBottomNavigation />}
     >
-      <Tab.Screen name="AdminDashboard" component={SuperAdminDashboard} />
+      <Tab.Screen name="SuperAdminDashboard" component={SuperAdminDashboard} />
       <Tab.Screen name="AdminBranches" component={AdminBranchesScreen} />
       <Tab.Screen name="AdminReports" component={AdminReportsScreen} />
       <Tab.Screen name="AdminSettings" component={AdminSettingsScreen} />

@@ -94,7 +94,7 @@ export default function RiderSettingsTab({ riderData, onLogout, onEditProfile }:
         </View>
         <Text style={styles.riderName}>Earning Rider</Text>
         <View style={styles.ratingRow}>
-          <Text style={styles.ratingText}>{riderData.rating.toFixed(1)} ⭐</Text>
+          <Text style={styles.ratingText}>{Number(riderData.rating || 0).toFixed(1)} ⭐</Text>
           <Text style={styles.emergencyText}>| Emergency Button</Text>
         </View>
         <TouchableOpacity style={styles.editButton} onPress={onEditProfile}>

@@ -41,18 +41,20 @@ export default function RiderOrdersTab({ orders }: RiderOrdersTabProps) {
   const [activeFilter, setActiveFilter] = useState<'Completed' | 'Undelivered'>('Completed');
 
   const filteredOrders = orders.filter((order) => {
+    const status = String(order?.status || '').toLowerCase();
     if (activeFilter === 'Completed') {
-      return order.status === 'DELIVERED' || order.status === 'COMPLETED';
+      return status === 'delivered' || status === 'completed';
     }
-    return order.status !== 'DELIVERED' && order.status !== 'COMPLETED';
+    return status !== 'delivered' && status !== 'completed';
   });
 
   const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'DELIVERED':
-      case 'COMPLETED':
+    const s = String(status || '').toLowerCase();
+    switch (s) {
+      case 'delivered':
+      case 'completed':
         return COLORS.success;
-      case 'CANCELLED':
+      case 'cancelled':
         return COLORS.danger;
       default:
         return COLORS.warning;

@@ -316,8 +316,14 @@ export default function AdminBranchesScreen() {
       <ProfileMenu
         visible={showProfileMenu}
         onClose={() => setShowProfileMenu(false)}
-        onLogout={() => navigation.navigate('Welcome' as any)}
-        onChangePassword={() => navigation.navigate('ChangePassword' as any)}
+        onLogout={() => {
+          // @ts-ignore
+          navigation.navigate('Welcome');
+        }}
+        onChangePassword={() => {
+          // @ts-ignore
+          navigation.navigate('ChangePassword');
+        }}
       />
     </View>
   );

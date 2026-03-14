@@ -35,10 +35,12 @@ const COLORS = {
 
 interface RiderNotificationsTabProps {
   onNotificationCountChange?: (count: number) => void;
+  onNotificationPress?: (notification: Notification) => void;
 }
 
 export default function RiderNotificationsTab({
   onNotificationCountChange,
+  onNotificationPress,
 }: RiderNotificationsTabProps) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -113,7 +115,10 @@ export default function RiderNotificationsTab({
   const renderItem = ({ item }: { item: Notification }) => (
     <TouchableOpacity
       style={[styles.notificationCard, !item.read && styles.unreadCard]}
-      onPress={() => handleMarkAsRead(item._id)}
+      onPress={() => {
+        onNotificationPress?.(item);
+        handleMarkAsRead(item._id);
+      }}
       onLongPress={() => handleDelete(item._id)}
     >
       <View style={[styles.iconContainer, { backgroundColor: getNotificationColor(item.priority) + '20' }]}>

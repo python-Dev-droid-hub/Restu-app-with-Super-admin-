@@ -25,7 +25,8 @@ export interface Notification {
 /**
  * Get all notifications
  */
-export const getNotifications = async (limit = 20, skip = 0, read?: boolean) => {
+export const getNotifications = async (limit = 20, skip = 0, read?: boolean, branchId?: string) => {
+  console.log('[notificationService] getNotifications CALLED - limit:', limit, 'skip:', skip, 'branchId:', branchId);
   try {
     // Build query string
     const params = new URLSearchParams();
@@ -34,17 +35,26 @@ export const getNotifications = async (limit = 20, skip = 0, read?: boolean) => 
     if (read !== undefined) {
       params.append('read', read.toString());
     }
+    if (branchId) {
+      params.append('branchId', branchId);
+    }
 
     const queryString = params.toString();
     const url = queryString ? `/notifications?${queryString}` : '/notifications';
-    const response = await api.get(url);
+    console.log('[notificationService] Fetching from URL:', url);
+    
+    const response: any = await api.get(url);
+    console.log('[notificationService] Raw response:', JSON.stringify(response, null, 2));
 
-    if (response.success) {
+    // Handle nested data structure - backend wraps response in data field
+    const responseData = response.data || response;
+    
+    if (response.success || responseData.notifications) {
       return {
         success: true,
-        notifications: response.data.notifications as Notification[],
-        total: response.data.total,
-        unread: response.data.unread,
+        notifications: (responseData.notifications || []) as Notification[],
+        total: responseData.total || 0,
+        unread: responseData.unread || 0,
       };
     }
 
@@ -55,7 +65,7 @@ export const getNotifications = async (limit = 20, skip = 0, read?: boolean) => 
       unread: 0,
     };
   } catch (error: any) {
-    console.error('Get notifications error:', error);
+    console.error('[notificationService] Get notifications error:', error);
     return {
       success: false,
       notifications: [],
@@ -70,8 +80,8 @@ export const getNotifications = async (limit = 20, skip = 0, read?: boolean) => 
  */
 export const getUnreadCount = async () => {
   try {
-    const response = await api.get('/notifications/unread-count');
-    return response.data?.unreadCount || 0;
+    const response: any = await api.get('/notifications/unread-count');
+    return response.unreadCount || 0;
   } catch (error) {
     console.error('Get unread count error:', error);
     return 0;

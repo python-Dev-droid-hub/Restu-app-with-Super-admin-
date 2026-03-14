@@ -11,7 +11,7 @@ import {
   StatusBar,
   Image,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, CommonActions } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '../../components/api/client';
 import { Ionicons } from '@expo/vector-icons';
@@ -73,21 +73,31 @@ export default function AdminOrdersScreen() {
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState<Order[]>([]);
   const [activeTab, setActiveTab] = useState<OrderStatus>('all');
-  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
 
-  const menuItems = [
-    { name: t('nav.notifications'), icon: 'notifications-outline', screen: 'AdminNotifications' },
-    { name: 'Table Assignment', icon: 'grid-outline', screen: 'TableAssignment' },
-    // Only show Branches for SUPER_ADMIN
-    ...(userRole === 'SUPER_ADMIN' ? [{ name: t('nav.branches'), icon: 'business-outline', screen: 'AdminBranches' }] : []),
-    { name: t('nav.deals'), icon: 'pricetag-outline', screen: 'AdminDeals' },
-    { name: t('nav.coupons'), icon: 'ticket-outline', screen: 'AdminCoupons' },
-    { name: t('nav.productSizes'), icon: 'resize-outline', screen: 'AdminProductSizes' },
-    { name: t('nav.categories'), icon: 'grid-outline', screen: 'AdminCategories' },
-    { name: t('nav.reports'), icon: 'bar-chart-outline', screen: 'AdminReports' },
-    { name: t('nav.settings'), icon: 'settings-outline', screen: 'AdminSettings' },
-  ];
+  const openMoreMenu = () => {
+    navigation.getParent()?.setParams({ showMoreMenu: true });
+  };
+
+  const handleLogout = async () => {
+    try {
+      await AsyncStorage.multiRemove(['authToken', 'userRole', 'userData', 'userId']);
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: 'Login' }],
+        })
+      );
+    } catch (e) {
+      console.error('[AdminOrdersScreen] Logout error:', e);
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: 'Login' }],
+        })
+      );
+    }
+  };
 
   useEffect(() => {
     loadOrders();
@@ -314,57 +324,26 @@ export default function AdminOrdersScreen() {
             ))
           ) : (
             <View style={styles.emptyContainer}>
-              <Ionicons name="receipt-outline" size={64} color={COLORS.border} />
-              <Text style={styles.emptyText}>No orders found</Text>
-              <Text style={styles.emptySubtext}>Orders will appear here when customers place them</Text>
+              <Ionicons name="receipt-outline" size={48} color="#ddd" />
+              <Text style={styles.emptyText}>{t('orders.noOrders') || 'No orders found'}</Text>
             </View>
           )}
         </View>
       </ScrollView>
 
-      {/* More Menu Modal */}
-      <Modal
-        visible={showMoreMenu}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowMoreMenu(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>More Options</Text>
-              <TouchableOpacity onPress={() => setShowMoreMenu(false)}>
-                <Ionicons name="close" size={24} color="#666" />
-              </TouchableOpacity>
-            </View>
-            {menuItems.map((item, index) => (
-              <TouchableOpacity
-                key={item.screen}
-                style={styles.menuItem}
-                onPress={() => {
-                  setShowMoreMenu(false);
-                  (navigation as any).navigate(item.screen);
-                }}
-              >
-                <Ionicons name={item.icon as any} size={24} color={COLORS.orange} />
-                <Text style={styles.menuItemText}>{item.name}</Text>
-                <Ionicons name="chevron-forward" size={20} color={COLORS.border} />
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-      </Modal>
-
       {/* Profile Menu Modal */}
       <ProfileMenu
         visible={showProfileMenu}
         onClose={() => setShowProfileMenu(false)}
-        onLogout={() => navigation.navigate('Welcome')}
-        onChangePassword={() => navigation.navigate('ChangePassword')}
+        onLogout={handleLogout}
+        onChangePassword={() => {
+          setShowProfileMenu(false);
+          navigation.navigate('AdminSettings');
+        }}
       />
 
       {/* Bottom Navigation */}
-      <AdminBottomNavigation currentRoute="AdminOrders" onMorePress={() => setShowMoreMenu(true)} />
+      <AdminBottomNavigation currentRoute="AdminOrders" />
     </View>
   );
 }

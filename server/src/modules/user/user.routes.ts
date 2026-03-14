@@ -26,6 +26,8 @@ const changePasswordSchema = Joi.object({
 // Protected routes
 router.get('/profile', authenticate, userController.getProfile);
 router.put('/profile', authenticate, validate(updateProfileSchema), userController.updateProfile);
+router.patch('/profile', authenticate, validate(updateProfileSchema), userController.updateProfile);
+router.patch('/profile/image', authenticate, userController.updateProfileImage);
 router.put('/change-password', authenticate, validate(changePasswordSchema), userController.changePassword);
 
 // Admin only routes

@@ -201,7 +201,7 @@ const AdminPaymentManagementScreen: React.FC = () => {
         <Ionicons name={getMethodIcon(item.paymentMethod) as any} size={20} color={COLORS.primary} />
         <Text style={styles.amountLabel}>{item.paymentMethod.toUpperCase()}</Text>
         <Text style={styles.amountValue}>
-          {currencySymbol}{item.amount.toFixed(2)}
+          {currencySymbol}{Number(item.amount || 0).toFixed(2)}
         </Text>
       </View>
 
@@ -255,21 +255,21 @@ const AdminPaymentManagementScreen: React.FC = () => {
         <Ionicons name="today" size={24} color={COLORS.primary} />
         <Text style={styles.statLabel}>Today</Text>
         <Text style={styles.statValue}>
-          {stats.find(s => s._id === 'today')?.total?.toFixed(2) || '0.00'}
+          {Number(stats.find(s => s._id === 'today')?.total || 0).toFixed(2)}
         </Text>
       </View>
       <View style={styles.statCard}>
         <Ionicons name="calendar" size={24} color={COLORS.info} />
         <Text style={styles.statLabel}>Month</Text>
         <Text style={styles.statValue}>
-          {stats.find(s => s._id === 'month')?.total?.toFixed(2) || '0.00'}
+          {Number(stats.find(s => s._id === 'month')?.total || 0).toFixed(2)}
         </Text>
       </View>
       <View style={styles.statCard}>
         <Ionicons name="trending-up" size={24} color={COLORS.success} />
         <Text style={styles.statLabel}>Total</Text>
         <Text style={styles.statValue}>
-          {stats.find(s => s._id === 'total')?.total?.toFixed(2) || '0.00'}
+          {Number(stats.find(s => s._id === 'total')?.total || 0).toFixed(2)}
         </Text>
       </View>
     </View>

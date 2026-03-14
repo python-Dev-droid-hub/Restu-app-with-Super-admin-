@@ -7,10 +7,13 @@ import {
   StyleSheet,
   FlatList,
   Image,
+  StatusBar,
+  SafeAreaView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, typography, spacing, borderRadius, shadows } from '../../theme';
 import { formatPrice, formatDiscount } from '../../utils/formatHelpers';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const FILTERS = [
   { id: '1', name: 'Veg', icon: '🥬' },
@@ -29,6 +32,7 @@ const PRODUCTS = [
 ];
 
 export default function SearchScreen() {
+  const insets = useSafeAreaInsets();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState('Recommended');
@@ -103,7 +107,8 @@ export default function SearchScreen() {
   );
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar barStyle="dark-content" backgroundColor={colors.white} />
       {/* Search Header */}
       <View style={styles.header}>
         <View style={styles.searchBar}>
@@ -196,7 +201,7 @@ export default function SearchScreen() {
           showsVerticalScrollIndicator={false}
         />
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 

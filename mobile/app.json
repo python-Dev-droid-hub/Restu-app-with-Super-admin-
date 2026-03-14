@@ -35,7 +35,8 @@
           "merchantIdentifier": "merchant.com.restaurant.app",
           "enableGooglePay": true
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ]
   }
 }

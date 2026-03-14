@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../../constants/colors';
 import { getSpacing } from '../../utils/responsive';
 import { isSuperAdmin, canAuditBranches } from '../../utils/permissionHelpers';
+import { useSettings } from '../../context/SettingsContext';
 
 const { width } = Dimensions.get('window');
 
@@ -88,6 +89,7 @@ export default function BranchAuditScreen() {
   const [auditData, setAuditData] = useState<AuditData | null>(null);
   const [loading, setLoading] = useState(true);
   const [userRole, setUserRole] = useState<string>('');
+  const { currencySymbol } = useSettings();
 
   useEffect(() => {
     loadUserRole();
@@ -208,13 +210,13 @@ export default function BranchAuditScreen() {
         />
         <MetricCard
           title="Today's Income"
-          value={`$${auditData?.overview.todayIncome || 0}`}
+          value={`${currencySymbol}${auditData?.overview.todayIncome || 0}`}
           subtitle="revenue"
           color={theme.success}
         />
         <MetricCard
           title="Monthly Income"
-          value={`$${auditData?.overview.monthlyIncome || 0}`}
+          value={`${currencySymbol}${auditData?.overview.monthlyIncome || 0}`}
           subtitle="this month"
           color={theme.primary}
         />
@@ -234,7 +236,7 @@ export default function BranchAuditScreen() {
         </View>
         <View style={styles.statDivider} />
         <View style={styles.totalStatItem}>
-          <Text style={styles.totalStatValue}>${auditData?.overview.totalRevenue || 0}</Text>
+          <Text style={styles.totalStatValue}>{currencySymbol}{auditData?.overview.totalRevenue || 0}</Text>
           <Text style={styles.totalStatLabel}>Total Revenue</Text>
         </View>
       </View>
@@ -247,22 +249,22 @@ export default function BranchAuditScreen() {
       <View style={styles.metricsGrid}>
         <MetricCard
           title="Weekly Revenue"
-          value={`$${auditData?.financial.weeklyRevenue || 0}`}
+          value={`${currencySymbol}${auditData?.financial.weeklyRevenue || 0}`}
           color={theme.blue}
         />
         <MetricCard
           title="Monthly Revenue"
-          value={`$${auditData?.financial.monthlyRevenue || 0}`}
+          value={`${currencySymbol}${auditData?.financial.monthlyRevenue || 0}`}
           color={theme.primary}
         />
         <MetricCard
           title="Avg Order Value"
-          value={`$${auditData?.financial.averageOrderValue || 0}`}
+          value={`${currencySymbol}${auditData?.financial.averageOrderValue || 0}`}
           color={theme.success}
         />
         <MetricCard
           title="Daily Avg"
-          value={`$${Math.round((auditData?.financial.weeklyRevenue || 0) / 7)}`}
+          value={`${currencySymbol}${Math.round((auditData?.financial.weeklyRevenue || 0) / 7)}`}
           color={theme.purple}
         />
       </View>

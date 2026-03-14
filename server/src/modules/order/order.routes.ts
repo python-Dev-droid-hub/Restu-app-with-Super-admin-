@@ -14,9 +14,12 @@ const createOrderSchema = Joi.object({
       menuItemId: Joi.string().required(),
       quantity: Joi.number().min(1).required(),
       customizations: Joi.array().items(Joi.string()).optional(),
+      specialInstructions: Joi.string().max(500).optional().allow(''),
     })
   ).min(1).required(),
   restaurantId: Joi.string().required(),
+  phoneNumber: Joi.string().max(30).optional().allow(''),
+  alternatePhoneNumber: Joi.string().max(30).optional().allow(''),
   deliveryAddress: Joi.object({
     street: Joi.string().required(),
     city: Joi.string().required(),
@@ -27,7 +30,7 @@ const createOrderSchema = Joi.object({
       lng: Joi.number().min(-180).max(180),
     }).optional(),
   }).required(),
-  orderType: Joi.string().valid('delivery', 'pickup', 'DINE_IN', 'dine_in').required(),
+  orderType: Joi.string().valid('DELIVERY', 'DINE_IN', 'TAKEAWAY').required(),
   paymentMethod: Joi.string().valid('cash', 'card', 'digital_wallet').required(),
   deliveryInstructions: Joi.string().max(500).optional(),
   tableId: Joi.string().optional(),
@@ -43,9 +46,14 @@ const updateStatusSchema = Joi.object({
     'PICKED_UP',
     'OUT_FOR_DELIVERY',
     'DELIVERED',
+    'SERVED',
     'COMPLETED',
     'CANCELLED'
   ).required(),
+  picked_up_at: Joi.string().isoDate().optional(),
+  ready_at: Joi.string().isoDate().optional(),
+  paymentMethod: Joi.string().valid('CASH', 'CARD', 'BANK_TRANSFER').optional(),
+  paymentStatus: Joi.string().valid('PENDING', 'SUCCESS', 'FAILED').optional(),
 });
 
 const cancelOrderSchema = Joi.object({
@@ -74,8 +82,8 @@ router.put('/:id/review', authenticate, authorize('CUSTOMER'), validate(addRevie
 
 // Protected routes - Restaurant owners
 router.get('/restaurant/:restaurantId', authenticate, authorize('BRANCH_MANAGER', 'ADMIN', 'SUPER_ADMIN'), validateParams(restaurantParamsSchema), orderController.getRestaurantOrders);
-router.put('/:id/status', authenticate, authorize('BRANCH_MANAGER', 'ADMIN', 'CHEF', 'KITCHEN', 'COOK', 'HEAD_CHEF', 'SOUS_CHEF', 'KITCHEN_MANAGER', 'RIDER', 'SUPER_ADMIN'), validate(updateStatusSchema), orderController.updateOrderStatus);
-router.put('/:id/cancel-restaurant', authenticate, authorize('BRANCH_MANAGER', 'ADMIN', 'SUPER_ADMIN'), validate(cancelOrderSchema), orderController.cancelOrder);
+router.put('/:id/status', authenticate, authorize('BRANCH_MANAGER', 'ADMIN', 'CHEF', 'KITCHEN', 'COOK', 'HEAD_CHEF', 'SOUS_CHEF', 'KITCHEN_MANAGER', 'RIDER', 'WAITER', 'SUPER_ADMIN'), validate(updateStatusSchema), orderController.updateOrderStatus);
+router.put('/:id/cancel-restaurant', authenticate, authorize('BRANCH_MANAGER', 'ADMIN', 'WAITER', 'SUPER_ADMIN'), validate(cancelOrderSchema), orderController.cancelOrder);
 router.get('/stats/:restaurantId', authenticate, authorize('BRANCH_MANAGER', 'ADMIN', 'SUPER_ADMIN'), validateParams(restaurantParamsSchema), orderController.getOrderStats);
 
 // Protected routes - Drivers
@@ -96,6 +104,9 @@ router.post('/:orderId/submit-to-kitchen', authenticate, authorize('WAITER', 'BR
 
 // Update order - Waiter can edit their orders before kitchen accepts
 router.put('/:orderId', authenticate, authorize('WAITER', 'BRANCH_MANAGER', 'ADMIN', 'SUPER_ADMIN'), orderController.updateOrder);
+
+// Update item status - Chef can mark individual items as PREPARING, READY, SERVED
+router.patch('/:orderId/items/:itemId/status', authenticate, authorize('CHEF', 'KITCHEN', 'COOK', 'HEAD_CHEF', 'SOUS_CHEF', 'KITCHEN_MANAGER', 'ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER'), orderController.updateItemStatus);
 
 // Get orders for waiter - filtered by status
 router.get('/waiter/my-orders', authenticate, authorize('WAITER', 'SUPER_ADMIN'), orderController.getWaiterOrders);

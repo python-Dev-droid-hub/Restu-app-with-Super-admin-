@@ -49,9 +49,15 @@ const productSchema = new Schema({
     type: Number,
     min: [0, 'Price cannot be negative'],
     validate: {
-      validator: function() {
-        // Price is required only if product doesn't have sizes
-        return this.hasSizes ? true : this.price > 0;
+      validator: function(this: any) {
+        // Price validation: if product doesn't have sizes, price must be > 0
+        // If product has sizes, price can be 0 or undefined (size prices are used instead)
+        // Allow updates where price might be 0 for sized products
+        if (this.hasSizes) {
+          return true; // Price is optional for products with sizes
+        }
+        // For products without sizes, price must be defined and > 0
+        return this.price !== undefined && this.price !== null && this.price > 0;
       },
       message: 'Price is required for products without sizes'
     }
@@ -64,6 +70,10 @@ const productSchema = new Schema({
     type: String,
     trim: true,
     maxlength: [500, 'Image URL cannot exceed 500 characters']
+  },
+  images: {
+    type: [String],
+    default: [],
   },
   isAvailable: {
     type: Boolean,

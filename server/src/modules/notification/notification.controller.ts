@@ -68,8 +68,9 @@ export class NotificationController {
   getAdminNotifications = asyncHandler(async (req: IAuthRequest, res: Response) => {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 20;
+    const branchId = req.query.branchId as string;
 
-    const result = await this.notificationService.getAdminNotifications(page, limit);
+    const result = await this.notificationService.getAdminNotifications(page, limit, branchId);
     sendSuccess(res, result, 'Notifications retrieved successfully');
   });
 

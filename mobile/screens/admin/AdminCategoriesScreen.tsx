@@ -18,6 +18,7 @@ import { api } from '../../components/api/client';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalization } from '../../context/LocalizationContext';
+import { useUserData } from '../../hooks/useUserData';
 
 // Components
 import ResponsiveHeader from '../../components/layout/ResponsiveHeader';
@@ -42,9 +43,11 @@ interface Category {
 }
 
 export default function AdminCategoriesScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation() as any;
   const insets = useSafeAreaInsets();
   const { t } = useLocalization();
+  const { profileImage } = useUserData();
+
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -85,7 +88,7 @@ export default function AdminCategoriesScreen() {
     { name: 'Table Assignment', icon: 'grid-outline', screen: 'TableAssignment' },
     // Only show Branches for SUPER_ADMIN
     ...(userRole === 'SUPER_ADMIN' ? [{ name: t('nav.branches'), icon: 'business-outline', screen: 'AdminBranches' }] : []),
-    { name: t('nav.deals'), icon: 'pricetag-outline', screen: 'AdminDeals' },
+    { name: t('nav.deals'), icon: 'pricetag-outline', screen: 'AdminDealCampaigns' },
     { name: t('nav.coupons'), icon: 'ticket-outline', screen: 'AdminCoupons' },
     { name: t('nav.productSizes'), icon: 'resize-outline', screen: 'AdminProductSizes' },
     { name: t('nav.categories'), icon: 'grid-outline', screen: 'AdminCategories' },
@@ -211,6 +214,7 @@ export default function AdminCategoriesScreen() {
       <ResponsiveHeader
         title={t('nav.categories')}
         notificationCount={unreadCount}
+        profileImage={profileImage}
         onNotificationPress={() => {
           // @ts-ignore
           navigation.navigate('AdminNotifications');
@@ -369,7 +373,8 @@ export default function AdminCategoriesScreen() {
                 style={styles.menuItem}
                 onPress={() => {
                   setShowMoreMenu(false);
-                  navigation.navigate(item.screen as any);
+                  // @ts-ignore
+                  navigation.navigate(item.screen);
                 }}
               >
                 <Ionicons name={item.icon as any} size={24} color={COLORS.orange} />
@@ -385,8 +390,14 @@ export default function AdminCategoriesScreen() {
       <ProfileMenu
         visible={showProfileMenu}
         onClose={() => setShowProfileMenu(false)}
-        onLogout={() => navigation.navigate('Welcome' as any)}
-        onChangePassword={() => navigation.navigate('ChangePassword' as any)}
+        onLogout={() => {
+          // @ts-ignore
+          navigation.navigate('Welcome');
+        }}
+        onChangePassword={() => {
+          // @ts-ignore
+          navigation.navigate('ChangePassword');
+        }}
       />
     </View>
   );

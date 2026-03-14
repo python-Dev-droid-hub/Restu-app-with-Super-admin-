@@ -22,6 +22,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalization } from '../../context/LocalizationContext';
 import { COLORS } from '../../constants/colors';
 import { getSpacing } from '../../utils/responsive';
+import { useUserData } from '../../hooks/useUserData';
 
 // Components
 import ResponsiveHeader from '../../components/layout/ResponsiveHeader';
@@ -44,6 +45,7 @@ export default function AdminDealsScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { t } = useLocalization();
+  const { profileImage } = useUserData();
   const [deals, setDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -57,6 +59,13 @@ export default function AdminDealsScreen() {
   useEffect(() => {
     loadUserData();
   }, []);
+
+  // This screen is deprecated in favor of Deal Campaigns flow.
+  // Keep route for backward compatibility but redirect immediately.
+  useEffect(() => {
+    // @ts-ignore
+    navigation.navigate('AdminDealCampaigns');
+  }, [navigation]);
 
   const loadUserData = async () => {
     try {
@@ -83,7 +92,7 @@ export default function AdminDealsScreen() {
     { name: 'Table Assignment', icon: 'grid-outline', screen: 'TableAssignment' },
     // Only show Branches for SUPER_ADMIN
     ...(userRole === 'SUPER_ADMIN' ? [{ name: t('nav.branches'), icon: 'business-outline', screen: 'AdminBranches' }] : []),
-    { name: t('nav.deals'), icon: 'pricetag-outline', screen: 'AdminDeals' },
+    { name: t('nav.deals'), icon: 'pricetag-outline', screen: 'AdminDealCampaigns' },
     { name: t('nav.coupons'), icon: 'ticket-outline', screen: 'AdminCoupons' },
     { name: t('nav.productSizes'), icon: 'resize-outline', screen: 'AdminProductSizes' },
     { name: t('nav.categories'), icon: 'grid-outline', screen: 'AdminCategories' },
@@ -165,6 +174,7 @@ export default function AdminDealsScreen() {
       <ResponsiveHeader
         title={t('nav.deals')}
         notificationCount={0}
+        profileImage={profileImage}
         onNotificationPress={() => {
           // @ts-ignore
           navigation.navigate('AdminNotifications');
@@ -313,8 +323,14 @@ export default function AdminDealsScreen() {
       <ProfileMenu
         visible={showProfileMenu}
         onClose={() => setShowProfileMenu(false)}
-        onLogout={() => navigation.navigate('Welcome' as any)}
-        onChangePassword={() => navigation.navigate('ChangePassword' as any)}
+        onLogout={() => {
+          // @ts-ignore
+          navigation.navigate('Welcome');
+        }}
+        onChangePassword={() => {
+          // @ts-ignore
+          navigation.navigate('ChangePassword');
+        }}
       />
     </View>
   );

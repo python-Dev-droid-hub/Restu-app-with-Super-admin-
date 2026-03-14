@@ -33,6 +33,8 @@ export { Payment } from './Payment';
 // Promotion Models (New)
 export * from './Deal';
 export { Deal } from './Deal';
+export * from './DealCampaign';
+export { DealCampaign } from './DealCampaign';
 export * from './DealProduct';
 export { DealProduct } from './DealProduct';
 export * from './Coupon';

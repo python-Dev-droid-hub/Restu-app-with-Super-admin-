@@ -28,6 +28,7 @@ import DashboardTab from '../../components/superadmin/DashboardTab';
 import BranchesTab from '../../components/superadmin/BranchesTab';
 import SuperAdminRevenueTab from '../../components/superadmin/SuperAdminRevenueTab';
 import ProfileTab from '../../components/superadmin/ProfileTab';
+import { useUserData } from '../../hooks/useUserData';
 
 const { width } = Dimensions.get('window');
 
@@ -68,6 +69,7 @@ const AccessDenied = () => (
 export default function SuperAdminDashboard() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
+  const { profileImage } = useUserData();
   
   const [activeTab, setActiveTab] = useState<TabType>('Dashboard');
   const [loading, setLoading] = useState(true);
@@ -205,7 +207,7 @@ export default function SuperAdminDashboard() {
         <View style={styles.headerRight}>
           <TouchableOpacity style={styles.avatarContainer}>
             <Image
-              source={{ uri: 'https://randomuser.me/api/portraits/men/1.jpg' }}
+              source={{ uri: profileImage || 'https://randomuser.me/api/portraits/men/1.jpg' }}
               style={styles.avatar}
             />
           </TouchableOpacity>

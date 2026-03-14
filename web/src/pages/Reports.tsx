@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
+import { useSettings } from '../context/SettingsContext';
 
 interface ReportData {
   totalRevenue: number;
@@ -31,6 +32,7 @@ interface ReportData {
 }
 
 const Reports: React.FC = () => {
+  const { defaultCurrency } = useSettings();
   const [reportData, setReportData] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -64,9 +66,9 @@ const Reports: React.FC = () => {
   };
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-PK', {
+    return new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: 'PKR',
+      currency: defaultCurrency,
       minimumFractionDigits: 0,
     }).format(amount);
   };

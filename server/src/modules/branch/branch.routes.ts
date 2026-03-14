@@ -19,7 +19,7 @@ const createBranchSchema = Joi.object({
   country: Joi.string().max(100).optional(),
   lat: Joi.number().min(-90).max(90).optional(),
   lng: Joi.number().min(-180).max(180).optional(),
-  phoneNumber: Joi.string().pattern(/^[\+]?[\d]{10,16}$/).optional(),
+  phoneNumber: Joi.string().pattern(/^[\+]?[\d\s\-\(\)]{10,20}$/).optional(),
   email: Joi.string().email().optional(),
   operatingHours: Joi.object().optional(),
   deliveryRadius: Joi.number().min(100).max(50000).optional(),
@@ -41,7 +41,7 @@ const updateBranchSchema = Joi.object({
   country: Joi.string().max(100).optional(),
   lat: Joi.number().min(-90).max(90).optional(),
   lng: Joi.number().min(-180).max(180).optional(),
-  phoneNumber: Joi.string().pattern(/^[\+]?[\d]{10,16}$/).optional(),
+  phoneNumber: Joi.string().pattern(/^[\+]?[\d\s\-\(\)]{10,20}$/).optional(),
   email: Joi.string().email().optional(),
   operatingHours: Joi.object().optional(),
   deliveryRadius: Joi.number().min(100).max(50000).optional(),
@@ -75,8 +75,8 @@ const logBranchRequest = (req: any, res: any, next: any) => {
 router.get('/', validateQuery(querySchema), logBranchRequest, restaurantController.getAllRestaurants);
 
 // Protected routes - SUPER_ADMIN and ADMIN can manage branches
-router.post('/', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), validate(createBranchSchema), logBranchRequest, restaurantController.createRestaurant);
-router.put('/:id', authenticate, authorize('SUPER_ADMIN', 'ADMIN', 'BRANCH_MANAGER'), validate(updateBranchSchema), logBranchRequest, restaurantController.updateRestaurant);
+router.post('/', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), logBranchRequest, validate(createBranchSchema), restaurantController.createRestaurant);
+router.put('/:id', authenticate, authorize('SUPER_ADMIN', 'ADMIN', 'BRANCH_MANAGER'), logBranchRequest, validate(updateBranchSchema), restaurantController.updateRestaurant);
 router.delete('/:id', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), logBranchRequest, restaurantController.deleteRestaurant);
 
 // Get single branch

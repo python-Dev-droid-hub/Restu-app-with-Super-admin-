@@ -17,8 +17,10 @@ interface ResponsiveHeaderProps {
   title: string;
   showNotification?: boolean;
   showProfile?: boolean;
+  showMore?: boolean;
   onNotificationPress?: () => void;
   onProfilePress?: () => void;
+  onMorePress?: () => void;
   profileImage?: string;
   notificationCount?: number;
   style?: StyleProp<ViewStyle>;
@@ -28,8 +30,10 @@ export default function ResponsiveHeader({
   title,
   showNotification = true,
   showProfile = true,
+  showMore = false,
   onNotificationPress,
   onProfilePress,
+  onMorePress,
   profileImage = 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop',
   notificationCount = 0,
   style,
@@ -53,6 +57,19 @@ export default function ResponsiveHeader({
 
       {/* Right: Notification + Profile */}
       <View style={styles.rightSection}>
+        {showMore && (
+          <TouchableOpacity
+            style={styles.moreButton}
+            onPress={onMorePress}
+            activeOpacity={0.7}
+          >
+            <Ionicons
+              name="ellipsis-vertical"
+              size={22}
+              color={COLORS.darkText}
+            />
+          </TouchableOpacity>
+        )}
         {showNotification && (
           <TouchableOpacity
             style={styles.notificationButton}
@@ -80,10 +97,16 @@ export default function ResponsiveHeader({
             onPress={onProfilePress}
             activeOpacity={0.7}
           >
-            <Image
-              source={{ uri: profileImage }}
-              style={styles.profileImage}
-            />
+            {profileImage ? (
+              <Image
+                source={{ uri: profileImage }}
+                style={styles.profileImage}
+              />
+            ) : (
+              <View style={styles.profileImage}>
+                <Ionicons name="person" size={24} color={COLORS.darkText} />
+              </View>
+            )}
           </TouchableOpacity>
         )}
       </View>
@@ -123,6 +146,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
+  },
+  moreButton: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   badge: {
     position: 'absolute',

@@ -11,6 +11,7 @@ export default function RiderTabsNavigator() {
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
+        tabBarStyle: { display: 'none' },
         tabBarIcon: ({ focused, color, size }) => {
           let iconName: any = 'home-outline';
           if (route.name === 'RiderHome') iconName = focused ? 'home' : 'home-outline';

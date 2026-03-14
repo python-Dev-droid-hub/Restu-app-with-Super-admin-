@@ -140,13 +140,13 @@ const RiderHomeHeader: React.FC<RiderHomeHeaderProps> = ({
         />
         <StatCard
           icon="cash-outline"
-          value={`$${stats.earnings.toFixed(2)}`}
+          value={`$${Number(stats.earnings || 0).toFixed(2)}`}
           label="Earnings"
           backgroundColor={COLORS.success}
         />
         <StatCard
           icon="trending-up"
-          value={`$${stats.last7Days.toFixed(2)}`}
+          value={`$${Number(stats.last7Days || 0).toFixed(2)}`}
           label="Last 7 Days"
           backgroundColor={COLORS.info}
         />

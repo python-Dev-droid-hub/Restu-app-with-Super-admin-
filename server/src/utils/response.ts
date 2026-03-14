@@ -1,5 +1,14 @@
-import { Response } from 'express';
+import { Response, Request, NextFunction } from 'express';
 import { IApiResponse, IPaginatedResponse } from '@/types';
+
+// Async error handler wrapper
+export const asyncHandler = (
+  fn: (req: Request, res: Response, next: NextFunction) => Promise<any>
+) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    Promise.resolve(fn(req, res, next)).catch(next);
+  };
+};
 
 export const sendSuccess = <T>(
   res: Response,

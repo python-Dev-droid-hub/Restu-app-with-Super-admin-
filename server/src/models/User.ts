@@ -122,10 +122,12 @@ userSchema.methods.getPublicProfile = function() {
   return {
     _id: this._id,
     email: this.email,
+    name: this.displayName, // For client compatibility
     displayName: this.displayName,
     role: this.role,
     phoneNumber: this.phoneNumber,
     profileImage: this.profileImage,
+    avatar: this.profileImage, // For client compatibility
     emailVerified: this.emailVerified,
     phoneVerified: this.phoneVerified,
     assignedBranch: this.assignedBranch,

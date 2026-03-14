@@ -14,8 +14,11 @@ import {
   Dimensions,
   Switch,
   AppState,
+  TextInput,
+  Share,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '../../components/api/client';
@@ -23,6 +26,9 @@ import { CommonActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import OrderCard from '../../components/ChefDashboard/OrderCard';
 import { getChefOrders, populateOrdersWithProductDetails } from '../../services/orderService';
+import PaymentHistoryScreen from '../profile/PaymentHistoryScreen';
+import NotificationHistoryScreen from '../profile/NotificationHistoryScreen';
+import ChangePasswordScreen from '../profile/ChangePasswordScreen';
 
 const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 0;
 const HEADER_MARGIN = Platform.OS === 'ios' ? 50 : 20;
@@ -82,6 +88,10 @@ interface SqlOrderItem {
   product_name: string;
   size_name?: string | null;
   quantity: number;
+  status?: 'PENDING' | 'PREPARING' | 'READY' | 'SERVED';
+  price?: number;
+  unit_price?: number;
+  total_price?: number;
   image?: string | null;
 }
 
@@ -109,7 +119,7 @@ interface WaiterDashboardStats {
 export default function WaiterDashboard() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const [activeTab, setActiveTab] = useState<'home' | 'orders' | 'tables' | 'profile'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'orders' | 'tables' | 'notifications' | 'profile'>('home');
   const [onShift, setOnShift] = useState(true);
   const [orderFilter, setOrderFilter] = useState<'ACTIVE' | 'READY' | 'COMPLETED' | 'CANCELLED'>('ACTIVE');
   const [tableFilter, setTableFilter] = useState<'ALL' | 'OCCUPIED' | 'RESERVED' | 'AVAILABLE'>('ALL');
@@ -129,7 +139,50 @@ export default function WaiterDashboard() {
   const [editDisplayName, setEditDisplayName] = useState('');
   const [appState, setAppState] = useState(AppState.currentState);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
+  const [profileImage, setProfileImage] = useState<string | null>(null);
+  const [profileSubScreen, setProfileSubScreen] = useState<'main' | 'payment' | 'password'>('main');
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [recentNotifications, setRecentNotifications] = useState<any[]>([]);
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [selectedOrderForBill, setSelectedOrderForBill] = useState<SqlOrder | null>(null);
+  const [showBillModal, setShowBillModal] = useState(false);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string | null>(null);
+  const [userData, setUserData] = useState<any>(null);
   const loadingRef = React.useRef(false);
+
+  const handlePrintInvoice = async () => {
+    if (!selectedOrderForBill) return;
+
+    const lines: string[] = [];
+    lines.push(`Invoice - ${selectedOrderForBill.order_number}`);
+    lines.push(`Order Type: ${selectedOrderForBill.order_type}`);
+    if (selectedOrderForBill.table_number) {
+      lines.push(`Table: ${selectedOrderForBill.table_number}`);
+    }
+    lines.push('');
+    lines.push('Items:');
+
+    (selectedOrderForBill.items || []).forEach((item: any) => {
+      const name = item.product_name || item.name || 'Item';
+      const qty = Number(item.quantity || 0);
+      const price = Number(item.total_price || item.price || 0).toFixed(2);
+      lines.push(`- ${name} x${qty}  $${price}`);
+    });
+
+    lines.push('');
+    lines.push(`Total: $${Number(selectedOrderForBill.total_amount || 0).toFixed(2)}`);
+    lines.push('');
+    lines.push('Thank you!');
+
+    try {
+      await Share.share({
+        title: `Invoice ${selectedOrderForBill.order_number}`,
+        message: lines.join('\n'),
+      });
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'Failed to open print/share');
+    }
+  };
 
   useEffect(() => {
     loadDashboardData();
@@ -167,9 +220,14 @@ export default function WaiterDashboard() {
       try {
         const userDataRaw = await AsyncStorage.getItem('userData');
         if (userDataRaw) {
-          const userData = JSON.parse(userDataRaw);
-          setWaiterName(userData?.display_name || userData?.name || 'Waiter');
-          setCurrentBranch(userData?.branch_name || userData?.assigned_branch_name || 'My Branch');
+          const userDataParsed = JSON.parse(userDataRaw);
+          setUserData(userDataParsed);
+          // Server returns displayName (camelCase), also check for snake_case fallback
+          setWaiterName(userDataParsed?.displayName || userDataParsed?.display_name || userDataParsed?.name || 'Waiter');
+          setCurrentBranch(userDataParsed?.branch_name || userDataParsed?.assigned_branch_name || 'My Branch');
+          if (userDataParsed?.profileImage) {
+            setProfileImage(userDataParsed.profileImage);
+          }
         }
       } catch {
         // ignore
@@ -184,9 +242,10 @@ export default function WaiterDashboard() {
         });
       }
 
-      const ordersResponse = await api.get('/orders/branch/all');
+      const ordersResponse = await api.get('/orders/branch/all?limit=500');
       if (ordersResponse.success && ordersResponse.data) {
         const rawOrders = ordersResponse.data.orders || [];
+        const totalOrdersFromDb = ordersResponse.data.pagination?.total;
         console.log('[WAITER] Branch orders count:', rawOrders.length);
         
         // Populate product details for orders with incomplete product data
@@ -204,6 +263,10 @@ export default function WaiterDashboard() {
             product_name: item.productName || item.product_name || item.name || (item.product?.name) || 'Item',
             size_name: item.size_name || item.sizeName || null,
             quantity: Number(item.quantity) || 1,
+            status: String(item.status || 'PENDING').toUpperCase() as any,
+            price: Number(item.price || item.unitPrice || item.unit_price || item.totalPrice || item.total_price || 0),
+            unit_price: Number(item.unitPrice || item.unit_price || item.price || 0),
+            total_price: Number(item.totalPrice || item.total_price || (item.price * item.quantity) || 0),
             image: item.image || item.product?.image || item.product?.imageUrl || null,
           }));
           return {
@@ -224,14 +287,22 @@ export default function WaiterDashboard() {
 
         const activeOrders = formattedOrders.filter(o => o.status !== 'COMPLETED' && o.status !== 'CANCELLED' && o.status !== 'SERVED');
         const readyToServe = formattedOrders.filter(o => o.status === 'READY');
-        const servedToday = formattedOrders.filter(o => 
-          (o.status === 'COMPLETED' || o.status === 'SERVED') && 
+        const servedToday = formattedOrders.filter(o =>
+          (o.status === 'COMPLETED' || o.status === 'SERVED') &&
           new Date(o.created_at).toDateString() === new Date().toDateString()
         ).length;
-        setStats({
-          active_orders: activeOrders.length,
-          ready_to_serve: readyToServe.length,
-          served_today: servedToday,
+
+        setStats(prev => {
+          const activeFromApi = typeof prev.active_orders === 'number' ? prev.active_orders : 0;
+          const readyFromApi = typeof prev.ready_to_serve === 'number' ? prev.ready_to_serve : 0;
+          const servedFromApi = typeof prev.served_today === 'number' ? prev.served_today : 0;
+
+          return {
+            active_orders: activeFromApi || activeOrders.length,
+            ready_to_serve: readyFromApi || readyToServe.length,
+            served_today: servedFromApi || servedToday,
+            total_orders: typeof totalOrdersFromDb === 'number' ? totalOrdersFromDb : (prev as any)?.total_orders,
+          } as any;
         });
       }
 
@@ -283,15 +354,20 @@ export default function WaiterDashboard() {
   };
 
   const handleChangePassword = () => {
-    try {
-      (navigation as any).navigate('ChangePassword');
-    } catch {
-      Alert.alert('Change Password', 'This action is not available yet.');
-    }
+    setProfileSubScreen('password');
   };
 
-  const handleNotifications = () => {
-    Alert.alert('Notifications', 'Notifications screen can be added next.');
+  const handleNotifications = async () => {
+    try {
+      const response = await api.get('/notifications?limit=5');
+      if (response.success && response.data?.notifications) {
+        setRecentNotifications(response.data.notifications);
+      }
+      setShowNotifications(true);
+    } catch (error) {
+      console.error('Error loading notifications:', error);
+      setShowNotifications(true);
+    }
   };
 
   const openNewOrder = () => {
@@ -307,6 +383,82 @@ export default function WaiterDashboard() {
     setShowEditProfile(true);
   };
 
+  const pickProfileImage = async () => {
+    try {
+      const result = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!result.granted) {
+        Alert.alert('Permission Required', 'Please allow access to your photos.');
+        return;
+      }
+      const pickerResult = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.7,
+        base64: true,
+      });
+      if (!pickerResult.canceled && pickerResult.assets[0]) {
+        const asset = pickerResult.assets[0];
+        const uri = asset.uri;
+        setProfileImage(uri);
+        
+        // Convert to base64 and upload
+        if (asset.base64) {
+          const mimeType = asset.mimeType || 'image/jpeg';
+          const base64Data = `data:${mimeType};base64,${asset.base64}`;
+          
+          try {
+            // Upload base64 image
+            const uploadResponse = await api.post('/upload', {
+              image: base64Data,
+              filename: `profile-${Date.now()}.jpg`,
+              mimeType: mimeType,
+            });
+            
+            if (uploadResponse.success && uploadResponse.data?.url) {
+              let imageUrl = uploadResponse.data.url;
+              // Prepend server URL if it's a relative path
+              if (imageUrl.startsWith('/uploads/')) {
+                const baseUrl = api.getBaseURL().replace('/api', '');
+                imageUrl = baseUrl + imageUrl;
+              }
+              
+              // Update user profile with image URL
+              const response = await api.patch('/users/profile', { avatar: imageUrl });
+              
+              if (response.success) {
+                // Update local storage
+                const userDataRaw = await AsyncStorage.getItem('userData');
+                if (userDataRaw) {
+                  const parsed = JSON.parse(userDataRaw);
+                  const updated = { ...parsed, profileImage: imageUrl };
+                  await AsyncStorage.setItem('userData', JSON.stringify(updated));
+                  setUserData(updated);
+                  setProfileImage(imageUrl);
+                }
+                Alert.alert('Success', 'Profile image updated');
+              } else {
+                Alert.alert('Error', response.message || 'Failed to update profile');
+              }
+            } else {
+              Alert.alert('Error', 'Failed to upload image');
+            }
+          } catch (uploadError) {
+            console.error('Error uploading image:', uploadError);
+            Alert.alert('Error', 'Failed to upload profile image');
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image');
+    }
+  };
+
+  const openPaymentHistory = () => {
+    setProfileSubScreen('payment');
+  };
+
   const saveProfile = async () => {
     const nextName = editDisplayName.trim();
     if (!nextName) {
@@ -314,18 +466,34 @@ export default function WaiterDashboard() {
       return;
     }
 
-    setWaiterName(nextName);
     try {
-      const userDataRaw = await AsyncStorage.getItem('userData');
-      if (userDataRaw) {
-        const userData = JSON.parse(userDataRaw);
-        const updated = { ...userData, display_name: nextName, name: nextName };
-        await AsyncStorage.setItem('userData', JSON.stringify(updated));
+      // Save to server - use /users/profile endpoint
+      const response = await api.patch('/users/profile', { name: nextName });
+      
+      if (response.success) {
+        setWaiterName(nextName);
+        // Update local storage with server response format (displayName)
+        const userDataRaw = await AsyncStorage.getItem('userData');
+        if (userDataRaw) {
+          const parsed = JSON.parse(userDataRaw);
+          const updated = { 
+            ...parsed, 
+            displayName: nextName,
+            display_name: nextName, 
+            name: nextName 
+          };
+          await AsyncStorage.setItem('userData', JSON.stringify(updated));
+          setUserData(updated);
+        }
+        setShowEditProfile(false);
+        Alert.alert('Success', 'Name updated successfully');
+      } else {
+        Alert.alert('Error', response.message || 'Failed to update name');
       }
-    } catch {
-      // ignore
+    } catch (error) {
+      console.error('Error saving name:', error);
+      Alert.alert('Error', 'Failed to save name');
     }
-    setShowEditProfile(false);
   };
 
   const formatTime = (iso: string) => {
@@ -345,19 +513,22 @@ export default function WaiterDashboard() {
   };
 
   const toOrderFilterGroup = (status: SqlOrderStatus, pickedUpAt?: string | null): 'ACTIVE' | 'READY' | 'COMPLETED' | 'CANCELLED' => {
-    if (status === 'COMPLETED' || status === 'SERVED' || status === 'DELIVERED') return 'COMPLETED';
-    if (status === 'CANCELLED') return 'CANCELLED';
-    if (status === 'READY') return 'READY';
+    const s = status?.toUpperCase() || '';
+    if (s === 'COMPLETED' || s === 'SERVED' || s === 'DELIVERED') return 'COMPLETED';
+    if (s === 'CANCELLED') return 'CANCELLED';
+    if (s === 'READY') return 'READY';
     // PENDING, KITCHEN_ACCEPTED, PREPARING, PICKED_UP all go to ACTIVE
     return 'ACTIVE';
   };
 
   const getOrderStatusPill = (status: SqlOrderStatus) => {
-    if (status === 'READY') return { label: 'Ready', bg: '#2BC48A', fg: '#FFFFFF' };
-    if (status === 'PREPARING' || status === 'KITCHEN_ACCEPTED') return { label: 'Cooking', bg: '#FF9F43', fg: '#FFFFFF' };
-    if (status === 'PENDING') return { label: 'Urgent', bg: '#FF4D4D', fg: '#FFFFFF' };
-    if (status === 'COMPLETED') return { label: 'Completed', bg: '#8E8E93', fg: '#FFFFFF' };
-    if (status === 'CANCELLED') return { label: 'Cancelled', bg: '#FF4D4D', fg: '#FFFFFF' };
+    const s = status?.toUpperCase() || '';
+    if (s === 'READY') return { label: 'Ready', bg: '#2BC48A', fg: '#FFFFFF' };
+    if (s === 'PREPARING' || s === 'KITCHEN_ACCEPTED') return { label: 'Cooking', bg: '#FF9F43', fg: '#FFFFFF' };
+    if (s === 'PENDING') return { label: 'Urgent', bg: '#FF4D4D', fg: '#FFFFFF' };
+    if (s === 'PICKED_UP') return { label: 'Picked Up', bg: '#6C63FF', fg: '#FFFFFF' };
+    if (s === 'COMPLETED') return { label: 'Completed', bg: '#8E8E93', fg: '#FFFFFF' };
+    if (s === 'CANCELLED') return { label: 'Cancelled', bg: '#FF4D4D', fg: '#FFFFFF' };
     return { label: 'Active', bg: '#6C63FF', fg: '#FFFFFF' };
   };
 
@@ -368,16 +539,12 @@ export default function WaiterDashboard() {
   };
 
   const openEditOrder = (order: SqlOrder) => {
-    if (!['PENDING', 'KITCHEN_ACCEPTED'].includes(order.status)) {
-      Alert.alert('Cannot Edit', 'Orders can only be edited before they are submitted to kitchen.');
+    if (['COMPLETED', 'CANCELLED'].includes(order.status)) {
+      Alert.alert('Cannot Edit', 'This order is already completed or cancelled.');
       return;
     }
-    if (!order.id || order.id === 'undefined') {
-      Alert.alert('Error', 'Order ID is missing. Please refresh and try again.');
-      return;
-    }
-    // Navigate to full edit order screen
-    (navigation as any).navigate('EditOrder', { orderId: order.id });
+    // @ts-ignore
+    navigation.navigate('EditOrder', { orderId: order.id });
   };
 
   const pickUpOrder = async (orderId: string) => {
@@ -387,12 +554,68 @@ export default function WaiterDashboard() {
         picked_up_at: new Date().toISOString()
       });
       if (response.success) {
-        await loadDashboardData();
+        // Get the order and update its status locally before showing modal
+        const order = orders.find(o => o.id === orderId);
+        if (order) {
+          // Update the order status locally
+          order.status = 'PICKED_UP';
+          setSelectedOrderForBill({...order, status: 'PICKED_UP'} as SqlOrder);
+          setShowBillModal(true);
+        }
+        // Refresh data in background
+        loadDashboardData();
       } else {
         Alert.alert('Error', response.message || 'Failed to update order');
       }
     } catch (e: any) {
       Alert.alert('Error', e?.message || 'Failed to update order');
+    }
+  };
+
+  const cancelOrder = async (orderId: string, reason?: string) => {
+    try {
+      const response = await api.patch(`/orders/${orderId}/status`, { 
+        status: 'CANCELLED',
+        reason: reason || 'Cancelled by waiter'
+      });
+      if (response.success) {
+        await loadDashboardData();
+      } else {
+        Alert.alert('Error', response.message || 'Failed to cancel order');
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'Failed to cancel order');
+    }
+  };
+
+  const handleOrderStatusChange = async (orderId: string, status: string) => {
+    if (status === 'cancelled') {
+      Alert.alert(
+        'Cancel Order',
+        'Are you sure you want to cancel this order?',
+        [
+          { text: 'No', style: 'cancel' },
+          { 
+            text: 'Yes, Cancel', 
+            style: 'destructive',
+            onPress: () => cancelOrder(orderId)
+          }
+        ]
+      );
+    } else if (status === 'picked_up' || status === 'served') {
+      await pickUpOrder(orderId);
+    } else {
+      // Handle other status changes
+      try {
+        const response = await api.put(`/orders/${orderId}/status`, { status });
+        if (response.success) {
+          await loadDashboardData();
+        } else {
+          Alert.alert('Error', response.message || 'Failed to update order');
+        }
+      } catch (e: any) {
+        Alert.alert('Error', e?.message || 'Failed to update order');
+      }
     }
   };
 
@@ -411,16 +634,17 @@ export default function WaiterDashboard() {
       .filter(o => toOrderFilterGroup(o.status, o.picked_up_at) === orderFilter)
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     return (
-      <ScrollView
-        style={styles.content}
-        contentContainerStyle={{ paddingBottom: insets.bottom + (Platform.OS === 'android' ? 70 : 60) + 16 }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.statsRowNew}>
+      <View style={{ flex: 1 }}>
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={{ paddingBottom: insets.bottom + (Platform.OS === 'android' ? 70 : 60) + 16 }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.statsRowNew}>
           <StatCard 
             color="#FF7A59" 
-            value={activeOrders.length} 
+            value={(stats as any)?.active_orders ?? activeOrders.length} 
             label="New Orders" 
             sublabel="Active"
             onPress={() => {
@@ -430,7 +654,7 @@ export default function WaiterDashboard() {
           />
           <StatCard 
             color="#2BC48A" 
-            value={readyOrders.length} 
+            value={(stats as any)?.ready_to_serve ?? readyOrders.length} 
             label="Ready" 
             sublabel="To Serve"
             onPress={() => {
@@ -450,7 +674,7 @@ export default function WaiterDashboard() {
           />
         </View>
 
-        <View style={styles.sectionNew}>
+          <View style={styles.sectionNew}>
           <Text style={styles.sectionTitleNew}>Orders Queue</Text>
           
           <View style={styles.segmentedRow}>
@@ -490,7 +714,9 @@ export default function WaiterDashboard() {
                     tableNumber: o.table_number || undefined,
                     items: o.items.map(item => ({
                       id: item.id,
+                      _id: item.id,
                       quantity: Number(item.quantity) || 1,
+                      status: item.status,
                       product: {
                         name: item.product_name,
                         image: item.image,
@@ -502,7 +728,7 @@ export default function WaiterDashboard() {
                   }}
                   onStatusChange={async (orderId, status) => {
                     try {
-                      await pickUpOrder(orderId);
+                      await handleOrderStatusChange(orderId, status);
                     } catch (e: any) {
                       Alert.alert('Error', e?.message || 'Failed to update order');
                     }
@@ -511,8 +737,49 @@ export default function WaiterDashboard() {
                   showPayment={true}
                   showActions={o.status === 'READY'}
                 />
-                {/* Edit button - show for orders that haven't been served yet */}
-                {['PENDING', 'KITCHEN_ACCEPTED', 'PREPARING', 'READY'].includes(o.status) && (
+                {/* Generate Bill button - show for PICKED_UP orders AND all items SERVED */}
+                {['PICKED_UP', 'picked_up', 'Picked_Up', 'PICKED-UP'].includes(o.status) && 
+                 (o.items?.every((item: any) => item.status === 'SERVED') ?? true) && (
+                  <TouchableOpacity
+                    style={{
+                      marginTop: 8,
+                      backgroundColor: DESIGN.colors.green,
+                      borderRadius: 12,
+                      paddingVertical: 12,
+                      paddingHorizontal: 16,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                    onPress={() => {
+                      setSelectedOrderForBill(o);
+                      setShowBillModal(true);
+                    }}
+                  >
+                    <Ionicons name="receipt-outline" size={18} color="#fff" style={{ marginRight: 8 }} />
+                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Generate Bill</Text>
+                  </TouchableOpacity>
+                )}
+                {/* Show warning if some items not served yet */}
+                {['PICKED_UP', 'picked_up', 'Picked_Up', 'PICKED-UP'].includes(o.status) && 
+                 !(o.items?.every((item: any) => item.status === 'SERVED') ?? true) && (
+                  <View style={{
+                    marginTop: 8,
+                    backgroundColor: '#FFF3CD',
+                    borderRadius: 12,
+                    paddingVertical: 12,
+                    paddingHorizontal: 16,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                  }}>
+                    <Ionicons name="warning-outline" size={18} color="#856404" style={{ marginRight: 8 }} />
+                    <Text style={{ color: '#856404', fontWeight: '600', fontSize: 13 }}>
+                      {o.items?.filter((item: any) => item.status !== 'SERVED').length || 0} item(s) pending from kitchen
+                    </Text>
+                  </View>
+                )}
+                {/* Edit button - allow adding items until payment succeeds (blocked only for COMPLETED/CANCELLED) */}
+                {!['COMPLETED', 'CANCELLED'].includes(o.status) && (
                   <TouchableOpacity
                     style={{
                       position: 'absolute',
@@ -538,23 +805,36 @@ export default function WaiterDashboard() {
               </View>
             ))
           )}
-        </View>
-      </ScrollView>
+          </View>
+        </ScrollView>
+
+        <TouchableOpacity
+          style={[styles.fab, { bottom: insets.bottom + (Platform.OS === 'android' ? 80 : 70) }]}
+          onPress={openNewOrder}
+          activeOpacity={0.9}
+        >
+          <Ionicons name="add" size={26} color="#fff" />
+        </TouchableOpacity>
+      </View>
     );
   };
 
   const renderOrders = () => {
+    // If we have a selected order, scroll to it or highlight it
+    const selectedOrder = selectedOrderId ? orders.find(o => o.id === selectedOrderId) : null;
+    
     const filteredOrders = orders
       .filter(o => toOrderFilterGroup(o.status, o.picked_up_at) === orderFilter)
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     return (
-      <ScrollView
-        style={styles.content}
-        contentContainerStyle={{ paddingBottom: insets.bottom + (Platform.OS === 'android' ? 70 : 60) + 16 }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.sectionNew}>
+      <View style={{ flex: 1 }}>
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={{ paddingBottom: insets.bottom + (Platform.OS === 'android' ? 70 : 60) + 16 }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.sectionNew}>
           <Text style={styles.sectionTitleNew}>Orders Queue</Text>
 
           <View style={styles.segmentedRow}>
@@ -569,7 +849,10 @@ export default function WaiterDashboard() {
                 <TouchableOpacity
                   key={seg.id}
                   style={[styles.segmentBtn, selected && styles.segmentBtnActive]}
-                  onPress={() => setOrderFilter(seg.id as any)}
+                  onPress={() => {
+                    setOrderFilter(seg.id as any);
+                    setSelectedOrderId(null); // Clear selection when filter changes
+                  }}
                 >
                   <Text style={[styles.segmentText, selected && styles.segmentTextActive]}>{seg.label}</Text>
                 </TouchableOpacity>
@@ -584,7 +867,16 @@ export default function WaiterDashboard() {
             </View>
           ) : (
             filteredOrders.map((o, idx) => (
-              <View key={`orders-${o.id}-${idx}`} style={{ marginBottom: 12 }}>
+              <View 
+                key={`orders-${o.id}-${idx}`} 
+                style={{ 
+                  marginBottom: 12,
+                  borderWidth: selectedOrderId === o.id ? 2 : 0,
+                  borderColor: DESIGN.colors.orange,
+                  borderRadius: 16,
+                  backgroundColor: selectedOrderId === o.id ? DESIGN.colors.orange + '10' : 'transparent',
+                }}
+              >
                 <OrderCard
                   order={{
                     id: o.id,
@@ -594,7 +886,9 @@ export default function WaiterDashboard() {
                     tableNumber: o.table_number || undefined,
                     items: o.items.map(item => ({
                       id: item.id,
+                      _id: item.id,
                       quantity: Number(item.quantity) || 1,
+                      status: item.status,
                       product: {
                         name: item.product_name,
                         image: item.image,
@@ -606,7 +900,7 @@ export default function WaiterDashboard() {
                   }}
                   onStatusChange={async (orderId, status) => {
                     try {
-                      await pickUpOrder(orderId);
+                      await handleOrderStatusChange(orderId, status);
                     } catch (e: any) {
                       Alert.alert('Error', e?.message || 'Failed to update order');
                     }
@@ -615,8 +909,49 @@ export default function WaiterDashboard() {
                   showPayment={true}
                   showActions={o.status === 'READY'}
                 />
-                {/* Edit button - show for orders that haven't been served yet */}
-                {['PENDING', 'KITCHEN_ACCEPTED', 'PREPARING', 'READY'].includes(o.status) && (
+                {/* Generate Bill button - show for PICKED_UP orders AND all items SERVED */}
+                {['PICKED_UP', 'picked_up', 'Picked_Up', 'PICKED-UP'].includes(o.status) && 
+                 (o.items?.every((item: any) => item.status === 'SERVED') ?? true) && (
+                  <TouchableOpacity
+                    style={{
+                      marginTop: 8,
+                      backgroundColor: DESIGN.colors.green,
+                      borderRadius: 12,
+                      paddingVertical: 12,
+                      paddingHorizontal: 16,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                    onPress={() => {
+                      setSelectedOrderForBill(o);
+                      setShowBillModal(true);
+                    }}
+                  >
+                    <Ionicons name="receipt-outline" size={18} color="#fff" style={{ marginRight: 8 }} />
+                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Generate Bill</Text>
+                  </TouchableOpacity>
+                )}
+                {/* Show warning if some items not served yet */}
+                {['PICKED_UP', 'picked_up', 'Picked_Up', 'PICKED-UP'].includes(o.status) && 
+                 !(o.items?.every((item: any) => item.status === 'SERVED') ?? true) && (
+                  <View style={{
+                    marginTop: 8,
+                    backgroundColor: '#FFF3CD',
+                    borderRadius: 12,
+                    paddingVertical: 12,
+                    paddingHorizontal: 16,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                  }}>
+                    <Ionicons name="warning-outline" size={18} color="#856404" style={{ marginRight: 8 }} />
+                    <Text style={{ color: '#856404', fontWeight: '600', fontSize: 13 }}>
+                      {o.items?.filter((item: any) => item.status !== 'SERVED').length || 0} item(s) pending from kitchen
+                    </Text>
+                  </View>
+                )}
+                {/* Edit button - allow adding items until payment succeeds (blocked only for COMPLETED/CANCELLED) */}
+                {!['COMPLETED', 'CANCELLED'].includes(o.status) && (
                   <TouchableOpacity
                     style={{
                       position: 'absolute',
@@ -644,6 +979,15 @@ export default function WaiterDashboard() {
           )}
         </View>
       </ScrollView>
+
+      <TouchableOpacity
+        style={[styles.fab, { bottom: insets.bottom + (Platform.OS === 'android' ? 80 : 70) }]}
+        onPress={openNewOrder}
+        activeOpacity={0.9}
+      >
+        <Ionicons name="add" size={26} color="#fff" />
+      </TouchableOpacity>
+    </View>
     );
   };
 
@@ -694,18 +1038,6 @@ export default function WaiterDashboard() {
 
                   <Text style={styles.tableMetaNew}>Capacity: {table.seating_capacity}</Text>
                   {table.section && <Text style={styles.tableMetaNew}>Section: {table.section}</Text>}
-                  {/* Floor number property not available in SqlRestaurantTable */}
-
-                  <View style={styles.modalActionsRow}>
-                    <TouchableOpacity
-                      style={styles.modalCancelBtn}
-                      onPress={() => {
-                        Alert.alert('Table Actions', `Actions for Table ${table.table_number}`);
-                      }}
-                    >
-                      <Text style={styles.modalCancelText}>View Details</Text>
-                    </TouchableOpacity>
-                  </View>
                 </View>
               );
             })}
@@ -715,7 +1047,56 @@ export default function WaiterDashboard() {
     );
   };
 
-  const renderProfile = () => (
+  const renderMenu = () => (
+    <ScrollView
+      style={styles.content}
+      contentContainerStyle={{ paddingBottom: insets.bottom + (Platform.OS === 'android' ? 70 : 60) + 16 }}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={{ padding: 16 }}>
+        <Text style={{ fontSize: 20, fontWeight: '800', color: DESIGN.colors.darkText, marginBottom: 16 }}>
+          Menu
+        </Text>
+        
+        {/* Quick Add Order Button */}
+        <TouchableOpacity
+          style={{
+            backgroundColor: DESIGN.colors.orange,
+            borderRadius: 16,
+            padding: 16,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginBottom: 20,
+          }}
+          onPress={openNewOrder}
+          activeOpacity={0.9}
+        >
+          <Ionicons name="add-circle" size={24} color={DESIGN.colors.white} />
+          <Text style={{ color: DESIGN.colors.white, fontWeight: '800', fontSize: 16, marginLeft: 8 }}>
+            New Order
+          </Text>
+        </TouchableOpacity>
+
+        <Text style={{ fontSize: 14, color: DESIGN.colors.muted, textAlign: 'center', marginTop: 20 }}>
+          Tap "New Order" to browse menu and place orders
+        </Text>
+      </View>
+    </ScrollView>
+  );
+
+  const renderProfile = () => {
+    // Handle sub-screens
+    if (profileSubScreen === 'payment') {
+      return <PaymentHistoryScreen onBack={() => setProfileSubScreen('main')} />;
+    }
+    if (profileSubScreen === 'password') {
+      return <ChangePasswordScreen onBack={() => setProfileSubScreen('main')} userData={userData} api={api} />;
+    }
+
+    // Main profile screen
+    return (
     <ScrollView
       style={styles.content}
       contentContainerStyle={{ paddingBottom: insets.bottom + (Platform.OS === 'android' ? 70 : 60) + 16 }}
@@ -723,69 +1104,50 @@ export default function WaiterDashboard() {
     >
       <View style={styles.sectionNew}>
         <View style={styles.profileHeader}>
-          <TouchableOpacity style={styles.profileAvatarLarge}>
-            <Ionicons name="person" size={28} color="#fff" />
+          <TouchableOpacity style={styles.profileAvatarLarge} onPress={pickProfileImage}>
+            {profileImage ? (
+              <Image source={{ uri: profileImage }} style={styles.profileAvatarImage} />
+            ) : (
+              <Ionicons name="person" size={40} color="#fff" />
+            )}
+            <View style={styles.profileAvatarBadge}>
+              <Ionicons name="camera" size={12} color="#fff" />
+            </View>
           </TouchableOpacity>
-          <Text style={styles.profileNameCentered}>{waiterName}</Text>
-          <Text style={styles.profileRoleCentered}>Waiter</Text>
-          <TouchableOpacity
-            style={styles.profileEditBtn}
-            onPress={openEditProfile}
-          >
-            <Text style={styles.profileEditText}>Edit Profile</Text>
-          </TouchableOpacity>
+          <Text style={styles.profileName}>{waiterName}</Text>
+          <Text style={styles.profileRole}>Waiter</Text>
         </View>
 
-        <View style={styles.profileSectionCard}>
-          <Text style={styles.profileSectionTitle}>Performance</Text>
-          <TouchableOpacity style={styles.profileRow} onPress={() => Alert.alert('Tips Summary', 'Coming soon.')}
-            >
-            <View style={[styles.profileRowIcon, { backgroundColor: 'rgba(255,122,89,0.18)' }]}>
-              <Ionicons name="stats-chart" size={16} color="#FF7A59" />
-            </View>
-            <Text style={styles.profileRowText}>Tips Summary</Text>
-            <Text style={styles.profileRowValue}>--</Text>
+        <View style={styles.profileMenu}>
+          <TouchableOpacity style={styles.profileMenuItem} onPress={openEditProfile}>
+            <Ionicons name="person-outline" size={20} color={DESIGN.colors.muted} />
+            <Text style={styles.profileMenuText}>Change Name</Text>
             <Ionicons name="chevron-forward" size={16} color="#bbb" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.profileRow} onPress={() => Alert.alert('Payment History', 'Coming soon.')}
-            >
-            <View style={[styles.profileRowIcon, { backgroundColor: 'rgba(108,99,255,0.18)' }]}>
-              <Ionicons name="wallet" size={16} color="#6C63FF" />
-            </View>
-            <Text style={styles.profileRowText}>Payment History</Text>
-            <Text style={styles.profileRowValue}>--</Text>
+          <TouchableOpacity style={styles.profileMenuItem} onPress={pickProfileImage}>
+            <Ionicons name="image-outline" size={20} color={DESIGN.colors.muted} />
+            <Text style={styles.profileMenuText}>Change Profile Image</Text>
             <Ionicons name="chevron-forward" size={16} color="#bbb" />
           </TouchableOpacity>
-        </View>
-
-        <View style={styles.profileSectionCard}>
-          <Text style={styles.profileSectionTitle}>Support</Text>
-          <TouchableOpacity style={styles.profileRow} onPress={() => Alert.alert('Info & Support', 'Coming soon.')}
-            >
-            <View style={[styles.profileRowIcon, { backgroundColor: 'rgba(43,196,138,0.18)' }]}>
-              <Ionicons name="help-circle" size={16} color="#2BC48A" />
-            </View>
-            <Text style={styles.profileRowText}>Info & Support</Text>
-            <Text style={styles.profileRowValue}></Text>
+          <TouchableOpacity style={styles.profileMenuItem} onPress={handleChangePassword}>
+            <Ionicons name="lock-closed-outline" size={20} color={DESIGN.colors.muted} />
+            <Text style={styles.profileMenuText}>Change Password</Text>
             <Ionicons name="chevron-forward" size={16} color="#bbb" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.profileRow} onPress={handleChangePassword}
-            >
-            <View style={[styles.profileRowIcon, { backgroundColor: 'rgba(160,160,160,0.18)' }]}>
-              <Ionicons name="settings" size={16} color="#666" />
-            </View>
-            <Text style={styles.profileRowText}>Change Password</Text>
-            <Text style={styles.profileRowValue}></Text>
+          <TouchableOpacity style={styles.profileMenuItem} onPress={openPaymentHistory}>
+            <Ionicons name="wallet-outline" size={20} color={DESIGN.colors.muted} />
+            <Text style={styles.profileMenuText}>Payment History</Text>
             <Ionicons name="chevron-forward" size={16} color="#bbb" />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.profileMenuItem} onPress={handleLogout}>
+            <Ionicons name="log-out-outline" size={20} color={DESIGN.colors.red} />
+            <Text style={[styles.profileMenuText, { color: DESIGN.colors.red }]}>Logout</Text>
           </TouchableOpacity>
         </View>
-
-        <TouchableOpacity onPress={handleLogout} style={styles.profileLogoutBtn}>
-          <Text style={styles.profileLogoutText}>Logout</Text>
-        </TouchableOpacity>
       </View>
     </ScrollView>
   );
+  };
 
   return (
     <View
@@ -799,18 +1161,19 @@ export default function WaiterDashboard() {
     >
       <StatusBar barStyle="dark-content" backgroundColor={DESIGN.colors.white} />
 
-      <View style={styles.headerNew}>
+      <View style={styles.header}>
         <View style={styles.headerTopRow}>
           <Text style={styles.headerTitleNew}>Waiter</Text>
           <View style={styles.headerIconsRow}>
-            <TouchableOpacity style={styles.headerIconBtn} onPress={() => setActiveTab('tables')}>
-              <Ionicons name="grid-outline" size={22} color={DESIGN.colors.darkText} />
-            </TouchableOpacity>
             <TouchableOpacity style={styles.headerIconBtn} onPress={handleNotifications}>
               <Ionicons name="notifications-outline" size={22} color={DESIGN.colors.darkText} />
             </TouchableOpacity>
             <TouchableOpacity style={styles.avatar} onPress={() => setActiveTab('profile')}>
-              <Ionicons name="person" size={18} color="#fff" />
+              {profileImage ? (
+                <Image source={{ uri: profileImage }} style={styles.avatarImage} />
+              ) : (
+                <Ionicons name="person" size={18} color="#fff" />
+              )}
             </TouchableOpacity>
           </View>
         </View>
@@ -830,7 +1193,7 @@ export default function WaiterDashboard() {
 
       {activeTab === 'home' && renderHome()}
       {activeTab === 'orders' && renderOrders()}
-      {activeTab === 'tables' && renderTables()}
+      {activeTab === 'notifications' && <NotificationHistoryScreen onBack={() => setActiveTab('home')} />}
       {activeTab === 'profile' && renderProfile()}
 
       <View
@@ -844,7 +1207,8 @@ export default function WaiterDashboard() {
       >
         {[
           { id: 'home', icon: 'home-outline', label: 'Home' },
-          { id: 'tables', icon: 'grid-outline', label: 'Tables' },
+          { id: 'orders', icon: 'document-text-outline', label: 'Orders' },
+          { id: 'notifications', icon: 'notifications-outline', label: 'Alerts' },
           { id: 'profile', icon: 'person-outline', label: 'Profile' },
         ].map(tab => {
           const isActive = activeTab === (tab.id as any);
@@ -857,45 +1221,26 @@ export default function WaiterDashboard() {
         })}
       </View>
 
-      <TouchableOpacity style={styles.fabAdd} onPress={openNewOrder} activeOpacity={0.9}>
-        <Ionicons name="add" size={24} color={DESIGN.colors.white} />
-      </TouchableOpacity>
-
       <Modal visible={showEditProfile} transparent animationType="fade" onRequestClose={() => setShowEditProfile(false)}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeaderRow}>
-              <Text style={styles.modalTitle}>Edit Profile</Text>
+              <Text style={styles.modalTitle}>Change Name</Text>
               <TouchableOpacity onPress={() => setShowEditProfile(false)} style={styles.modalCloseBtn}>
                 <Ionicons name="close" size={20} color={DESIGN.colors.darkText} />
               </TouchableOpacity>
             </View>
 
-            <TouchableOpacity
-              style={styles.editAvatarBtn}
-              onPress={() => Alert.alert('Profile Image', 'Image picker can be added next.')}
-              activeOpacity={0.9}
-            >
-              <Ionicons name="camera" size={18} color={DESIGN.colors.white} />
-              <Text style={styles.editAvatarText}>Change Photo</Text>
-            </TouchableOpacity>
-
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Name</Text>
-              <View style={styles.inputBox}>
-                <Text style={styles.inputValue}>{editDisplayName || ' '}</Text>
-              </View>
-              <TouchableOpacity
-                style={styles.inputOverlay}
-                onPress={() => Alert.alert('Edit Name', 'Name input can be added next.')}
+              <Text style={styles.inputLabel}>Your Name</Text>
+              <TextInput
+                style={styles.textInput}
+                value={editDisplayName}
+                onChangeText={setEditDisplayName}
+                placeholder="Enter your name"
+                placeholderTextColor={DESIGN.colors.muted}
               />
             </View>
-
-            <TouchableOpacity style={styles.changePasswordBtn} onPress={handleChangePassword}>
-              <Ionicons name="lock-closed" size={16} color={DESIGN.colors.darkText} />
-              <Text style={styles.changePasswordText}>Change Password</Text>
-              <Ionicons name="chevron-forward" size={16} color={DESIGN.colors.muted} />
-            </TouchableOpacity>
 
             <View style={styles.modalActionsRow}>
               <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setShowEditProfile(false)}>
@@ -908,6 +1253,214 @@ export default function WaiterDashboard() {
           </View>
         </View>
       </Modal>
+
+      <Modal visible={showNotifications} transparent animationType="fade" onRequestClose={() => setShowNotifications(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { maxHeight: '70%' }]}>
+            <View style={styles.modalHeaderRow}>
+              <Text style={styles.modalTitle}>Recent Notifications</Text>
+              <TouchableOpacity onPress={() => setShowNotifications(false)} style={styles.modalCloseBtn}>
+                <Ionicons name="close" size={20} color={DESIGN.colors.darkText} />
+              </TouchableOpacity>
+            </View>
+            
+            {recentNotifications.length === 0 ? (
+              <View style={styles.emptyNotifications}>
+                <Ionicons name="notifications-off-outline" size={48} color={DESIGN.colors.muted} />
+                <Text style={styles.emptyText}>No new notifications</Text>
+              </View>
+            ) : (
+              <>
+                <ScrollView style={styles.notificationsList}>
+                  {recentNotifications.map((notification: any) => {
+                    const isUnread = !notification.isRead && !notification.is_read;
+                    const relatedOrderId = notification.relatedOrder?._id || notification.relatedOrder || notification.orderId || notification.order_id || notification.data?.orderId;
+                    
+                    return (
+                      <TouchableOpacity 
+                        key={notification.id || notification._id} 
+                        style={[styles.notificationItem, isUnread && styles.unreadNotification]}
+                        onPress={() => {
+                          setShowNotifications(false);
+                          // Navigate to orders tab if notification has related order
+                          if (relatedOrderId) {
+                            setSelectedOrderId(relatedOrderId);
+                            // Set the correct filter based on order status
+                            const orderStatus = notification.relatedOrder?.status;
+                            if (orderStatus === 'DELIVERED' || orderStatus === 'COMPLETED' || orderStatus === 'SERVED') {
+                              setOrderFilter('COMPLETED');
+                            } else if (orderStatus === 'READY' || orderStatus === 'READY_TO_PICKUP') {
+                              setOrderFilter('READY');
+                            } else {
+                              setOrderFilter('ACTIVE');
+                            }
+                            setActiveTab('orders');
+                          }
+                        }}
+                      >
+                        <View style={styles.notificationIcon}>
+                          <Ionicons 
+                            name={notification.type === 'NEW_ORDER' ? 'bag-outline' : 
+                                  notification.type === 'ORDER_READY' ? 'checkmark-circle-outline' : 
+                                  'notifications-outline'} 
+                            size={20} 
+                            color={DESIGN.colors.orange} 
+                          />
+                        </View>
+                        <View style={styles.notificationContent}>
+                          <Text style={styles.notificationTitle}>{notification.title || 'Notification'}</Text>
+                          <Text style={styles.notificationMessage} numberOfLines={2}>{notification.message || notification.body}</Text>
+                          <Text style={styles.notificationTime}>
+                            {new Date(notification.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+                <TouchableOpacity 
+                  style={styles.viewAllBtn} 
+                  onPress={() => {
+                    setShowNotifications(false);
+                    setActiveTab('notifications');
+                  }}
+                >
+                  <Text style={styles.viewAllText}>View All Notifications</Text>
+                  <Ionicons name="chevron-forward" size={16} color={DESIGN.colors.orange} />
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Bill/Invoice Modal */}
+      <Modal visible={showBillModal} transparent animationType="slide" onRequestClose={() => setShowBillModal(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { maxHeight: '90%' }]}>
+            <View style={styles.modalHeaderRow}>
+              <Text style={styles.modalTitle}>Order Bill</Text>
+              <TouchableOpacity onPress={() => setShowBillModal(false)} style={styles.modalCloseBtn}>
+                <Ionicons name="close" size={20} color={DESIGN.colors.darkText} />
+              </TouchableOpacity>
+            </View>
+            
+            {selectedOrderForBill && (
+              <ScrollView style={styles.billContent}>
+                <View style={styles.billSection}>
+                  <Text style={styles.billOrderNumber}>{selectedOrderForBill.order_number}</Text>
+                  <Text style={styles.billLabel}>Order Type: {selectedOrderForBill.order_type}</Text>
+                  {selectedOrderForBill.table_number && (
+                    <Text style={styles.billLabel}>Table: {selectedOrderForBill.table_number}</Text>
+                  )}
+                </View>
+
+                <View style={styles.billDivider} />
+
+                <Text style={styles.billSectionTitle}>Items</Text>
+                {selectedOrderForBill.items.map((item: any, idx: number) => (
+                  <View key={idx} style={styles.billItemRow}>
+                    <Text style={styles.billItemName}>{item.product_name || item.name}</Text>
+                    <Text style={styles.billItemQty}>x{item.quantity}</Text>
+                    <Text style={styles.billItemPrice}>${Number(item.total_price || item.price || 0).toFixed(2)}</Text>
+                  </View>
+                ))}
+
+                <View style={styles.billDivider} />
+
+                <View style={styles.billTotalRow}>
+                  <Text style={styles.billTotalLabel}>Total</Text>
+                  <Text style={styles.billTotalAmount}>${Number(selectedOrderForBill.total_amount || 0).toFixed(2)}</Text>
+                </View>
+
+                <View style={styles.billDivider} />
+
+                {/* Payment Method Selection */}
+                <Text style={styles.billSectionTitle}>Payment Method</Text>
+                <View style={styles.paymentMethodsRow}>
+                  {[
+                    { id: 'CASH', label: 'Cash', icon: 'cash-outline' },
+                    { id: 'CARD', label: 'Card', icon: 'card-outline' },
+                    { id: 'BANK_TRANSFER', label: 'Bank Transfer', icon: 'wallet-outline' },
+                  ].map(method => (
+                    <TouchableOpacity
+                      key={method.id}
+                      style={[
+                        styles.paymentMethodBtn,
+                        selectedPaymentMethod === method.id && styles.paymentMethodBtnSelected
+                      ]}
+                      onPress={() => setSelectedPaymentMethod(method.id)}
+                    >
+                      <Ionicons 
+                        name={method.icon as any} 
+                        size={20} 
+                        color={selectedPaymentMethod === method.id ? '#fff' : DESIGN.colors.darkText} 
+                      />
+                      <Text style={[
+                        styles.paymentMethodText,
+                        selectedPaymentMethod === method.id && styles.paymentMethodTextSelected
+                      ]}>
+                        {method.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <View style={styles.billActions}>
+                  <TouchableOpacity
+                    style={styles.billCloseBtn}
+                    onPress={handlePrintInvoice}
+                  >
+                    <Text style={styles.billCloseBtnText}>Print</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity 
+                    style={[styles.billPayBtn, !selectedPaymentMethod && { opacity: 0.5 }]}
+                    disabled={!selectedPaymentMethod}
+                    onPress={async () => {
+                      if (!selectedPaymentMethod) {
+                        Alert.alert('Error', 'Please select a payment method');
+                        return;
+                      }
+                      try {
+                        // Update order with payment info and complete
+                        const response = await api.put(`/orders/${selectedOrderForBill.id}/status`, { 
+                          status: 'COMPLETED',
+                          paymentMethod: selectedPaymentMethod,
+                          paymentStatus: 'SUCCESS'
+                        });
+                        if (response.success) {
+                          setShowBillModal(false);
+                          setSelectedOrderForBill(null);
+                          setSelectedPaymentMethod(null);
+                          await loadDashboardData();
+                          Alert.alert('Success', `Payment received via ${selectedPaymentMethod}. Order completed!`);
+                        }
+                      } catch (e: any) {
+                        Alert.alert('Error', e?.message || 'Failed to complete order');
+                      }
+                    }}
+                  >
+                    <Ionicons name="checkmark-circle" size={20} color="#fff" />
+                    <Text style={styles.billPayBtnText}>Confirm Payment & Complete</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    style={styles.billCloseBtn}
+                    onPress={() => {
+                      setShowBillModal(false);
+                      setSelectedPaymentMethod(null);
+                    }}
+                  >
+                    <Text style={styles.billCloseBtnText}>Close</Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
     </View>
   );
 }
@@ -917,10 +1470,25 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: DESIGN.colors.lightBg,
   },
-  headerNew: {
-    paddingHorizontal: DESIGN.spacing.pagePad,
+  fab: {
+    position: 'absolute',
+    right: 18,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: DESIGN.colors.orange,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  header: {
     paddingTop: 16,
-    paddingBottom: 12,
+    paddingHorizontal: DESIGN.spacing.pagePad,
+    paddingBottom: 16,
     backgroundColor: DESIGN.colors.white,
     borderBottomWidth: 1,
     borderBottomColor: DESIGN.colors.border,
@@ -987,6 +1555,12 @@ const styles = StyleSheet.create({
     backgroundColor: DESIGN.colors.orange,
     justifyContent: 'center',
     alignItems: 'center',
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
   },
   content: {
     flex: 1,
@@ -1439,6 +2013,37 @@ const styles = StyleSheet.create({
     color: DESIGN.colors.muted,
     marginRight: 6,
   },
+  profileName: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: DESIGN.colors.darkText,
+    marginBottom: 4,
+  },
+  profileRole: {
+    fontSize: 14,
+    color: DESIGN.colors.muted,
+    marginBottom: 16,
+  },
+  profileMenu: {
+    backgroundColor: DESIGN.colors.white,
+    borderRadius: 16,
+    marginHorizontal: DESIGN.spacing.pagePad,
+    marginTop: 8,
+  },
+  profileMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: DESIGN.colors.border,
+  },
+  profileMenuText: {
+    fontSize: 14,
+    color: DESIGN.colors.darkText,
+    flex: 1,
+    marginLeft: 12,
+  },
   profileLogoutBtn: {
     backgroundColor: DESIGN.colors.red,
     borderRadius: 12,
@@ -1498,14 +2103,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   editAvatarBtn: {
-    flexDirection: 'row',
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: DESIGN.colors.orange,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    backgroundColor: DESIGN.colors.orange,
-    borderRadius: 14,
-    paddingVertical: 12,
+    alignSelf: 'center',
     marginBottom: 12,
+    overflow: 'hidden',
+  },
+  editAvatarImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+  },
+  editAvatarOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    paddingVertical: 4,
+    alignItems: 'center',
   },
   editAvatarText: {
     color: DESIGN.colors.white,
@@ -1520,6 +2140,15 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: DESIGN.colors.darkText,
     marginBottom: 6,
+  },
+  textInput: {
+    backgroundColor: DESIGN.colors.lightBg,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: DESIGN.colors.darkText,
+    fontWeight: '600',
   },
   inputBox: {
     backgroundColor: DESIGN.colors.lightBg,
@@ -1646,5 +2275,207 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: DESIGN.colors.muted,
     fontWeight: '600',
+  },
+  profileAvatarImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+  },
+  profileAvatarBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: DESIGN.colors.orange,
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  emptyNotifications: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: DESIGN.colors.muted,
+    marginTop: 12,
+  },
+  notificationsList: {
+    maxHeight: 300,
+  },
+  notificationItem: {
+    flexDirection: 'row',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: DESIGN.colors.border,
+  },
+  unreadNotification: {
+    backgroundColor: DESIGN.colors.lightBg,
+  },
+  notificationIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: DESIGN.colors.orange + '15',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  notificationContent: {
+    flex: 1,
+  },
+  notificationTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: DESIGN.colors.darkText,
+    marginBottom: 2,
+  },
+  notificationMessage: {
+    fontSize: 12,
+    color: DESIGN.colors.muted,
+    marginBottom: 4,
+  },
+  notificationTime: {
+    fontSize: 10,
+    color: DESIGN.colors.muted,
+  },
+  viewAllBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderTopWidth: 1,
+    borderTopColor: DESIGN.colors.border,
+  },
+  viewAllText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: DESIGN.colors.orange,
+  },
+  billContent: {
+    paddingHorizontal: 16,
+  },
+  billSection: {
+    marginBottom: 16,
+  },
+  billOrderNumber: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: DESIGN.colors.darkText,
+    marginBottom: 8,
+  },
+  billLabel: {
+    fontSize: 14,
+    color: DESIGN.colors.muted,
+    marginBottom: 4,
+  },
+  billDivider: {
+    height: 1,
+    backgroundColor: DESIGN.colors.border,
+    marginVertical: 12,
+  },
+  billSectionTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: DESIGN.colors.darkText,
+    marginBottom: 12,
+  },
+  billItemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  billItemName: {
+    flex: 1,
+    fontSize: 14,
+    color: DESIGN.colors.darkText,
+  },
+  billItemQty: {
+    fontSize: 12,
+    color: DESIGN.colors.muted,
+    marginHorizontal: 12,
+  },
+  billItemPrice: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: DESIGN.colors.darkText,
+  },
+  billTotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  billTotalLabel: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: DESIGN.colors.darkText,
+  },
+  billTotalAmount: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: DESIGN.colors.orange,
+  },
+  billActions: {
+    marginTop: 20,
+    paddingBottom: 20,
+  },
+  billPayBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: DESIGN.colors.green,
+    paddingVertical: 14,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  billPayBtnText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#fff',
+    marginLeft: 8,
+  },
+  billCloseBtn: {
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  billCloseBtnText: {
+    fontSize: 14,
+    color: DESIGN.colors.muted,
+  },
+  paymentMethodsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  paymentMethodBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    marginHorizontal: 4,
+    borderRadius: 12,
+    backgroundColor: DESIGN.colors.lightBg,
+    borderWidth: 1,
+    borderColor: DESIGN.colors.border,
+  },
+  paymentMethodBtnSelected: {
+    backgroundColor: DESIGN.colors.green,
+    borderColor: DESIGN.colors.green,
+  },
+  paymentMethodText: {
+    marginLeft: 6,
+    fontSize: 12,
+    fontWeight: '600',
+    color: DESIGN.colors.darkText,
+  },
+  paymentMethodTextSelected: {
+    color: '#fff',
   },
 });

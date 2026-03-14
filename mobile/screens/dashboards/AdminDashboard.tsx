@@ -12,6 +12,7 @@ import {
   Dimensions,
   Modal,
   Platform,
+  FlatList,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { CommonActions } from '@react-navigation/native';
@@ -25,6 +26,8 @@ import { getSpacing } from '../../utils/responsive';
 import ResponsiveHeader from '../../components/layout/ResponsiveHeader';
 import ProfileMenu from '../../components/common/ProfileMenu';
 import { useLocalization } from '../../context/LocalizationContext';
+import { getNotifications } from '../../services/notificationService';
+import { useUserData } from '../../hooks/useUserData';
 
 const { width } = Dimensions.get('window');
 const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 0;
@@ -74,9 +77,10 @@ interface CustomerStats {
 
 export default function AdminDashboard() {
   const navigation = useNavigation();
-  const { currencySymbol, formatPrice } = useSettings();
+  const { currencySymbol, formatPrice, refreshSettings } = useSettings();
   const { t } = useLocalization();
   const insets = useSafeAreaInsets();
+  const { profileImage: userProfileImage } = useUserData();
   console.log(' [DASHBOARD] Component mounting...');
   const [loading, setLoading] = useState(true);
   const [isLive, setIsLive] = useState(true);
@@ -84,9 +88,10 @@ export default function AdminDashboard() {
   const [selectedBranch, setSelectedBranch] = useState('all');
   const [branches, setBranches] = useState<Branch[]>([]);
   const [showBranchDropdown, setShowBranchDropdown] = useState(false);
-  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [showNotificationPanel, setShowNotificationPanel] = useState(false);
+  const [notificationList, setNotificationList] = useState<any[]>([]);
   const [stats, setStats] = useState<CustomerStats>({
     totalOrders: 0,
     favoriteItems: 0,
@@ -104,7 +109,19 @@ export default function AdminDashboard() {
   // Load user role on mount
   useEffect(() => {
     loadUserRole();
+    loadSavedBranch();
   }, []);
+
+  const loadSavedBranch = async () => {
+    try {
+      const savedBranchId = await AsyncStorage.getItem('selectedBranchId');
+      if (savedBranchId) {
+        setSelectedBranch(savedBranchId);
+      }
+    } catch (error) {
+      console.error('Error loading saved branch:', error);
+    }
+  };
 
   const loadUserRole = async () => {
     try {
@@ -144,12 +161,20 @@ export default function AdminDashboard() {
 
   const loadBranches = async () => {
     try {
-      const response = await api.get('/branches');
-      if (response.success) {
-        setBranches(response.data.branches || []);
+      const response: any = await api.get('/branches');
+      if (response?.success) {
+        const rawList = response?.data?.branches || response?.data?.data?.branches || response?.data?.data?.restaurants || response?.data || [];
+        const normalized = (Array.isArray(rawList) ? rawList : []).map((b: any) => ({
+          _id: b?._id || b?.id,
+          name: b?.name || b?.branchName || b?.restaurantName,
+        })).filter((b: any) => !!b._id && !!b.name);
+        setBranches(normalized);
+      } else {
+        setBranches([]);
       }
     } catch (error) {
       console.error('Error loading branches:', error);
+      setBranches([]);
     }
   };
 
@@ -175,13 +200,18 @@ export default function AdminDashboard() {
         });
       }
 
-      const ordersResponse = await api.get(`/orders?limit=5&${params.toString()}`);
+      const ordersResponse = await api.get(`/orders?limit=10&${params.toString()}`);
       if (ordersResponse.success && ordersResponse.data) {
         setRecentOrders(ordersResponse.data.orders || []);
       }
 
       // Load recent products
-      const productsResponse = await api.get('/menu/admin/products?limit=5');
+      const productsParams = new URLSearchParams();
+      productsParams.append('limit', '5');
+      if (selectedBranch !== 'all') {
+        productsParams.append('branchId', selectedBranch);
+      }
+      const productsResponse = await api.get(`/menu/admin/products?${productsParams.toString()}`);
       console.log(' [DASHBOARD] Products API Response:', productsResponse);
       console.log(' [DASHBOARD] Products success:', productsResponse.success);
       console.log(' [DASHBOARD] Products data:', productsResponse.data);
@@ -191,6 +221,7 @@ export default function AdminDashboard() {
         console.log(' [DASHBOARD] Products length:', products.length);
         console.log(' [DASHBOARD] Setting recent products:', products.length);
         setRecentProducts(products);
+        setStats(prev => ({ ...prev, totalProducts: productsResponse.data.pagination?.total || products.length }));
       } else {
         console.log(' [DASHBOARD] Products API call failed');
         setRecentProducts([]);
@@ -210,12 +241,34 @@ export default function AdminDashboard() {
 
   const loadUnreadCount = async () => {
     try {
-      const response = await api.get('/notifications/admin/unread-count');
+      const response: any = await api.get('/notifications/unread-count');
       if (response.success) {
-        setUnreadCount(response.data.count || 0);
+        setUnreadCount(response.unreadCount || 0);
       }
     } catch (error) {
       console.error('Error loading unread count:', error);
+    }
+  };
+
+  const loadNotifications = async () => {
+    try {
+      // Pass branchId for filtering if a specific branch is selected
+      const branchId = selectedBranch !== 'all' ? selectedBranch : undefined;
+      const res = await getNotifications(20, 0, undefined, branchId);
+      if (res.success) {
+        const mapped = (res.notifications || []).map((n: any) => ({
+          id: n._id || n.id,
+          title: n.title || 'Notification',
+          body: n.body || n.message || '',
+          type: n.type || 'SYSTEM',
+          is_read: !!n.isRead,
+          created_at: n.createdAt ? new Date(n.createdAt).toLocaleString() : 'Just now',
+          raw: n,
+        }));
+        setNotificationList(mapped);
+      }
+    } catch (e) {
+      console.error('Error loading notifications:', e);
     }
   };
 
@@ -254,19 +307,6 @@ export default function AdminDashboard() {
     return branch?.name || 'Select Branch';
   };
 
-  const menuItems = [
-    { name: 'Notifications', icon: 'notifications-outline', screen: 'AdminNotifications' },
-    { name: 'Table Assignment', icon: 'grid-outline', screen: 'TableAssignment' },
-    // Only show Branches for SUPER_ADMIN
-    ...(userRole === 'SUPER_ADMIN' ? [{ name: 'Branches', icon: 'business-outline', screen: 'AdminBranches' }] : []),
-    { name: 'Deals', icon: 'pricetag-outline', screen: 'AdminDeals' },
-    { name: 'Coupons', icon: 'ticket-outline', screen: 'AdminCoupons' },
-    { name: 'Product Size', icon: 'resize-outline', screen: 'AdminProductSizes' },
-    { name: 'Categories', icon: 'grid-outline', screen: 'AdminCategories' },
-    { name: 'Reports', icon: 'bar-chart-outline', screen: 'AdminReports' },
-    { name: 'Settings', icon: 'settings-outline', screen: 'AdminSettings' },
-  ];
-
   return (
     <View style={[styles.rootContainer, { paddingBottom: insets.bottom }]}>
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
@@ -275,10 +315,10 @@ export default function AdminDashboard() {
       <ResponsiveHeader
         title="Admin Dashboard"
         notificationCount={unreadCount}
-        profileImage={userData.image}
+        profileImage={userProfileImage}
         onNotificationPress={() => {
-          // @ts-ignore
-          navigation.navigate('AdminNotifications');
+          setShowNotificationPanel(true);
+          loadNotifications();
         }}
         onProfilePress={() => setShowProfileMenu(true)}
       />
@@ -310,9 +350,11 @@ export default function AdminDashboard() {
           <View style={styles.dropdownContainer}>
             <TouchableOpacity
               style={[styles.dropdownItem, selectedBranch === 'all' && styles.dropdownItemActive]}
-              onPress={() => {
+              onPress={async () => {
                 setSelectedBranch('all');
                 setShowBranchDropdown(false);
+                await AsyncStorage.removeItem('selectedBranchId');
+                refreshSettings();
               }}
             >
               <Text style={[styles.dropdownText, selectedBranch === 'all' && styles.dropdownTextActive]}>
@@ -323,9 +365,11 @@ export default function AdminDashboard() {
               <TouchableOpacity
                 key={branch._id}
                 style={[styles.dropdownItem, selectedBranch === branch._id && styles.dropdownItemActive]}
-                onPress={() => {
+                onPress={async () => {
                   setSelectedBranch(branch._id);
                   setShowBranchDropdown(false);
+                  await AsyncStorage.setItem('selectedBranchId', branch._id);
+                  refreshSettings();
                 }}
               >
                 <Text style={[styles.dropdownText, selectedBranch === branch._id && styles.dropdownTextActive]}>
@@ -368,15 +412,15 @@ export default function AdminDashboard() {
             <Text style={styles.statLabel}>Menu Items</Text>
           </TouchableOpacity>
           
-          <TouchableOpacity style={[styles.statCard, styles.customersCard]} onPress={() => {
+          <TouchableOpacity style={[styles.statCard, styles.branchesCard]} onPress={() => {
             // @ts-ignore
-            navigation.navigate('AdminUsers')
+            navigation.navigate('AdminBranches')
           }}>
             <View style={styles.statIconContainer}>
-              <Ionicons name="people-outline" size={24} color="#fff" />
+              <Ionicons name="business-outline" size={24} color="#fff" />
             </View>
-            <Text style={styles.statValue}>{(stats.totalUsers || 0).toLocaleString()}</Text>
-            <Text style={styles.statLabel}>Branch Users</Text>
+            <Text style={styles.statValue}>{branches.length}</Text>
+            <Text style={styles.statLabel}>Branches</Text>
           </TouchableOpacity>
         </View>
 
@@ -425,41 +469,6 @@ export default function AdminDashboard() {
         <View style={styles.bottomSpacer} />
       </ScrollView>
 
-      {/* More Menu Modal */}
-      <Modal
-        visible={showMoreMenu}
-        transparent={true}
-        animationType="none"
-        onRequestClose={() => setShowMoreMenu(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{t('nav.more')}</Text>
-              <TouchableOpacity onPress={() => setShowMoreMenu(false)}>
-                <Ionicons name="close" size={24} color="#666" />
-              </TouchableOpacity>
-            </View>
-            {menuItems.map((item, index) => (
-              <TouchableOpacity
-                key={index}
-                style={styles.menuItem}
-                onPress={() => {
-                  setShowMoreMenu(false);
-                  // @ts-ignore
-                  navigation.navigate(item.screen);
-                }}
-              >
-                {/* @ts-ignore */}
-                <Ionicons name={item.icon as any} size={24} color="#E87E35" />
-                <Text style={styles.menuItemText}>{item.name}</Text>
-                <Ionicons name="chevron-forward" size={20} color="#ccc" />
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-      </Modal>
-
       {/* Profile Menu Modal */}
       <ProfileMenu
         visible={showProfileMenu}
@@ -481,6 +490,76 @@ export default function AdminDashboard() {
           navigation.navigate('AdminSettings');
         }}
       />
+
+      {/* Notification Panel Modal */}
+      <Modal
+        visible={showNotificationPanel}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowNotificationPanel(false)}
+      >
+        <View style={notificationStyles.overlay}>
+          <View style={notificationStyles.panel}>
+            <View style={notificationStyles.header}>
+              <View>
+                <Text style={notificationStyles.title}>Notifications</Text>
+                <Text style={notificationStyles.subtitle}>{unreadCount} unread</Text>
+              </View>
+              <View style={notificationStyles.headerActions}>
+                {unreadCount > 0 && (
+                  <TouchableOpacity onPress={async () => {
+                    setNotificationList(prev => prev.map(n => ({ ...n, is_read: true })));
+                    setUnreadCount(0);
+                    try {
+                      await api.put('/notifications/mark-all-read');
+                    } catch (e) {
+                      console.error('Error marking all read:', e);
+                    }
+                  }}>
+                    <Text style={notificationStyles.markAll}>Mark all read</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity onPress={() => setShowNotificationPanel(false)}>
+                  <Ionicons name="close" size={24} color="#1a1a2e" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {notificationList.length === 0 ? (
+              <View style={notificationStyles.emptyState}>
+                <Ionicons name="notifications-off-outline" size={48} color="#ccc" />
+                <Text style={notificationStyles.emptyText}>No notifications</Text>
+              </View>
+            ) : (
+              <FlatList
+                data={notificationList}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                  <TouchableOpacity 
+                    style={[notificationStyles.item, !item.is_read && notificationStyles.unreadItem]}
+                    onPress={() => {
+                      setNotificationList(prev => prev.map(n => 
+                        n.id === item.id ? { ...n, is_read: true } : n
+                      ));
+                      setUnreadCount(prev => Math.max(0, prev - 1));
+                    }}
+                  >
+                    <View style={[notificationStyles.iconContainer, { backgroundColor: '#FF7A59' }]}>
+                      <Ionicons name="notifications" size={20} color="#fff" />
+                    </View>
+                    <View style={notificationStyles.content}>
+                      <Text style={notificationStyles.itemTitle}>{item.title}</Text>
+                      <Text style={notificationStyles.itemBody}>{item.body}</Text>
+                      <Text style={notificationStyles.time}>{item.created_at}</Text>
+                    </View>
+                    {!item.is_read && <View style={notificationStyles.unreadDot} />}
+                  </TouchableOpacity>
+                )}
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -607,34 +686,36 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   dropdownContainer: {
-    position: 'absolute',
-    top: 100,
-    left: 20,
-    right: 100,
     backgroundColor: '#fff',
     borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E87E35',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.2,
     shadowRadius: 8,
     elevation: 8,
-    zIndex: 100,
+    marginHorizontal: 20,
+    marginBottom: 12,
     paddingVertical: 8,
   },
   dropdownItem: {
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
   },
   dropdownItemActive: {
     backgroundColor: '#FFF3E0',
   },
   dropdownText: {
-    fontSize: 14,
-    color: '#1a1a2e',
+    fontSize: 16,
+    color: '#333',
+    fontWeight: '500',
   },
   dropdownTextActive: {
     color: '#E87E35',
-    fontWeight: '600',
+    fontWeight: '700',
   },
   statsGrid: {
     flexDirection: 'row',
@@ -658,7 +739,7 @@ const styles = StyleSheet.create({
   menuCard: {
     backgroundColor: '#7B5CB8',
   },
-  customersCard: {
+  branchesCard: {
     backgroundColor: '#1E5AA8',
   },
   statIconContainer: {
@@ -909,5 +990,99 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: '#f0f0f0',
     marginHorizontal: 16,
+  },
+});
+
+// Notification panel styles
+const notificationStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  panel: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    paddingBottom: Platform.OS === 'android' ? 40 : 30,
+    maxHeight: '80%',
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1a1a2e',
+  },
+  subtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 4,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  markAll: {
+    fontSize: 14,
+    color: '#E87E35',
+    fontWeight: '600',
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#666',
+    marginTop: 12,
+  },
+  item: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  unreadItem: {
+    backgroundColor: '#FFF3E0',
+  },
+  iconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  content: {
+    flex: 1,
+  },
+  itemTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1a1a2e',
+  },
+  itemBody: {
+    fontSize: 13,
+    color: '#666',
+    marginTop: 2,
+  },
+  time: {
+    fontSize: 12,
+    color: '#999',
+    marginTop: 4,
+  },
+  unreadDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#E87E35',
   },
 });

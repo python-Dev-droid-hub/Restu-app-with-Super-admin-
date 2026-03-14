@@ -159,6 +159,52 @@ export async function getSavedBranch(): Promise<string | null> {
 }
 
 /**
+ * Get current location with reverse geocoding to get city name
+ */
+export async function getCurrentLocationWithCity(): Promise<(Coordinates & { city?: string }) | null> {
+  try {
+    const location = await getCurrentLocation();
+    if (!location) return null;
+
+    // Reverse geocode to get city
+    const [geocode] = await Location.reverseGeocodeAsync({
+      latitude: location.latitude,
+      longitude: location.longitude,
+    });
+
+    const city = geocode?.city || geocode?.subregion || geocode?.region || 'Unknown Location';
+    
+    return {
+      ...location,
+      city,
+    };
+  } catch (error) {
+    console.error('Error getting location with city:', error);
+    return null;
+  }
+}
+
+/**
+ * Get city name from coordinates
+ */
+export async function getCityFromCoordinates(
+  latitude: number,
+  longitude: number
+): Promise<string | null> {
+  try {
+    const [geocode] = await Location.reverseGeocodeAsync({
+      latitude,
+      longitude,
+    });
+
+    return geocode?.city || geocode?.subregion || geocode?.region || null;
+  } catch (error) {
+    console.error('Error reverse geocoding:', error);
+    return null;
+  }
+}
+
+/**
  * Check if location permission is granted
  */
 export async function checkLocationPermission(): Promise<boolean> {

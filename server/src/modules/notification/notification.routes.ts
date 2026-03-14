@@ -11,6 +11,8 @@ const notificationController = new NotificationController();
 router.get('/', authenticate, notificationController.getUserNotifications);
 router.get('/unread-count', authenticate, notificationController.getUserUnreadCount);
 router.put('/mark-all-read', authenticate, notificationController.markAllAsReadForUser);
+router.patch('/mark-all-read', authenticate, notificationController.markAllAsReadForUser);
+router.patch('/:id/read', authenticate, notificationController.markAsRead);
 router.put('/:id/read', authenticate, notificationController.markAsRead);
 router.delete('/:id', authenticate, notificationController.deleteNotification);
 router.delete('/', authenticate, notificationController.clearAllNotifications);

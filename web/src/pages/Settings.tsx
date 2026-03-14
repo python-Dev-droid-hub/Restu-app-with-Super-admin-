@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
+import { useSettings } from '../context/SettingsContext';
 
 interface RestaurantSettings {
   restaurantName: string;
@@ -20,12 +21,13 @@ interface RestaurantSettings {
 }
 
 const Settings: React.FC = () => {
+  const { defaultCurrency } = useSettings();
   const [settings, setSettings] = useState<RestaurantSettings>({
     restaurantName: '',
     address: '',
     phoneNumber: '',
     email: '',
-    currency: 'PKR',
+    currency: defaultCurrency,
     language: 'en',
     taxRate: 16,
     serviceCharge: 0,
@@ -249,6 +251,19 @@ const Settings: React.FC = () => {
                     onChange={(e) => handleChange('serviceCharge', parseFloat(e.target.value))}
                     min="0"
                     max="20"
+                    step="0.1"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Tax Rate (%)</label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    value={settings.taxRate}
+                    onChange={(e) => handleChange('taxRate', parseFloat(e.target.value))}
+                    min="0"
+                    max="100"
                     step="0.1"
                   />
                 </div>

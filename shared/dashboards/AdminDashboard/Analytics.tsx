@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { StatCard } from '../../dashboards/components/StatCard';
 import { api } from '../../api/client';
-import { AdminStats } from '../../api/dashboard';
+import type { AdminStats } from '../../api/dashboard';
 
 interface AnalyticsData {
   totalRevenue: number;

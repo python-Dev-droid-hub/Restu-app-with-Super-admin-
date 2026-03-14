@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { dashboardApi, AdminStats, CustomerStats, RiderStats, WaiterStats, ChefStats, ManagerStats } from '../api/dashboard';
+import { dashboardApi } from '../api/dashboard';
+import type { AdminStats, CustomerStats, RiderStats, WaiterStats, ChefStats, ManagerStats } from '../api/dashboard';
 
 // Generic hook for fetching dashboard stats
 function useDashboardStats<T>(

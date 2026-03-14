@@ -47,14 +47,6 @@ interface MenuItemsResponse {
   products: MenuItem[];
 }
 
-interface ProfileResponse {
-  displayName?: string;
-  name?: string;
-  email: string;
-  phoneNumber?: string;
-  specialization?: string;
-}
-
 interface ProfileData {
   name: string;
   email: string;
@@ -127,29 +119,6 @@ export function ChefDashboard() {
       console.error('Error fetching chef dashboard data:', error);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const loadProfile = async () => {
-    try {
-      setProfileLoading(true);
-      setProfileError(null);
-      const response = await api.get<ProfileResponse>('/users/profile');
-      if (response.success && response.data) {
-        setProfile({
-          name: response.data.displayName || response.data.name || '',
-          email: response.data.email || '',
-          phoneNumber: response.data.phoneNumber || '',
-          specialization: response.data.specialization || ''
-        });
-      } else {
-        setProfileError('Failed to load profile');
-      }
-    } catch (error) {
-      setProfileError('Failed to load profile');
-      console.error('Error loading profile:', error);
-    } finally {
-      setProfileLoading(false);
     }
   };
 

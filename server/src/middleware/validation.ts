@@ -4,12 +4,14 @@ import { createError } from '@/utils';
 
 export const validate = (schema: Joi.ObjectSchema) => {
   return (req: Request, res: Response, next: NextFunction): void => {
+    console.log('🔍 [VALIDATION] Body:', JSON.stringify(req.body, null, 2));
     const { error } = schema.validate(req.body, { abortEarly: false });
 
     if (error) {
       const errorMessage = error.details
         .map(detail => detail.message)
         .join(', ');
+      console.log('❌ [VALIDATION ERROR]:', errorMessage);
       return next(createError(errorMessage, 400));
     }
 

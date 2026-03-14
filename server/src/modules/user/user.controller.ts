@@ -40,6 +40,26 @@ export class UserController {
     sendSuccess(res, updatedUser.getPublicProfile(), 'Profile updated successfully');
   });
 
+  updateProfileImage = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
+    const userId = req.user!._id;
+    
+    if (!req.file && !req.body.profileImage && !req.body.image) {
+      throw createError('No image provided', 400);
+    }
+
+    // If file was uploaded via multer, use its path
+    // Otherwise use the base64 or URL string from body
+    const profileImage = req.file ? `/uploads/${req.file.filename}` : (req.body.profileImage || req.body.image);
+
+    const updatedUser = await this.userRepository.updateById(userId, { profileImage });
+    
+    if (!updatedUser) {
+      throw createError('User not found', 404);
+    }
+
+    sendSuccess(res, { profileImage, imageUrl: profileImage, user: updatedUser.getPublicProfile() }, 'Profile image updated successfully');
+  });
+
   getAllUsers = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;

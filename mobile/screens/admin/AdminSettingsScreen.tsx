@@ -26,6 +26,7 @@ import { useLocalization } from '../../context/LocalizationContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../../constants/colors';
 import { getSpacing } from '../../utils/responsive';
+import { useUserData } from '../../hooks/useUserData';
 
 // Components
 import ResponsiveHeader from '../../components/layout/ResponsiveHeader';
@@ -51,10 +52,11 @@ interface Settings {
 }
 
 export default function AdminSettingsScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation() as any;
   const insets = useSafeAreaInsets();
+  const { t, language, setLanguage } = useLocalization();
+  const { profileImage } = useUserData();
   const { defaultCurrency, taxRate, appName, refreshSettings } = useSettings();
-  const { language, setLanguage, t } = useLocalization();
   const [settingsState, setSettingsState] = useState<Settings>({
     appName: 'Restaurant App',
     appVersion: '1.0.0',
@@ -82,7 +84,7 @@ export default function AdminSettingsScreen() {
     return [
       { name: 'Notifications', icon: 'notifications-outline', screen: 'AdminNotifications' },
       ...(userData.role !== 'BRANCH_MANAGER' ? [{ name: 'Branches', icon: 'business-outline', screen: 'AdminBranches' }] : []),
-      { name: 'Deals', icon: 'pricetag-outline', screen: 'AdminDeals' },
+      { name: 'Deals', icon: 'pricetag-outline', screen: 'AdminDealCampaigns' },
       { name: 'Coupons', icon: 'ticket-outline', screen: 'AdminCoupons' },
       { name: 'Product Size', icon: 'resize-outline', screen: 'AdminProductSizes' },
       { name: 'Categories', icon: 'grid-outline', screen: 'AdminCategories' },
@@ -202,6 +204,12 @@ export default function AdminSettingsScreen() {
           currency: response.data.currency || 'PKR',
           language: response.data.language || 'en',
         });
+
+        setSettingsState((prev) => ({
+          ...prev,
+          taxRate: response.data?.taxRate ?? prev.taxRate,
+          deliveryFee: response.data?.deliveryFee ?? (prev as any).deliveryFee,
+        }));
       }
     } catch (error) {
       console.error('Error loading branch settings:', error);
@@ -353,6 +361,41 @@ export default function AdminSettingsScreen() {
   const saveEditModal = async () => {
     const { key, value, type } = editModal;
     const parsedValue = type === 'number' ? parseFloat(value) || 0 : value;
+
+    const normalizedRole = String((userData as any)?.role || '').toUpperCase();
+    const isAdminRole = normalizedRole === 'ADMIN' || normalizedRole === 'SUPER_ADMIN';
+    const shouldUpdateBranch = !isAdminRole;
+    const isBranchSettingKey = key === 'taxRate' || key === 'deliveryFee';
+
+    if (shouldUpdateBranch && isBranchSettingKey) {
+      const targetBranchId =
+        branchData?._id ||
+        (userData as any)?.branch?._id ||
+        (userData as any)?.branchId ||
+        (userData as any)?.assignedBranch?._id ||
+        (userData as any)?.assignedBranchId;
+
+      if (!targetBranchId) {
+        Alert.alert('Error', 'Branch not found for this account. Please re-login and try again.');
+        return;
+      }
+
+      try {
+        const response = await api.put(`/restaurants/${targetBranchId}`, { [key]: parsedValue });
+        if (response.success) {
+          await loadBranchSettings(String(targetBranchId));
+          await refreshSettings();
+          Alert.alert('Success', 'Settings updated successfully');
+          setEditModal({ ...editModal, visible: false });
+        } else {
+          Alert.alert('Error', response.message || 'Failed to update settings');
+        }
+      } catch (error: any) {
+        Alert.alert('Error', error?.response?.data?.message || error?.message || 'Failed to update settings');
+      }
+      return;
+    }
+
     await updateSetting(key, parsedValue);
     setEditModal({ ...editModal, visible: false });
   };
@@ -621,7 +664,11 @@ export default function AdminSettingsScreen() {
               openEditModal(key, title || 'Unknown', value, type === 'number' ? 'number' : 'text');
             }}>
             <Text style={styles.settingValue}>
-              {type === 'number' ? `${value}%` : value}
+              {type === 'number' && settingKey === 'taxRate'
+                ? `${value}%`
+                : type === 'number' && settingKey === 'deliveryFee'
+                  ? `${value}`
+                  : value}
             </Text>
           </TouchableOpacity>
         )}
@@ -637,6 +684,7 @@ export default function AdminSettingsScreen() {
       <ResponsiveHeader
         title={t('settings.title')}
         notificationCount={unreadCount}
+        profileImage={profileImage}
         onNotificationPress={() => {
           // @ts-ignore
           navigation.navigate('AdminNotifications');
@@ -709,9 +757,82 @@ export default function AdminSettingsScreen() {
             type="number"
             settingKey="taxRate"
             onValueChange={async (value) => {
-              await updateSetting('taxRate', value);
-              await loadSettings();
-              await refreshSettings();
+              const targetBranchId =
+                branchData?._id ||
+                (userData as any)?.branch?._id ||
+                (userData as any)?.branchId ||
+                (userData as any)?.assignedBranch?._id ||
+                (userData as any)?.assignedBranchId;
+
+              const normalizedRole = String((userData as any)?.role || '').toUpperCase();
+              const isAdminRole = normalizedRole === 'ADMIN' || normalizedRole === 'SUPER_ADMIN';
+              const shouldUpdateBranch = !isAdminRole;
+
+              if (shouldUpdateBranch) {
+                if (!targetBranchId) {
+                  Alert.alert('Error', 'Branch not found for this account. Please re-login and try again.');
+                  return;
+                }
+                try {
+                  const response = await api.put(`/restaurants/${targetBranchId}`, { taxRate: value });
+                  if (response.success) {
+                    await loadBranchSettings(String(targetBranchId));
+                    await refreshSettings();
+                    Alert.alert('Success', 'Tax rate updated successfully');
+                  } else {
+                    Alert.alert('Error', response.message || 'Failed to update tax rate');
+                  }
+                } catch (error: any) {
+                  Alert.alert('Error', error?.message || 'Failed to update tax rate');
+                }
+              } else {
+                await updateSetting('taxRate', value);
+                await loadSettings();
+                await refreshSettings();
+              }
+            }}
+          />
+
+          <SettingItem
+            title="Delivery Charges"
+            subtitle="Default delivery fee for orders"
+            value={(settingsState as any).deliveryFee || 0}
+            type="number"
+            settingKey="deliveryFee"
+            onValueChange={async (value) => {
+              const targetBranchId =
+                branchData?._id ||
+                (userData as any)?.branch?._id ||
+                (userData as any)?.branchId ||
+                (userData as any)?.assignedBranch?._id ||
+                (userData as any)?.assignedBranchId;
+
+              const normalizedRole = String((userData as any)?.role || '').toUpperCase();
+              const isAdminRole = normalizedRole === 'ADMIN' || normalizedRole === 'SUPER_ADMIN';
+              const shouldUpdateBranch = !isAdminRole;
+
+              if (shouldUpdateBranch) {
+                if (!targetBranchId) {
+                  Alert.alert('Error', 'Branch not found for this account. Please re-login and try again.');
+                  return;
+                }
+                try {
+                  const response = await api.put(`/restaurants/${targetBranchId}`, { deliveryFee: value });
+                  if (response.success) {
+                    await loadBranchSettings(String(targetBranchId));
+                    await refreshSettings();
+                    Alert.alert('Success', 'Delivery charges updated successfully');
+                  } else {
+                    Alert.alert('Error', response.message || 'Failed to update delivery charges');
+                  }
+                } catch (error: any) {
+                  Alert.alert('Error', error?.message || 'Failed to update delivery charges');
+                }
+              } else {
+                await updateSetting('deliveryFee', value);
+                await loadSettings();
+                await refreshSettings();
+              }
             }}
           />
         </View>

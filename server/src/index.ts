@@ -5,6 +5,7 @@ import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
+import path from 'path';
 
 import { connectDatabase } from '@/config/database';
 import { logger } from '@/utils/logger';
@@ -28,15 +29,23 @@ import productSizeRoutes from '@/modules/product-size/product-size.routes';
 import sizesRoutes from '@/modules/product-size/sizes.routes';
 import uploadRoutes from '@/modules/upload/upload.routes';
 import tableRoutes from '@/modules/table/table.routes';
-import inventoryRoutes from '@/modules/inventory/inventory.routes';
-import paymentRoutes from '@/modules/payment/payment.routes';
+import inventoryRoutes from './modules/inventory/inventory.routes';
+import paymentRoutes from './modules/payment/payment.routes';
+import bannerRoutes from './modules/banner/banner.routes';
 import customerRoutes from './routes/customer.routes';
+import { initWebSocket } from '@/config/websocket';
 
 // Load environment variables
 dotenv.config();
 
 const app: Express = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
+
+const ws = initWebSocket(app);
+
+app.locals.ws = ws;
+
+(globalThis as any).ws = ws;
 
 // Rate limiting - more lenient for development
 const limiter = rateLimit({
@@ -49,7 +58,10 @@ const limiter = rateLimit({
 });
 
 // Middleware
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  contentSecurityPolicy: false,
+}));
 app.use(compression());
 app.use(limiter);
 app.use(cors({
@@ -57,6 +69,9 @@ app.use(cors({
     'http://localhost:5173',  // Vite dev server
     'http://localhost:3001',  // Original dev server
     'http://localhost:3000',  // Another common port
+    'http://127.0.0.1:5173',  // Browser preview
+    'http://127.0.0.1:5174',  // Browser preview alternate
+    'http://127.0.0.1:55245', // Cascade browser preview
     ...(process.env.CORS_ORIGIN ? [process.env.CORS_ORIGIN] : [])
   ],
   credentials: true,
@@ -66,6 +81,18 @@ app.use(cors({
 app.use(cookieParser());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Serve uploaded images (public)
+// In dev mode with ts-node, __dirname is the src folder
+const uploadsPath = path.join(__dirname, 'uploads');
+app.use('/uploads', (req, res, next) => {
+  // Set CORS headers for images
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+}, express.static(uploadsPath));
+logger.info(`Serving uploads from: ${uploadsPath}`);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -96,6 +123,7 @@ app.use('/api/tables', tableRoutes); // Table management routes
 app.use('/api/inventory', inventoryRoutes); // Inventory management routes
 app.use('/api/payments', paymentRoutes); // Payment processing routes
 app.use('/api/customer', customerRoutes); // Customer app routes
+app.use('/api/banners', bannerRoutes); // Banner management routes
 app.use('/api', uploadRoutes); // Upload routes at /api/upload
 
 // Error handling middleware (must be last)
@@ -109,8 +137,12 @@ const startServer = async (): Promise<void> => {
     await connectDatabase();
     logger.info('Database connected successfully');
 
+    // Seed notifications if none exist
+    const { seedNotifications } = await import('./scripts/seedNotifications');
+    await seedNotifications();
+
     // Start listening
-    app.listen(PORT, '0.0.0.0', () => {
+    ws.httpServer.listen(PORT, '0.0.0.0', () => {
       logger.info(`Server is running on port ${PORT} in ${process.env.NODE_ENV} mode`);
       logger.info(`Health check available at http://localhost:${PORT}/health`);
       logger.info(`Network access: http://0.0.0.0:${PORT}/health`);

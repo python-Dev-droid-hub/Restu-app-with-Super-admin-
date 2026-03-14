@@ -196,10 +196,43 @@ export class DashboardService {
     const totalRestaurants = await Branch.countDocuments({ isActive: true });
     const totalOrders = await Order.countDocuments();
     const totalProducts = await Product.countDocuments({ deletedAt: null });
-    const totalRevenue = await Payment.aggregate([
-      { $match: { status: 'COMPLETED' } },
-      { $group: { _id: null, total: { $sum: '$amount' } } }
-    ]).then(result => result[0]?.total || 0);
+    
+    // Calculate revenue from completed orders with successful payment
+    const revenueResult = await Order.aggregate([
+      { 
+        $match: { 
+          status: 'COMPLETED',
+          $or: [
+            { paymentStatus: 'SUCCESS' },
+            { paymentMethod: { $exists: true, $ne: null } }
+          ]
+        } 
+      },
+      { 
+        $group: { _id: null, total: { $sum: '$totalAmount' } } 
+      }
+    ]);
+    const totalRevenue = revenueResult[0]?.total || 0;
+    
+    // Calculate today's revenue
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayRevenueResult = await Order.aggregate([
+      { 
+        $match: { 
+          status: 'COMPLETED',
+          createdAt: { $gte: today },
+          $or: [
+            { paymentStatus: 'SUCCESS' },
+            { paymentMethod: { $exists: true, $ne: null } }
+          ]
+        } 
+      },
+      { 
+        $group: { _id: null, total: { $sum: '$totalAmount' } } 
+      }
+    ]);
+    const totalOrdersToday = await Order.countDocuments({ createdAt: { $gte: today } });
 
     return {
       totalUsers: totalCustomers,
@@ -207,6 +240,7 @@ export class DashboardService {
       totalOrders,
       totalProducts,
       totalRevenue,
+      totalOrdersToday,
       usersChange: 12,
       restaurantsChange: 5,
       ordersChange: 18,
@@ -548,15 +582,49 @@ export class DashboardService {
 
   // Waiter Dashboard Stats
   async getWaiterStats(waiterId: string) {
+    const waiter = await User.findById(waiterId);
+    const branchId = waiter?.assignedBranch;
+
+    const baseFilter: any = {
+      orderType: 'DINE_IN',
+    };
+
+    if (branchId) {
+      baseFilter.branch = branchId;
+    }
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const [activeOrders, readyToServe, servedToday] = await Promise.all([
+      Order.countDocuments({
+        ...baseFilter,
+        status: { $in: ['PENDING', 'KITCHEN_ACCEPTED', 'PREPARING', 'PICKED_UP'] },
+      }),
+      Order.countDocuments({
+        ...baseFilter,
+        status: 'READY',
+      }),
+      Order.countDocuments({
+        ...baseFilter,
+        status: { $in: ['COMPLETED', 'SERVED', 'DELIVERED'] },
+        updatedAt: { $gte: todayStart },
+      }),
+    ]);
+
+    // Keep legacy fields for older clients
     const activeTables = await Order.countDocuments({
+      ...baseFilter,
       status: { $in: ['PENDING', 'PREPARING', 'READY'] },
-      orderType: 'DINE_IN'
     });
 
     return {
+      active_orders: activeOrders,
+      ready_to_serve: readyToServe,
+      served_today: servedToday,
       activeTables,
-      ordersToServe: 0,
-      recentOrders: []
+      ordersToServe: readyToServe,
+      recentOrders: [],
     };
   }
 
@@ -655,6 +723,49 @@ export class DashboardService {
       createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
     });
     
+    // Calculate revenue from completed orders with successful payment
+    const revenueResult = await Order.aggregate([
+      { 
+        $match: { 
+          branch: branchId,
+          status: 'COMPLETED',
+          $or: [
+            { paymentStatus: 'SUCCESS' },
+            { paymentMethod: { $exists: true, $ne: null } }
+          ]
+        } 
+      },
+      { 
+        $group: { 
+          _id: null, 
+          totalRevenue: { $sum: '$totalAmount' } 
+        } 
+      }
+    ]);
+    const totalRevenue = revenueResult[0]?.totalRevenue || 0;
+    
+    // Calculate today's revenue
+    const todayRevenueResult = await Order.aggregate([
+      { 
+        $match: { 
+          branch: branchId,
+          status: 'COMPLETED',
+          createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+          $or: [
+            { paymentStatus: 'SUCCESS' },
+            { paymentMethod: { $exists: true, $ne: null } }
+          ]
+        } 
+      },
+      { 
+        $group: { 
+          _id: null, 
+          totalRevenue: { $sum: '$totalAmount' } 
+        } 
+      }
+    ]);
+    const todayRevenue = todayRevenueResult[0]?.totalRevenue || 0;
+    
     // Count total users (staff + manager) for this branch
     const totalUsers = await User.countDocuments({
       $or: [
@@ -668,7 +779,8 @@ export class DashboardService {
       totalOrders,
       todayOrders,
       totalUsers,
-      revenue: 0,
+      totalRevenue,
+      todayRevenue,
       activeStaff: 0
     };
   }

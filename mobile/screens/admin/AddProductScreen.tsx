@@ -16,11 +16,12 @@ import {
   KeyboardAvoidingView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { api } from '../../components/api/client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSettings } from '../../context/SettingsContext';
 
 const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 0;
 
@@ -46,7 +47,7 @@ interface Product {
   _id: string;
   name: string;
   description?: string;
-  category: string;
+  category: string | { _id?: string; name?: string };
   price?: number;
   hasSizes: boolean;
   imageUrl?: string;
@@ -61,7 +62,9 @@ interface Product {
 
 export default function AddProductScreen() {
   const navigation = useNavigation();
+  const route = useRoute<any>();
   const insets = useSafeAreaInsets();
+  const { currencySymbol } = useSettings();
   const [activeTab, setActiveTab] = useState<'details' | 'sizes'>('details');
   const [loading, setLoading] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -98,13 +101,12 @@ export default function AddProductScreen() {
     loadCategories();
     loadSizes();
     // Check if editing an existing product
-    const route = navigation.getState()?.routes?.find(r => r.name === 'AddProduct');
     if (route?.params?.product) {
       const product = route.params.product as Product;
       setEditingProduct(product);
       populateFormWithProduct(product);
     }
-  }, [navigation]);
+  }, [navigation, route?.params?.product]);
 
   const loadManagerBranch = async () => {
     try {
@@ -152,10 +154,15 @@ export default function AddProductScreen() {
   };
 
   const populateFormWithProduct = (product: Product) => {
+    console.log('🔍 [PRODUCT DEBUG] Populating form with product:', JSON.stringify(product, null, 2));
     setProductName(product.name);
     setDescription(product.description || '');
-    setSelectedCategory(product.category);
-    setPrice(product.price ? product.price.toString() : '');
+    // Handle category as either object or string
+    const categoryId = typeof product.category === 'object' ? product.category?._id : product.category;
+    setSelectedCategory(categoryId || '');
+    const priceValue = product.price !== null && product.price !== undefined ? product.price.toString() : '';
+    console.log('🔍 [PRODUCT DEBUG] Setting price to:', priceValue, 'from product.price:', product.price);
+    setPrice(priceValue);
     setHasSizes(product.hasSizes);
     setImage(product.imageUrl || null);
     setIsAvailable(product.isAvailable);
@@ -272,7 +279,9 @@ export default function AddProductScreen() {
       Alert.alert('Error', 'Please select a category');
       return;
     }
-    if (hasSizes && selectedSizes.length === 0) {
+    const usesSizes = hasSizes || selectedSizes.length > 0;
+
+    if (usesSizes && selectedSizes.length === 0) {
       Alert.alert('Error', 'Products with sizes must have at least one size selected');
       return;
     }
@@ -330,22 +339,33 @@ export default function AddProductScreen() {
         name: productName,
         description: description || undefined,
         category: selectedCategory,
-        hasSizes,
         imageUrl: imageUrl || undefined,
         isAvailable,
         preparationTime: preparationTime ? parseInt(preparationTime) : undefined,
         isVegetarian,
         spiceLevel: spiceLevel || undefined,
-        availableForDelivery,
-        availableForDineIn,
-        availableForTakeaway,
         branchId: selectedBranchId || managerBranchId || undefined,
       };
 
-      // Add price for products without sizes
-      if (!hasSizes) {
-        productData.price = parseFloat(price);
+      if (usesSizes) {
+        productData.sizes = selectedSizes.map((s, idx) => ({
+          sizeId: s.size_id,
+          sizeName: s.size_name,
+          price: s.price,
+          isDefault: idx === 0,
+        }));
       }
+
+      // Always include price when editing, or for products without sizes
+      const priceNum = parseFloat(price);
+      if (editingProduct || !usesSizes) {
+        productData.price = isNaN(priceNum) ? 0 : priceNum;
+        console.log('🔍 [PRODUCT DEBUG] Setting price:', productData.price, 'from input:', price);
+      } else {
+        console.log('🔍 [PRODUCT DEBUG] Skipping price - hasSizes:', usesSizes, 'editing:', !!editingProduct);
+      }
+      
+      console.log('🔍 [PRODUCT DEBUG] Final productData:', JSON.stringify(productData, null, 2));
 
       let response;
       if (editingProduct) {
@@ -679,7 +699,7 @@ export default function AddProductScreen() {
           {selectedSizes.map((s) => (
             <View key={s.size_id} style={styles.summaryItem}>
               <Text style={styles.summaryName}>{s.size_name}</Text>
-              <Text style={styles.summaryPrice}>${s.price.toFixed(2)}</Text>
+              <Text style={styles.summaryPrice}>{currencySymbol}{s.price.toFixed(2)}</Text>
             </View>
           ))}
         </View>

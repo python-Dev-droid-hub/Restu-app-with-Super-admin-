@@ -254,16 +254,16 @@ export default function BranchManagementScreen() {
 
       <View style={styles.branchInfo}>
         <View style={styles.infoRow}>
-          <Ionicons name="location-outline" size={16} color={COLORS.textSecondary} />
+          <Ionicons name="location-outline" size={16} color={theme.textSecondary} />
           <Text style={styles.infoText}>{item.address}, {item.city}</Text>
         </View>
         <View style={styles.infoRow}>
-          <Ionicons name="call-outline" size={16} color={COLORS.textSecondary} />
+          <Ionicons name="call-outline" size={16} color={theme.textSecondary} />
           <Text style={styles.infoText}>{item.phoneNumber}</Text>
         </View>
         {item.managerName && (
           <View style={styles.infoRow}>
-            <Ionicons name="person-outline" size={16} color={COLORS.textSecondary} />
+            <Ionicons name="person-outline" size={16} color={theme.textSecondary} />
             <Text style={styles.infoText}>Manager: {item.managerName}</Text>
           </View>
         )}

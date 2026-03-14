@@ -5,6 +5,8 @@ import { api } from '../api/client';
 type OrderStatus = 'pending' | 'confirmed' | 'preparing' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled' | 'picked_up' | 'served';
 
 interface OrderCardItem {
+  _id?: string;
+  id?: string;
   product?: {
     _id?: string;
     name?: string;
@@ -13,8 +15,10 @@ interface OrderCardItem {
     description?: string;
   };
   name?: string;
+  productName?: string;
   quantity: number;
   specialInstructions?: string;
+  status?: 'PENDING' | 'PREPARING' | 'READY' | 'SERVED';
 }
 
 export interface ChefOrderCardOrder {
@@ -36,6 +40,7 @@ export interface ChefOrderCardOrder {
 interface OrderCardProps {
   order: ChefOrderCardOrder;
   onStatusChange: (orderId: string, status: OrderStatus) => Promise<void> | void;
+  onItemStatusChange?: (orderId: string, itemId: string, status: 'PREPARING' | 'READY' | 'SERVED') => Promise<void> | void;
   role?: 'CHEF' | 'WAITER' | 'MANAGER' | 'ADMIN' | 'SUPER_ADMIN' | 'RIDER' | string;
   showPayment?: boolean;
   showActions?: boolean;
@@ -97,6 +102,7 @@ const getStatusColor = (status: OrderStatus) => {
 export default function OrderCard({ 
   order, 
   onStatusChange, 
+  onItemStatusChange,
   role = 'CHEF',
   showPayment = false,
   showActions = true,
@@ -106,6 +112,7 @@ export default function OrderCard({
   const isSmallScreen = width < 375;
 
   const [loadingStatus, setLoadingStatus] = useState<OrderStatus | null>(null);
+  const [loadingItemStatus, setLoadingItemStatus] = useState<string | null>(null); // Track which item is loading
 
   const orderId = order.id || order._id || '';
   
@@ -115,9 +122,9 @@ export default function OrderCard({
       case 'CHEF':
       case 'KITCHEN':
       case 'COOK':
-        return ['preparing', 'ready', 'delivered', 'cancelled'];
+        return ['preparing', 'ready']; // Chef can only start preparing and mark ready
       case 'WAITER':
-        return ['picked_up', 'served'];
+        return ['picked_up', 'served', 'delivered', 'cancelled'];
       case 'MANAGER':
       case 'ADMIN':
       case 'SUPER_ADMIN':
@@ -126,7 +133,7 @@ export default function OrderCard({
       case 'RIDER':
         return ['out_for_delivery', 'delivered'];
       default:
-        return ['preparing', 'ready', 'delivered', 'cancelled'];
+        return ['preparing', 'ready'];
     }
   };
   
@@ -157,6 +164,7 @@ export default function OrderCard({
   const gap = isSmallScreen ? 8 : 12;
 
   const safeItems = Array.isArray(order.items) ? order.items : [];
+  const displayItems = role === 'CHEF' ? safeItems.filter((item: any) => item?.status !== 'SERVED') : safeItems;
 
   const handle = async (next: OrderStatus) => {
     console.log('[OrderCard] handle called:', { orderId, next, currentStatus: order.status });
@@ -173,6 +181,30 @@ export default function OrderCard({
       console.log('[OrderCard] onStatusChange error:', error);
     } finally {
       setLoadingStatus(null);
+    }
+  };
+
+  // Handle item status change
+  const handleItemStatus = async (itemId: string, status: 'PREPARING' | 'READY' | 'SERVED') => {
+    if (!onItemStatusChange) return;
+    try {
+      setLoadingItemStatus(itemId);
+      await onItemStatusChange(orderId, itemId, status);
+    } catch (error) {
+      console.log('[OrderCard] handleItemStatus error:', error);
+    } finally {
+      setLoadingItemStatus(null);
+    }
+  };
+
+  // Get item status color
+  const getItemStatusColor = (status?: string) => {
+    switch (status) {
+      case 'PENDING': return COLORS.danger;
+      case 'PREPARING': return COLORS.warning;
+      case 'READY': return COLORS.primary;
+      case 'SERVED': return COLORS.success;
+      default: return COLORS.secondary;
     }
   };
 
@@ -229,12 +261,12 @@ export default function OrderCard({
       <View style={{ marginBottom: gap }}>
         <Text style={[styles.sectionTitle, { marginBottom: 8 }]}>Items to Prepare:</Text>
 
-        {safeItems.length === 0 ? (
+        {displayItems.length === 0 ? (
           <Text style={{ fontSize: 12, color: COLORS.secondary, fontStyle: 'italic' }}>
             No items in this order
           </Text>
         ) : (
-          safeItems.map((item, index) => {
+          displayItems.map((item, index) => {
             // Handle different data structures from backend
             const productData = item.product || (item as any).productId || (item as any).productData || {};
             // Image can be at item level (from backend) or inside product
@@ -253,7 +285,7 @@ export default function OrderCard({
                   {
                     paddingBottom: 12,
                     marginBottom: 12,
-                    borderBottomWidth: index < safeItems.length - 1 ? 1 : 0,
+                    borderBottomWidth: index < displayItems.length - 1 ? 1 : 0,
                     borderBottomColor: COLORS.lightBorder,
                   },
                 ]}
@@ -287,8 +319,16 @@ export default function OrderCard({
                       {name}
                     </Text>
 
-                    <View style={styles.qtyBadge}>
-                      <Text style={styles.qtyText}>×{quantity}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      {/* Item Status Badge */}
+                      <View style={[styles.itemStatusBadge, { backgroundColor: getItemStatusColor(item.status) + '20', borderColor: getItemStatusColor(item.status) }]}>
+                        <Text style={[styles.itemStatusText, { color: getItemStatusColor(item.status) }]}>
+                          {item.status || 'PENDING'}
+                        </Text>
+                      </View>
+                      <View style={styles.qtyBadge}>
+                        <Text style={styles.qtyText}>×{quantity}</Text>
+                      </View>
                     </View>
                   </View>
 
@@ -303,6 +343,51 @@ export default function OrderCard({
                       <Text style={[styles.itemNoteText, { fontStyle: 'italic' }]}>📝 {instructions}</Text>
                     </View>
                   )}
+
+                  {/* Item Action Buttons - only for CHEF role and if onItemStatusChange provided */}
+                  {onItemStatusChange && role === 'CHEF' && (
+                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                      {item.status === 'PENDING' && (
+                        <TouchableOpacity
+                          onPress={() => handleItemStatus(item._id || item.id || '', 'PREPARING')}
+                          style={[styles.itemActionBtn, { backgroundColor: COLORS.warning }]}
+                          disabled={loadingItemStatus === (item._id || item.id)}
+                        >
+                          {loadingItemStatus === (item._id || item.id) ? (
+                            <ActivityIndicator size="small" color={COLORS.white} />
+                          ) : (
+                            <Text style={styles.itemActionBtnText}>Start</Text>
+                          )}
+                        </TouchableOpacity>
+                      )}
+                      {item.status === 'PREPARING' && (
+                        <TouchableOpacity
+                          onPress={() => handleItemStatus(item._id || item.id || '', 'READY')}
+                          style={[styles.itemActionBtn, { backgroundColor: COLORS.primary }]}
+                          disabled={loadingItemStatus === (item._id || item.id)}
+                        >
+                          {loadingItemStatus === (item._id || item.id) ? (
+                            <ActivityIndicator size="small" color={COLORS.white} />
+                          ) : (
+                            <Text style={styles.itemActionBtnText}>Ready</Text>
+                          )}
+                        </TouchableOpacity>
+                      )}
+                      {item.status === 'READY' && (
+                        <TouchableOpacity
+                          onPress={() => handleItemStatus(item._id || item.id || '', 'SERVED')}
+                          style={[styles.itemActionBtn, { backgroundColor: COLORS.success }]}
+                          disabled={loadingItemStatus === (item._id || item.id)}
+                        >
+                          {loadingItemStatus === (item._id || item.id) ? (
+                            <ActivityIndicator size="small" color={COLORS.white} />
+                          ) : (
+                            <Text style={styles.itemActionBtnText}>Served</Text>
+                          )}
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  )}
                 </View>
               </View>
             );
@@ -315,9 +400,9 @@ export default function OrderCard({
       </View>
 
       {/* Payment Info - Only shown for specific roles */}
-      {showPayment && (order as any).totalAmount && (
+      {showPayment && (order as any).totalAmount !== undefined && (order as any).totalAmount !== null && (
         <View style={[styles.paymentBox, { marginBottom: gap }]}>
-          <Text style={styles.paymentText}>Total: ${(order as any).totalAmount?.toFixed(2)}</Text>
+          <Text style={styles.paymentText}>Total: ${Number((order as any).totalAmount || 0).toFixed(2)}</Text>
           {(order as any).paymentMethod && (
             <Text style={styles.paymentMethod}>Payment: {(order as any).paymentMethod}</Text>
           )}
@@ -498,6 +583,28 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontStyle: 'italic',
     color: COLORS.darkText,
+  },
+  itemStatusBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+  },
+  itemStatusText: {
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  itemActionBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    minWidth: 70,
+    alignItems: 'center',
+  },
+  itemActionBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.white,
   },
   expectedBox: {
     backgroundColor: COLORS.lightBackground,

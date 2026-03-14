@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
   Dimensions,
   Modal,
   Platform,
+  FlatList,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { CommonActions } from '@react-navigation/native';
@@ -25,6 +26,8 @@ import ResponsiveHeader from '../../components/layout/ResponsiveHeader';
 import ProfileMenu from '../../components/common/ProfileMenu';
 import AdminBottomNavigation from '../../components/navigation/AdminBottomNavigation';
 import { useLocalization } from '../../context/LocalizationContext';
+import { getNotifications } from '../../services/notificationService';
+import { useUserData } from '../../hooks/useUserData';
 
 const { width } = Dimensions.get('window');
 const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 0;
@@ -99,15 +102,15 @@ interface CustomerStats {
 
 export default function ManagerDashboard() {
   const navigation = useNavigation();
-  const { currencySymbol, formatPrice } = useSettings();
+  const { currencySymbol, formatPrice, refreshSettings } = useSettings();
   const { t } = useLocalization();
   const insets = useSafeAreaInsets();
+  const { profileImage: userProfileImage, assignedBranch: userBranch } = useUserData();
   console.log(' [DASHBOARD] Component mounting...');
   const [loading, setLoading] = useState(true);
   const [isLive, setIsLive] = useState(true);
   const [activePeriod, setActivePeriod] = useState('day');
   const [assignedBranch, setAssignedBranch] = useState<{_id?: string; name?: string; code?: string}>({});
-  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [stats, setStats] = useState<CustomerStats>({
@@ -122,9 +125,33 @@ export default function ManagerDashboard() {
   const [recentOrders, setRecentOrders] = useState<Order[]>([]);
   const [recentProducts, setRecentProducts] = useState<Product[]>([]);
   const [userData, setUserData] = useState<{name?: string; image?: string; email?: string}>({});
+  
+  // Notification panel state
+  const [showNotificationPanel, setShowNotificationPanel] = useState(false);
+  const [notificationList, setNotificationList] = useState<any[]>([]);
+
+  // Logout handler with better error handling
+  const handleLogout = useCallback(async () => {
+    console.log('[MANAGER] Logout initiated...');
+    try {
+      await AsyncStorage.multiRemove(['authToken', 'userRole', 'userData', 'userId']);
+      console.log('[MANAGER] AsyncStorage cleared');
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: 'Login' }],
+        })
+      );
+      console.log('[MANAGER] Navigation reset to Login');
+    } catch (error) {
+      console.error('[MANAGER] Logout error:', error);
+    }
+  }, [navigation]);
 
   useEffect(() => {
     loadDashboardData();
+    loadUnreadCount();
+    loadNotifications();
     
     // Poll for real-time updates every 5 seconds
     const interval = setInterval(() => {
@@ -136,13 +163,13 @@ export default function ManagerDashboard() {
 
   const loadOrdersSilent = async () => {
     try {
-      const branchId = await AsyncStorage.getItem('selected_branch_id');
+      const branchId = await AsyncStorage.getItem('selectedBranchId');
       const params = new URLSearchParams();
       if (branchId) {
         params.append('branchId', branchId);
       }
       
-      const ordersResponse = await api.get(`/orders?limit=5&${params.toString()}`);
+      const ordersResponse = await api.get(`/orders?limit=10&${params.toString()}`);
       if (ordersResponse.success && ordersResponse.data) {
         const rawOrders = ordersResponse.data.orders || [];
         // Normalize order data to ensure fields are correctly mapped
@@ -174,19 +201,25 @@ export default function ManagerDashboard() {
       const stored = await AsyncStorage.getItem('userData');
       if (stored) {
         const parsed = JSON.parse(stored);
+        console.log('[ManagerDashboard] Loaded userData:', parsed);
         setUserData({
           name: parsed.name || parsed.displayName || 'Manager User',
-          image: parsed.image || parsed.avatar || parsed.profileImage,
+          image: parsed.profileImage || parsed.image || parsed.avatar || parsed.avatarUrl || null,
           email: parsed.email || 'manager@restaurant.com',
         });
         // Get manager's assigned branch - check both assignedBranch and branch
         const branchData = parsed.assignedBranch || parsed.branch;
         if (branchData) {
+          const branchId = branchData._id || branchData.branchId || parsed.branchId;
           setAssignedBranch({
-            _id: branchData._id || branchData.branchId || parsed.branchId,
+            _id: branchId,
             name: branchData.name || branchData.branchName || 'My Branch',
             code: branchData.code || branchData.branchCode || ''
           });
+          // Save to AsyncStorage so SettingsContext picks it up
+          await AsyncStorage.setItem('selectedBranchId', branchId);
+          // Refresh settings to load branch currency
+          refreshSettings();
         }
       }
     } catch (error) {
@@ -218,7 +251,7 @@ export default function ManagerDashboard() {
         });
       }
 
-      const ordersResponse = await api.get(`/orders?limit=5&${params.toString()}`);
+      const ordersResponse = await api.get(`/orders?limit=10&${params.toString()}`);
       if (ordersResponse.success && ordersResponse.data) {
         const rawOrders = ordersResponse.data.orders || [];
         // Normalize order data to ensure fields are correctly mapped
@@ -264,13 +297,36 @@ export default function ManagerDashboard() {
   const onRefresh = () => {
     loadDashboardData();
     loadUnreadCount();
+    loadNotifications();
   };
+
+  const loadNotifications = useCallback(async () => {
+    try {
+      const res = await getNotifications(20, 0);
+      console.log('[ManagerDashboard] Notifications response:', JSON.stringify(res, null, 2));
+      if (res.success) {
+        const mapped = (res.notifications || []).map((n: any) => ({
+          id: n?._id || n?.id,
+          title: n?.title || 'Notification',
+          body: n?.body || n?.message || '',
+          type: n?.type || 'INFO',
+          is_read: !!n?.isRead,
+          created_at: n?.createdAt ? new Date(n.createdAt).toLocaleString() : 'Just now',
+          raw: n,
+        }));
+        console.log('[ManagerDashboard] Mapped notifications:', mapped.length);
+        setNotificationList(mapped);
+      }
+    } catch (e) {
+      console.error('[ManagerDashboard] Notification load error:', e);
+    }
+  }, []);
 
   const loadUnreadCount = async () => {
     try {
-      const response = await api.get('/notifications/admin/unread-count');
+      const response: any = await api.get('/notifications/unread-count');
       if (response.success) {
-        setUnreadCount(response.data.count || 0);
+        setUnreadCount(response.unreadCount || 0);
       }
     } catch (error) {
       console.error('Error loading unread count:', error);
@@ -313,11 +369,18 @@ export default function ManagerDashboard() {
     { name: 'Table Assignment', icon: 'grid-outline', screen: 'TableAssignment' },
     { name: t('nav.categories'), icon: 'grid-outline', screen: 'AdminCategories' },
     { name: t('products.title'), icon: 'restaurant-outline', screen: 'AdminProducts' },
+    { name: 'Banner Management', icon: 'image-outline', screen: 'BannerManagement' },
     { name: t('nav.coupons'), icon: 'ticket-outline', screen: 'AdminCoupons' },
+    { name: 'Deals', icon: 'pricetag-outline', screen: 'AdminDealCampaigns' },
     { name: 'Product Size', icon: 'resize-outline', screen: 'AdminProductSizes' },
     { name: t('nav.reports'), icon: 'bar-chart-outline', screen: 'AdminReports' },
     { name: t('nav.settings'), icon: 'settings-outline', screen: 'AdminSettings' },
   ];
+  
+  // Debug: Log all menu items to verify Banner Management is included
+  console.log('[MANAGER MENU] All menu items:', menuItems.map(i => i.name));
+  console.log('[MANAGER MENU] menuItems count:', menuItems.length);
+  console.log('[MANAGER MENU] Banner Management present:', menuItems.some(i => i.screen === 'BannerManagement'));
 
   return (
     <View style={[styles.rootContainer, { paddingBottom: insets.bottom }]}>
@@ -327,10 +390,10 @@ export default function ManagerDashboard() {
       <ResponsiveHeader
         title="Manager Dashboard"
         notificationCount={unreadCount}
-        profileImage={userData.image}
+        profileImage={userProfileImage}
         onNotificationPress={() => {
-          // @ts-ignore
-          navigation.navigate('AdminNotifications');
+          setShowNotificationPanel(true);
+          loadNotifications();
         }}
         onProfilePress={() => setShowProfileMenu(true)}
       />
@@ -465,56 +528,11 @@ export default function ManagerDashboard() {
         <View style={styles.bottomSpacer} />
       </ScrollView>
 
-      {/* More Menu Modal */}
-      <Modal
-        visible={showMoreMenu}
-        transparent={true}
-        animationType="none"
-        onRequestClose={() => setShowMoreMenu(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{t('nav.more')}</Text>
-              <TouchableOpacity onPress={() => setShowMoreMenu(false)}>
-                <Ionicons name="close" size={24} color="#666" />
-              </TouchableOpacity>
-            </View>
-            {menuItems.map((item, index) => (
-              <TouchableOpacity
-                key={index}
-                style={styles.menuItem}
-                onPress={() => {
-                  setShowMoreMenu(false);
-                  // @ts-ignore
-                  navigation.navigate(item.screen);
-                }}
-              >
-                {/* @ts-ignore */}
-                <Ionicons name={item.icon as any} size={24} color="#E87E35" />
-                <Text style={styles.menuItemText}>{item.name}</Text>
-                <Ionicons name="chevron-forward" size={20} color="#ccc" />
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-      </Modal>
-
       {/* Profile Menu Modal */}
       <ProfileMenu
         visible={showProfileMenu}
         onClose={() => setShowProfileMenu(false)}
-        onLogout={async () => {
-          setShowProfileMenu(false);
-          await AsyncStorage.multiRemove(['authToken', 'userRole', 'userData']);
-          // @ts-ignore
-          navigation.dispatch(
-            CommonActions.reset({
-              index: 0,
-              routes: [{ name: 'Login' }],
-            })
-          );
-        }}
+        onLogout={handleLogout}
         onChangePassword={() => {
           setShowProfileMenu(false);
           // @ts-ignore
@@ -522,10 +540,98 @@ export default function ManagerDashboard() {
         }}
       />
 
+      {/* Notification Panel Modal */}
+      <Modal
+        visible={showNotificationPanel}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowNotificationPanel(false)}
+        statusBarTranslucent
+      >
+        <TouchableOpacity 
+          style={notificationStyles.overlay}
+          activeOpacity={1}
+          onPress={() => setShowNotificationPanel(false)}
+        >
+          <TouchableOpacity 
+            style={notificationStyles.panel}
+            activeOpacity={1}
+            onPress={() => {}} // Prevent tap-through
+          >
+            {/* Header */}
+            <View style={notificationStyles.header}>
+              <View>
+                <Text style={notificationStyles.title}>Notifications</Text>
+                <Text style={notificationStyles.subtitle}>({unreadCount} unread)</Text>
+              </View>
+              <View style={notificationStyles.headerActions}>
+                {unreadCount > 0 && (
+                  <TouchableOpacity onPress={async () => {
+                    setNotificationList(prev => prev.map(n => ({ ...n, is_read: true })));
+                    setUnreadCount(0);
+                    try {
+                      await api.put('/notifications/mark-all-read');
+                    } catch (error) {
+                      console.log('Error marking all notifications as read:', error);
+                    }
+                  }}>
+                    <Text style={notificationStyles.markAll}>Mark all read</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity onPress={() => setShowNotificationPanel(false)}>
+                  <Ionicons name="close" size={24} color={DESIGN.colors.darkText} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Notification List */}
+            {notificationList.length === 0 ? (
+              <View style={notificationStyles.emptyState}>
+                <Ionicons name="notifications-off-outline" size={48} color="#ccc" />
+                <Text style={notificationStyles.emptyText}>No notifications</Text>
+              </View>
+            ) : (
+              <FlatList
+                data={notificationList}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                  <TouchableOpacity 
+                    style={[notificationStyles.item, !item.is_read && notificationStyles.unreadItem]}
+                    onPress={() => {
+                      // Mark as read logic here
+                    }}
+                  >
+                    <View style={[notificationStyles.iconContainer, { backgroundColor: DESIGN.colors.orange + '20' }]}>
+                      <Ionicons name="notifications" size={20} color={DESIGN.colors.orange} />
+                    </View>
+                    <View style={notificationStyles.content}>
+                      <Text style={notificationStyles.itemTitle}>{item.title}</Text>
+                      <Text style={notificationStyles.itemBody}>{item.body}</Text>
+                      <Text style={notificationStyles.time}>{item.created_at}</Text>
+                    </View>
+                    {!item.is_read && <View style={notificationStyles.unreadDot} />}
+                  </TouchableOpacity>
+                )}
+              />
+            )}
+
+            {/* View All Link */}
+            <TouchableOpacity 
+              style={notificationStyles.viewAll}
+              onPress={() => {
+                setShowNotificationPanel(false);
+                navigation.navigate('AdminNotifications' as never);
+              }}
+            >
+              <Text style={notificationStyles.viewAllText}>View All Notifications</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       {/* Bottom Navigation */}
       <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 999 }}>
         <AdminBottomNavigation 
-          onMorePress={() => setShowMoreMenu(true)} 
           currentRoute="ManagerDashboard"
         />
       </View>
@@ -913,13 +1019,15 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
+    zIndex: 1000, // Higher than bottom navigator's zIndex: 999
   },
   modalContent: {
     backgroundColor: DESIGN.colors.white,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 20,
-    paddingBottom: Platform.OS === 'android' ? 40 : 30,
+    paddingBottom: Platform.OS === 'android' ? 100 : 80, // Extra padding for bottom navigator
+    maxHeight: '90%',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -931,6 +1039,17 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: DESIGN.colors.darkText,
+  },
+  modalSubtitle: {
+    fontSize: 12,
+    color: DESIGN.colors.muted,
+    marginTop: 4,
+  },
+  menuScrollView: {
+    flex: 1,
+  },
+  menuScrollContent: {
+    paddingBottom: 100, // Extra padding to account for bottom navigator
   },
   menuItem: {
     flexDirection: 'row',
@@ -944,6 +1063,15 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: DESIGN.colors.darkText,
     marginLeft: 16,
+  },
+  bannerMenuItem: {
+    backgroundColor: '#FFF5F0',
+    borderRadius: 8,
+    marginVertical: 2,
+  },
+  bannerMenuItemText: {
+    color: '#FF6B35',
+    fontWeight: 'bold',
   },
   profileModalOverlay: {
     flex: 1,
@@ -1000,5 +1128,112 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: DESIGN.colors.border,
     marginHorizontal: 16,
+  },
+});
+
+// Notification panel styles
+const notificationStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  panel: {
+    backgroundColor: DESIGN.colors.white,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    paddingBottom: Platform.OS === 'android' ? 40 : 30,
+    maxHeight: '80%',
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: DESIGN.colors.darkText,
+  },
+  subtitle: {
+    fontSize: 14,
+    color: DESIGN.colors.muted,
+    marginTop: 4,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  markAll: {
+    fontSize: 14,
+    color: DESIGN.colors.orange,
+    fontWeight: '600',
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: DESIGN.colors.muted,
+    marginTop: 12,
+  },
+  item: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: DESIGN.colors.border,
+  },
+  unreadItem: {
+    backgroundColor: DESIGN.colors.orange + '08',
+  },
+  iconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  content: {
+    flex: 1,
+  },
+  itemTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: DESIGN.colors.darkText,
+  },
+  itemBody: {
+    fontSize: 13,
+    color: DESIGN.colors.muted,
+    marginTop: 2,
+  },
+  time: {
+    fontSize: 12,
+    color: DESIGN.colors.muted,
+    marginTop: 4,
+  },
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: DESIGN.colors.orange,
+    marginLeft: 8,
+  },
+  viewAll: {
+    paddingVertical: 16,
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: DESIGN.colors.border,
+    marginTop: 8,
+  },
+  viewAllText: {
+    fontSize: 14,
+    color: DESIGN.colors.orange,
+    fontWeight: '600',
   },
 });

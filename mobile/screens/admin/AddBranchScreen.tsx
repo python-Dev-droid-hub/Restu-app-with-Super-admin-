@@ -95,25 +95,31 @@ export default function AddBranchScreen() {
 
     try {
       setLoading(true);
-      const response = await api.post('/branches', {
+      
+      const payload = {
         branchCode: branchCode.toUpperCase(),
         branchName,
         addressLine,
         city,
         state: state || undefined,
         postalCode: postalCode || undefined,
-        country,
+        country: country || 'Pakistan',
         lat: latitude ? parseFloat(latitude) : undefined,
         lng: longitude ? parseFloat(longitude) : undefined,
         deliveryRadius: parseInt(deliveryRadius) || 5000,
-        phoneNumber,
+        phoneNumber: phoneNumber.replace(/\s/g, ''), // Remove spaces
         email: email || undefined,
         operatingHours,
         isActive,
         acceptsDelivery,
         acceptsDineIn,
         acceptsTakeaway,
-      });
+        currency: 'PKR', // Add missing currency field
+      };
+      
+      console.log('[AddBranch] Sending payload:', JSON.stringify(payload, null, 2));
+      
+      const response = await api.post('/branches', payload);
 
       if (response.success) {
         Alert.alert('Success', 'Branch added successfully', [
@@ -122,9 +128,10 @@ export default function AddBranchScreen() {
       } else {
         Alert.alert('Error', response.message || 'Failed to add branch');
       }
-    } catch (error) {
-      console.error('Error saving branch:', error);
-      Alert.alert('Error', 'Failed to save branch. Please try again.');
+    } catch (error: any) {
+      console.error('[AddBranch] Error:', error);
+      const errorMessage = error?.response?.data?.message || error?.message || 'Failed to save branch. Please try again.';
+      Alert.alert('Error', errorMessage);
     } finally {
       setLoading(false);
     }

@@ -10,21 +10,21 @@ const menuController = new MenuController();
 // Validation schemas
 const createCategorySchema = Joi.object({
   name: Joi.string().min(2).max(50).required(),
-  description: Joi.string().max(200).optional(),
+  description: Joi.string().max(200).optional().allow(''),
   displayOrder: Joi.number().min(0).optional(),
   isActive: Joi.boolean().optional(),
-  imageUrl: Joi.string().uri().optional().allow(''),
+  imageUrl: Joi.string().optional().allow(''),
   branchId: Joi.string().optional(),
-});
+}).unknown(true);
 
 const updateCategorySchema = Joi.object({
   name: Joi.string().min(2).max(50).optional(),
-  description: Joi.string().max(200).optional(),
+  description: Joi.string().max(200).optional().allow(''),
   displayOrder: Joi.number().min(0).optional(),
   isActive: Joi.boolean().optional(),
-  imageUrl: Joi.string().uri().optional().allow(''),
+  imageUrl: Joi.string().optional().allow(''),
   branchId: Joi.string().optional(),
-});
+}).unknown(true);
 
 const reorderCategoriesSchema = Joi.object({
   categories: Joi.array().items(
@@ -115,12 +115,13 @@ const categoryParamsSchema = Joi.object({
 router.get('/admin/products', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), menuController.getAllProducts);
 router.post('/admin/products', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), menuController.createAdminProduct);
 router.put('/admin/products/:id', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), validate(updateMenuItemSchema), menuController.updateAdminProduct);
+router.delete('/admin/products/:id', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), menuController.deleteAdminProduct);
 router.get('/admin/categories', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), menuController.getAllCategories);
 router.post('/admin/categories', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), validate(createCategorySchema), menuController.createAdminCategory);
 router.put('/admin/categories/:id', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), validate(updateCategorySchema), menuController.updateAdminCategory);
 
 // Public routes
-router.get('/menu', menuController.getFullMenu);
+router.get('/', menuController.getFullMenu);
 router.get('/:restaurantId/categories', menuController.getCategories);
 router.get('/:restaurantId/items', menuController.getMenuItems);
 router.get('/:restaurantId/items/:itemId', validateParams(menuItemParamsSchema), menuController.getMenuItemById);

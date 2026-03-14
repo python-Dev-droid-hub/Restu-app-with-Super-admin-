@@ -4,7 +4,7 @@ const notificationSchema = new Schema({
   recipient: {
     type: Schema.Types.ObjectId,
     ref: 'User',
-    required: [true, 'Recipient is required'],
+    required: [function(this: any) { return this.recipient !== null; }, 'Recipient is required'],
     index: true
   },
   recipientRole: {

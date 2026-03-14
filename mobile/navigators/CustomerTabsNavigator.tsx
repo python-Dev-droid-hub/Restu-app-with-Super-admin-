@@ -5,6 +5,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { View, Text, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, typography } from '../theme';
+import { useWebSocket } from '../context/WebSocketContext';
+import { useCart } from '../context/CartContext';
 
 // Main Tab Screens
 import HomeScreen from '../screens/food-app/HomeScreen';
@@ -18,6 +20,11 @@ import ProductDetailScreen from '../screens/food-app/ProductDetailScreen';
 import CheckoutScreen from '../screens/food-app/CheckoutScreen';
 import OrderTrackingScreen from '../screens/food-app/OrderTrackingScreen';
 import OrderHistoryScreen from '../screens/food-app/OrderHistoryScreen';
+import AddressesScreen from '../screens/food-app/AddressesScreen';
+import PaymentMethodsScreen from '../screens/food-app/PaymentMethodsScreen';
+import NotificationsScreen from '../screens/food-app/NotificationsScreen';
+import SupportScreen from '../screens/food-app/SupportScreen';
+import SettingsScreen from '../screens/food-app/SettingsScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -32,8 +39,11 @@ function CartBadge({ count }: { count: number }) {
 }
 
 function MainTabsNavigator() {
-  const cartItemCount = 3;
+  const { getCartCount } = useCart();
+  const cartItemCount = getCartCount();
   const insets = useSafeAreaInsets();
+  const tabBarBaseHeight = 60;
+  const tabBarHeight = tabBarBaseHeight + Math.max(insets.bottom, 0);
   
   return (
     <Tab.Navigator
@@ -41,33 +51,50 @@ function MainTabsNavigator() {
         headerShown: false,
         tabBarStyle: [
           styles.tabBar, 
-          { paddingBottom: Math.max(12, insets.bottom) }
+          {
+            height: tabBarHeight,
+            paddingBottom: Math.max(12, insets.bottom),
+          }
         ],
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.gray_500,
         tabBarLabelStyle: styles.tabLabel,
+        tabBarHideOnKeyboard: true,
         tabBarIcon: ({ focused, color, size }) => {
           let iconName: any;
           let showBadge = false;
+          let badgeCount = 0;
+          
           switch (route.name) {
             case 'Home': iconName = focused ? 'home' : 'home-outline'; break;
-            case 'Search': iconName = focused ? 'search' : 'search-outline'; break;
             case 'Cart': iconName = focused ? 'cart' : 'cart-outline'; showBadge = true; break;
             case 'Favorites': iconName = focused ? 'heart' : 'heart-outline'; break;
-            case 'Account': iconName = focused ? 'person' : 'person-outline'; break;
+            case 'Account': 
+              iconName = focused ? 'person' : 'person-outline'; 
+              // Show notification badge on Account tab
+              try {
+                const { unreadCount } = useWebSocket();
+                if (unreadCount > 0) {
+                  showBadge = true;
+                  badgeCount = unreadCount;
+                }
+              } catch (e) {
+                // WebSocket not available yet
+              }
+              break;
             default: iconName = 'home-outline';
           }
+          
           return (
             <View>
               <Ionicons name={iconName} size={size} color={color} />
-              {showBadge && <CartBadge count={cartItemCount} />}
+              {showBadge && <CartBadge count={badgeCount > 0 ? badgeCount : cartItemCount} />}
             </View>
           );
         },
       })}
     >
       <Tab.Screen name="Home" component={HomeScreen} />
-      <Tab.Screen name="Search" component={SearchScreen} />
       <Tab.Screen name="Cart" component={CartScreen} />
       <Tab.Screen name="Favorites" component={FavoritesScreen} />
       <Tab.Screen name="Account" component={AccountScreen} />
@@ -83,13 +110,17 @@ export default function CustomerTabsNavigator() {
       <Stack.Screen name="Checkout" component={CheckoutScreen} />
       <Stack.Screen name="OrderTracking" component={OrderTrackingScreen} />
       <Stack.Screen name="OrderHistory" component={OrderHistoryScreen} />
+      <Stack.Screen name="Addresses" component={AddressesScreen} />
+      <Stack.Screen name="PaymentMethods" component={PaymentMethodsScreen} />
+      <Stack.Screen name="Notifications" component={NotificationsScreen} />
+      <Stack.Screen name="Support" component={SupportScreen} />
+      <Stack.Screen name="Settings" component={SettingsScreen} />
     </Stack.Navigator>
   );
 }
 
 const styles = StyleSheet.create({
   tabBar: { 
-    height: 70, 
     backgroundColor: colors.white, 
     borderTopWidth: 1, 
     borderTopColor: colors.gray_200, 
@@ -98,7 +129,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: -2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
-    paddingBottom: 12, 
     paddingTop: 8 
   },
   tabLabel: { 

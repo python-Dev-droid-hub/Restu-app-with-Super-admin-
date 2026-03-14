@@ -3,6 +3,7 @@ import { DealController } from './deal.controller';
 import { authenticate, authorize } from '@/middleware/auth';
 import { validate } from '@/middleware/validation';
 import Joi from 'joi';
+import dealCampaignRoutes from '@/modules/deal-campaign/deal-campaign.routes';
 
 const router = Router() as any;
 const dealController = new DealController();
@@ -39,6 +40,9 @@ const updateDealSchema = Joi.object({
   excludeCoupons: Joi.boolean().optional(),
   products: Joi.array().items(Joi.string()).optional(),
 });
+
+// Mount deal-campaign routes at /campaigns
+router.use('/', dealCampaignRoutes);
 
 // Public routes
 router.get('/', dealController.getAllDeals);

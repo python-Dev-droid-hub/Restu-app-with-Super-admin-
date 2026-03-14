@@ -1,7 +1,20 @@
 import { colors } from '../theme';
+import { useSettings } from '../context/SettingsContext';
 
 /**
- * Format price with currency symbol
+ * Hook to get formatPrice with dynamic currency from settings
+ */
+export function useFormatPrice() {
+  const { currencySymbol } = useSettings();
+  
+  return (amount: number): string => {
+    if (amount === undefined || amount === null) return `${currencySymbol}0`;
+    return `${currencySymbol}${amount.toFixed(0)}`;
+  };
+}
+
+/**
+ * Format price with currency symbol (static fallback - use useFormatPrice hook for dynamic)
  */
 export function formatPrice(amount: number, currency: string = '₹'): string {
   if (amount === undefined || amount === null) return `${currency}0`;

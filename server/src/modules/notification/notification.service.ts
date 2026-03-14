@@ -80,29 +80,45 @@ export class NotificationService {
   // ADMIN NOTIFICATIONS
   // ============================================
 
-  async getAdminNotifications(page: number = 1, limit: number = 20) {
+  async getAdminNotifications(page: number = 1, limit: number = 20, branchId?: string) {
     const skip = (page - 1) * limit;
 
+    // Build filter - admin sees all system-wide notifications
+    const filter: any = {};
+
+    // If branchId is provided, filter notifications related to that branch
+    if (branchId) {
+      filter.$or = [
+        { 'data.branchId': branchId },
+        { branch: branchId },
+        { recipientBranch: branchId }
+      ];
+    } else {
+      // No branch filter - show all admin-relevant notifications
+      // Admin notifications are those without a specific recipient OR with admin-relevant types
+      filter.$or = [
+        { recipient: null },
+        { recipient: { $exists: false } },
+        { recipientRole: { $in: ['ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER'] } },
+        { type: { $in: ['SYSTEM', 'ORDER_ALERT', 'PAYMENT_ALERT', 'SYSTEM_ALERT', 'SECURITY_ALERT', 'NEW_USER', 'TECHNICAL_ISSUE'] } }
+      ];
+    }
+
+    console.log('[NotificationService] Admin notifications filter:', JSON.stringify(filter));
+
     const [notifications, total] = await Promise.all([
-      Notification.find({
-        $or: [
-          { recipient: null },
-          { type: { $in: ['SYSTEM', 'ORDER_ALERT', 'PAYMENT_ALERT'] } }
-        ]
-      })
+      Notification.find(filter)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .populate('recipient', 'displayName email')
-      .populate('relatedOrder', 'orderNumber status'),
+      .populate('relatedOrder', 'orderNumber status')
+      .lean(),
 
-      Notification.countDocuments({
-        $or: [
-          { recipient: null },
-          { type: { $in: ['SYSTEM', 'ORDER_ALERT', 'PAYMENT_ALERT'] } }
-        ]
-      })
+      Notification.countDocuments(filter)
     ]);
+
+    console.log('[NotificationService] Found notifications:', notifications.length, 'total:', total);
 
     return {
       notifications,
@@ -316,6 +332,25 @@ export class NotificationService {
       relatedOrder: orderId,
       priority: 'HIGH',
       data: { tableNumber, orderNumber, action: 'PICKUP_ORDER' }
+    });
+  }
+
+  async createOrderStatusNotification(
+    waiterId: string,
+    orderId: string,
+    orderNumber: string,
+    status: string,
+    title: string,
+    body: string
+  ) {
+    return await Notification.create({
+      recipient: new Types.ObjectId(waiterId),
+      type: 'ORDER_UPDATE',
+      title,
+      body,
+      relatedOrder: orderId,
+      priority: 'HIGH',
+      data: { orderNumber, status, action: 'VIEW_ORDER' }
     });
   }
 

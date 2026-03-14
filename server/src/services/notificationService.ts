@@ -55,6 +55,21 @@ class NotificationService {
       await notification.save();
       console.log('[Notification] In-app notification saved:', notification._id);
 
+      // Emit realtime notification (Socket.IO) if available
+      try {
+        const ws = (globalThis as any).ws;
+        if (ws?.sendNotification) {
+          ws.sendNotification(notificationData.recipient, {
+            type: notificationData.type,
+            title: notificationData.title,
+            message: notificationData.message,
+            data: notificationData.data,
+          });
+        }
+      } catch (wsError) {
+        console.error('[Notification] WebSocket emit error:', wsError);
+      }
+
       // TODO: Send push notification if FCM token exists
       // if (user.fcmToken) {
       //   await this.sendPushNotification(user, notification);
@@ -87,6 +102,21 @@ class NotificationService {
         }))
       );
 
+      // Emit realtime bulk notification (Socket.IO) if available
+      try {
+        const ws = (globalThis as any).ws;
+        if (ws?.sendBulkNotification) {
+          ws.sendBulkNotification(userIds, {
+            type: notificationData.type,
+            title: notificationData.title,
+            message: notificationData.message,
+            data: notificationData.data,
+          });
+        }
+      } catch (wsError) {
+        console.error('[Notification] WebSocket bulk emit error:', wsError);
+      }
+
       console.log('[Notification] Bulk notifications created:', notifications.length);
       return notifications;
     } catch (error) {
@@ -116,21 +146,31 @@ class NotificationService {
     priority?: string;
   }) {
     try {
-      console.log('[Notification] Notify role:', { role, branch: branchId, type });
+      console.log('[Notification] Notify role:', { role, branch: branchId, type, title });
 
-      // Build query
+      // Build query - find users with matching role
       const query: any = { role, isActive: true };
+      
+      // If branchId provided, match users with that branch OR users without any branch assignment
       if (branchId) {
-        query.assignedBranch = branchId;
+        query.$or = [
+          { assignedBranch: branchId },
+          { assignedBranch: { $exists: false } },
+          { assignedBranch: null }
+        ];
       }
 
       // Get all users with this role
-      const users = await User.find(query);
+      const users = await User.find(query).lean();
+      console.log('[Notification] Found users for role:', role, 'count:', users.length, 'branchId:', branchId);
 
       if (users.length === 0) {
-        console.log('[Notification] No users found for role:', role);
+        console.log('[Notification] No users found for role:', role, 'with query:', JSON.stringify(query));
         return [];
       }
+
+      // Log user IDs for debugging
+      console.log('[Notification] User IDs:', users.map(u => ({ id: u._id, branch: u.assignedBranch })));
 
       // Send to each user
       const notifications = await Promise.all(
@@ -161,8 +201,10 @@ class NotificationService {
    */
   static async getUnreadCount(userId: string): Promise<number> {
     try {
+      const mongoose = await import('mongoose');
+      const userObjectId = new mongoose.Types.ObjectId(userId);
       return await Notification.countDocuments({
-        recipient: userId,
+        recipient: userObjectId,
         isRead: false,
       });
     } catch (error) {
@@ -176,17 +218,32 @@ class NotificationService {
    */
   static async getNotifications(userId: string, limit = 20, skip = 0, read?: boolean) {
     try {
-      const filter: any = { recipient: userId };
+      console.log('[NotificationService] getNotifications called with userId:', userId);
+      
+      // Convert userId string to ObjectId for proper MongoDB query
+      const mongoose = await import('mongoose');
+      const userObjectId = new mongoose.Types.ObjectId(userId);
+      
+      console.log('[NotificationService] Converted to ObjectId:', userObjectId.toString());
+      
+      const filter: any = { recipient: userObjectId };
       if (read !== undefined) {
         filter.isRead = read;
       }
 
+      console.log('[NotificationService] Querying with filter...');
+      
       const notifications = await Notification.find(filter)
         .sort({ createdAt: -1 })
         .limit(limit)
         .skip(skip)
         .lean();
 
+      console.log('[NotificationService] Found notifications:', notifications.length);
+      if (notifications.length > 0) {
+        console.log('[NotificationService] First notification:', JSON.stringify(notifications[0]));
+      }
+      
       const total = await Notification.countDocuments(filter);
       const unread = await this.getUnreadCount(userId);
 
@@ -215,7 +272,9 @@ class NotificationService {
         return null;
       }
 
-      await notification.markAsRead();
+      (notification as any).isRead = true;
+      (notification as any).readAt = new Date();
+      await notification.save();
       return notification;
     } catch (error) {
       console.error('[Notification] Mark as read error:', error);

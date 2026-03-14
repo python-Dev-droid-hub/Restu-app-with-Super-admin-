@@ -26,6 +26,7 @@ interface ProfileMenuProps {
   onClose: () => void;
   onLogout: () => void;
   onChangePassword: () => void;
+  role?: string;
 }
 
 interface UserData {
@@ -34,7 +35,7 @@ interface UserData {
   image: string | null;
 }
 
-export default function ProfileMenu({ visible, onClose, onLogout, onChangePassword }: ProfileMenuProps) {
+export default function ProfileMenu({ visible, onClose, onLogout, onChangePassword, role }: ProfileMenuProps) {
   const insets = useSafeAreaInsets();
   const { t } = useLocalization();
   const [userData, setUserData] = useState<UserData>({
@@ -42,6 +43,7 @@ export default function ProfileMenu({ visible, onClose, onLogout, onChangePasswo
     email: 'admin@example.com',
     image: null,
   });
+  const [userRole, setUserRole] = useState<string>(role || '');
   const [showChangeNameModal, setShowChangeNameModal] = useState(false);
   const [showChangeImageModal, setShowChangeImageModal] = useState(false);
   const [newName, setNewName] = useState('');
@@ -50,18 +52,31 @@ export default function ProfileMenu({ visible, onClose, onLogout, onChangePasswo
   useEffect(() => {
     if (visible) {
       loadUserData();
+      loadUserRole();
     }
   }, [visible]);
+
+  const loadUserRole = async () => {
+    try {
+      const stored = await AsyncStorage.getItem('userRole');
+      if (stored) {
+        setUserRole(stored);
+      }
+    } catch (error) {
+      console.error('Error loading user role:', error);
+    }
+  };
 
   const loadUserData = async () => {
     try {
       const stored = await AsyncStorage.getItem('userData');
       if (stored) {
         const parsed = JSON.parse(stored);
+        console.log('[ProfileMenu] Loaded userData:', parsed);
         setUserData({
           name: parsed.name || parsed.displayName || 'Admin User',
           email: parsed.email || 'admin@example.com',
-          image: parsed.image || parsed.profileImage || null,
+          image: parsed.profileImage || parsed.image || parsed.avatar || parsed.avatarUrl || null,
         });
       }
     } catch (error) {
@@ -97,11 +112,18 @@ export default function ProfileMenu({ visible, onClose, onLogout, onChangePasswo
   const handleChangeImage = async (imageUrl: string) => {
     try {
       setLoading(true);
-      const response = await api.put('/users/profile', { avatar: imageUrl });
+      const response = await api.put('/users/profile', { profileImage: imageUrl });
       if (response.success) {
         const updatedUserData = { ...userData, image: imageUrl };
         setUserData(updatedUserData);
-        await AsyncStorage.setItem('userData', JSON.stringify(updatedUserData));
+        // Also update AsyncStorage with profileImage field
+        const stored = await AsyncStorage.getItem('userData');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          parsed.profileImage = imageUrl;
+          parsed.image = imageUrl;
+          await AsyncStorage.setItem('userData', JSON.stringify(parsed));
+        }
         Alert.alert(t('common.success'), t('messages.imageUpdated'));
         setShowChangeImageModal(false);
       } else {
@@ -196,7 +218,9 @@ export default function ProfileMenu({ visible, onClose, onLogout, onChangePasswo
               />
               <View>
                 <Text style={styles.profileMenuName}>{userData.name}</Text>
-                <Text style={styles.profileMenuRole}>{t('profile.administrator')}</Text>
+                <Text style={styles.profileMenuRole}>
+                  {userRole === 'BRANCH_MANAGER' ? 'Manager' : t('profile.administrator')}
+                </Text>
               </View>
             </View>
             <View style={styles.profileMenuDivider} />

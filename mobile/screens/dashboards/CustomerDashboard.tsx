@@ -9,12 +9,13 @@ import {
   Image,
   TouchableOpacity,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '../../components/api/client';
 import { useSettings } from '../../context/SettingsContext';
 import { Ionicons } from '@expo/vector-icons';
 import { CommonActions } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Import tab components
 import CustomerOverviewTab from './components/CustomerOverviewTab';
@@ -22,11 +23,12 @@ import CustomerOrdersTab from './components/CustomerOrdersTab';
 import CustomerFavoritesTab from './components/CustomerFavoritesTab';
 import CustomerWalletTab from './components/CustomerWalletTab';
 import BranchSelector from './components/BranchSelector';
+import CustomerMenuScreen from '../CustomerMenuScreen';
 
 // Import location service
 import { getSavedBranch, fetchBranches, Branch } from '../../services/locationService';
 
-const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 0;
+const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight || 0 : 0;
 const COLORS = {
   primary: '#FF6B35',
   success: '#2ECC71',
@@ -59,6 +61,7 @@ interface UserData {
 
 export default function CustomerDashboard() {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
   const { formatPrice } = useSettings();
   const [activeTab, setActiveTab] = useState<TabType>('home');
   const [stats, setStats] = useState<CustomerStats>({
@@ -73,7 +76,8 @@ export default function CustomerDashboard() {
   const [userData, setUserData] = useState<UserData>({});
   
   // Branch selection state
-  const [showBranchSelector, setShowBranchSelector] = useState(false);
+  const [showBranchSelector, setShowBranchSelector] = useState(true);
+  const [branchSelectionRequired, setBranchSelectionRequired] = useState(true);
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
 
@@ -83,27 +87,56 @@ export default function CustomerDashboard() {
     checkAndLoadBranch();
   }, []);
 
+  useFocusEffect(
+    useCallback(() => {
+      checkAndLoadBranch();
+    }, [])
+  );
+
   // Check saved branch on load
   const checkAndLoadBranch = async () => {
-    const savedBranchId = await getSavedBranch();
-    const allBranches = await fetchBranches();
-    setBranches(allBranches);
-
-    if (savedBranchId) {
-      const branch = allBranches.find((b) => b._id === savedBranchId);
-      if (branch) {
-        setSelectedBranch(branch);
-      } else {
-        setShowBranchSelector(true);
+    try {
+      const savedBranchId = await getSavedBranch();
+      let allBranches: Branch[] = [];
+      try {
+        allBranches = await fetchBranches();
+      } catch (e) {
+        allBranches = [];
       }
-    } else {
-      // No saved branch, show selector
+      setBranches(allBranches);
+
+      console.log('[CustomerDashboard] savedBranchId:', savedBranchId);
+      console.log('[CustomerDashboard] branches loaded:', allBranches.length);
+
+      if (savedBranchId && allBranches.length > 0) {
+        const branch = allBranches.find((b) => b._id === savedBranchId);
+        if (branch) {
+          setSelectedBranch(branch);
+          setBranchSelectionRequired(false);
+          setShowBranchSelector(false);
+          return;
+        }
+      }
+
+      // No saved branch OR saved branch not found OR branches failed to load
+      setSelectedBranch(null);
+      setBranchSelectionRequired(true);
+      setShowBranchSelector(true);
+    } catch (error) {
+      setSelectedBranch(null);
+      setBranchSelectionRequired(true);
       setShowBranchSelector(true);
     }
   };
 
+  const tabBarBaseHeight = Platform.OS === 'android' ? 70 : 60;
+  const tabBarHeight = tabBarBaseHeight + (insets.bottom || 0);
+  const tabBarPaddingBottom = (insets.bottom || 0) + (Platform.OS === 'android' ? 10 : 0);
+
   const handleBranchSelected = (branch: Branch) => {
     setSelectedBranch(branch);
+    setBranchSelectionRequired(false);
+    setShowBranchSelector(false);
   };
 
   const loadUserData = async () => {
@@ -162,6 +195,23 @@ export default function CustomerDashboard() {
     return 'Good evening';
   };
 
+  const getHeaderTitle = () => {
+    switch (activeTab) {
+      case 'home':
+        return 'My Dashboard';
+      case 'menu':
+        return 'Menu';
+      case 'orders':
+        return 'My Orders';
+      case 'favorites':
+        return 'Favorites';
+      case 'profile':
+        return 'My Account';
+      default:
+        return 'My Dashboard';
+    }
+  };
+
   // Render tab content based on active tab
   const renderTabContent = () => {
     switch (activeTab) {
@@ -192,29 +242,31 @@ export default function CustomerDashboard() {
       case 'profile':
         return <CustomerWalletTab formatPrice={formatPrice} />;
       case 'menu':
-        // Navigate to menu or show menu placeholder
-        return (
-          <View style={styles.placeholderContainer}>
-            <Ionicons name="restaurant-outline" size={64} color={COLORS.gray} />
-            <Text style={styles.placeholderText}>Menu Screen</Text>
-            <Text style={styles.placeholderSubtext}>Browse our delicious offerings</Text>
-          </View>
-        );
+        return <CustomerMenuScreen />;
       default:
         return null;
     }
   };
 
   return (
-    <SafeAreaView style={[styles.container, { paddingTop: STATUSBAR_HEIGHT }]}>
+    <SafeAreaView
+      style={[
+        styles.container,
+        {
+          paddingTop: Math.max(insets.top || 0, STATUSBAR_HEIGHT),
+        },
+      ]}
+    >
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <View>
-            <Text style={styles.headerTitle}>My Dashboard</Text>
-            <Text style={styles.greeting}>{getGreeting()}, {userData?.displayName?.split(' ')[0] || 'Customer'}!</Text>
+            <Text style={styles.headerTitle}>{getHeaderTitle()}</Text>
+            <Text style={styles.greeting}>
+              {`${getGreeting()}, ${userData?.displayName?.split(' ')[0] || 'Customer'}!`}
+            </Text>
           </View>
           {/* Branch Location Indicator */}
           <TouchableOpacity
@@ -241,18 +293,27 @@ export default function CustomerDashboard() {
         visible={showBranchSelector}
         onClose={() => setShowBranchSelector(false)}
         onBranchSelected={handleBranchSelected}
+        requireSelection={branchSelectionRequired}
       />
 
       {/* Tab Content */}
-      <View style={styles.content}>
+      <View style={[styles.content, { paddingBottom: tabBarHeight }]}>
         {renderTabContent()}
       </View>
 
       {/* Bottom Navigation */}
-      <View style={styles.bottomNav}>
+      <View
+        style={[
+          styles.bottomNav,
+          {
+            paddingBottom: tabBarPaddingBottom,
+            height: tabBarHeight,
+          },
+        ]}
+      >
         {[
           { id: 'home', icon: 'home', label: 'Home' },
-          { id: 'menu', icon: 'restaurant', label: 'Menu' },
+          { id: 'menu', icon: 'grid-outline', label: 'Categories' },
           { id: 'orders', icon: 'receipt', label: 'Orders' },
           { id: 'favorites', icon: 'heart', label: 'Favorites' },
           { id: 'profile', icon: 'person', label: 'Profile' },
@@ -292,7 +353,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     paddingHorizontal: 20,
-    paddingTop: 10,
+    paddingTop: 8,
     paddingBottom: 12,
   },
   headerLeft: {
@@ -330,11 +391,15 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   bottomNav: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
     backgroundColor: '#fff',
-    paddingVertical: 10,
+    paddingTop: 10,
     paddingHorizontal: 20,
     borderTopWidth: 1,
     borderTopColor: '#f0f0f0',

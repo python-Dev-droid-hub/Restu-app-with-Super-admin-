@@ -137,7 +137,7 @@ export default function RiderDashboardHeader({
             <Ionicons name="cash-outline" size={20} color={COLORS.green} />
           </View>
           <Text style={[styles.statValue, { color: COLORS.orange }]}>
-            ${stats.todayEarnings.toFixed(2)}
+            ${Number(stats.todayEarnings || 0).toFixed(2)}
           </Text>
           <Text style={styles.statLabel}>Earnings</Text>
         </View>
@@ -147,7 +147,7 @@ export default function RiderDashboardHeader({
           <View style={[styles.statIcon, { backgroundColor: `${COLORS.blue}20` }]}>
             <Ionicons name="calendar-outline" size={20} color={COLORS.blue} />
           </View>
-          <Text style={styles.statValue}>${stats.weekEarnings.toFixed(2)}</Text>
+          <Text style={styles.statValue}>${Number(stats.weekEarnings || 0).toFixed(2)}</Text>
           <Text style={styles.statLabel}>Last 7 Days</Text>
         </View>
       </ScrollView>

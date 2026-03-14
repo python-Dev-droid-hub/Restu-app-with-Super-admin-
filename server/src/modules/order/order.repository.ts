@@ -26,7 +26,8 @@ export class OrderRepository {
   }
 
   async updateById(id: string | Types.ObjectId, updateData: any): Promise<any | null> {
-    return await Order.findByIdAndUpdate(
+    console.log('[OrderRepository] updateById called with id:', id, 'updateData:', JSON.stringify(updateData));
+    const result = await Order.findByIdAndUpdate(
       id,
       updateData,
       { new: true, runValidators: true }
@@ -41,6 +42,9 @@ export class OrderRepository {
       .populate('items.size', 'sizeName')
       .populate('coupon', 'code discountType discountValue')
       .populate('deal', 'title discountType discountValue');
+    
+    console.log('[OrderRepository] Update result - paymentMethod:', result?.paymentMethod, 'paymentStatus:', result?.paymentStatus);
+    return result;
   }
 
   async updateStatus(id: string | Types.ObjectId, status: string): Promise<any | null> {

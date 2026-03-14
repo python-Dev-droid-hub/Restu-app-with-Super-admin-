@@ -96,7 +96,8 @@ export function calculateBill(
   }
   
   const discountedSubtotal = subtotal - discount;
-  const tax = calculateTax(discountedSubtotal, options.taxPercent || 5);
+  const resolvedTaxPercent = typeof options.taxPercent === 'number' ? options.taxPercent : 5;
+  const tax = calculateTax(discountedSubtotal, resolvedTaxPercent);
   const deliveryFee = options.deliveryFee ?? 50;
   const total = discountedSubtotal + tax + deliveryFee;
   
@@ -105,7 +106,7 @@ export function calculateBill(
     deliveryFee,
     discount,
     tax,
-    taxPercentage: options.taxPercent || 5,
+    taxPercentage: resolvedTaxPercent,
     total: Math.round(total * 100) / 100,
   };
 }
@@ -122,10 +123,10 @@ export function getCartItemCount(items: CartItem[]): number {
  */
 export function formatBillDetails(bill: BillDetails): Array<{ label: string; value: string; color?: string }> {
   return [
-    { label: 'Subtotal', value: `₹${bill.subtotal.toFixed(2)}` },
-    { label: 'Delivery Fee', value: bill.deliveryFee === 0 ? 'FREE' : `₹${bill.deliveryFee.toFixed(2)}`, color: bill.deliveryFee === 0 ? colors.success : undefined },
-    ...(bill.discount > 0 ? [{ label: 'Discount', value: `-₹${bill.discount.toFixed(2)}`, color: colors.danger }] : []),
-    { label: `Tax (${bill.taxPercentage}%)`, value: `₹${bill.tax.toFixed(2)}` },
-    { label: 'TOTAL', value: `₹${bill.total.toFixed(2)}`, color: colors.primary },
+    { label: 'Subtotal', value: `₹${Number(bill.subtotal || 0).toFixed(2)}` },
+    { label: 'Delivery Fee', value: bill.deliveryFee === 0 ? 'FREE' : `₹${Number(bill.deliveryFee || 0).toFixed(2)}`, color: bill.deliveryFee === 0 ? colors.success : undefined },
+    ...(bill.discount > 0 ? [{ label: 'Discount', value: `-₹${Number(bill.discount || 0).toFixed(2)}`, color: colors.danger }] : []),
+    { label: `Tax (${bill.taxPercentage}%)`, value: `₹${Number(bill.tax || 0).toFixed(2)}` },
+    { label: 'TOTAL', value: `₹${Number(bill.total || 0).toFixed(2)}`, color: colors.primary },
   ];
 }

@@ -5,26 +5,39 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
-  StatusBar,
-  Platform,
   RefreshControl,
   Image,
   Alert,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+
 import { api } from '../components/api/client';
 
-const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 0;
-const HEADER_MARGIN = Platform.OS === 'ios' ? 50 : 20;
-const FOOTER_MARGIN = Platform.OS === 'android' ? 20 : 10;
+const getFullImageUrl = (url?: string) => {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  const base = api.getBaseURL().replace(/\/?api\/?$/, '');
+  if (url.startsWith('/')) return `${base}${url}`;
+  return url;
+};
 
 interface Product {
   _id: string;
   name: string;
   description: string;
   price: number;
+  effectivePrice?: number;
+  hasSizes?: boolean;
+  productSizes?: Array<{
+    price: number;
+    isDefault?: boolean;
+    size?: {
+      _id?: string;
+      id?: string;
+      size_name?: string;
+      name?: string;
+    };
+  }>;
   imageUrl?: string;
   isAvailable: boolean;
   category: {
@@ -33,22 +46,63 @@ interface Product {
   };
 }
 
+const getDisplayPrice = (product: Product): number => {
+  if (typeof product.effectivePrice === 'number' && !Number.isNaN(product.effectivePrice)) {
+    return product.effectivePrice;
+  }
+
+  const sizes = product.productSizes;
+  if (product.hasSizes && Array.isArray(sizes) && sizes.length > 0) {
+    const defaultSize = sizes.find((s) => s?.isDefault);
+    const candidate = defaultSize?.price ?? Math.min(...sizes.map((s) => s?.price ?? Number.POSITIVE_INFINITY));
+    if (typeof candidate === 'number' && Number.isFinite(candidate)) return candidate;
+  }
+
+  return typeof product.price === 'number' && !Number.isNaN(product.price) ? product.price : 0;
+};
+
 interface Category {
   _id: string;
   name: string;
   products: Product[];
 }
 
+interface DealItem {
+  _id: string;
+  title: string;
+  description?: string;
+  imageUrl?: string;
+  price: number;
+  originalPrice?: number;
+  discount?: number;
+  categories?: string[];
+  isActive?: boolean;
+}
+
+interface DealCampaign {
+  _id: string;
+  name: string;
+  heroBanner?: {
+    imageUrl?: string;
+    title?: string;
+    subtitle?: string;
+  };
+  deals: DealItem[];
+  status: string;
+}
+
 export default function CustomerMenuScreen() {
   console.log('🚀 CUSTOMER MENU SCREEN LOADED');
-  const navigation = useNavigation();
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const [deals, setDeals] = useState<DealItem[]>([]);
+  const [dealsLoading, setDealsLoading] = useState(false);
 
   useEffect(() => {
     loadMenuData();
+    loadDeals();
   }, []);
 
   const loadMenuData = async () => {
@@ -96,15 +150,61 @@ export default function CustomerMenuScreen() {
     }
   };
 
+  const loadDeals = async () => {
+    try {
+      setDealsLoading(true);
+      console.log('🔥 [DEALS] Loading deals from /deals/campaigns/active');
+      const response = await api.get('/deals/campaigns/active');
+      console.log('🔥 [DEALS] Response:', JSON.stringify(response, null, 2));
+      
+      if (response.success && response.data?.campaigns) {
+        console.log('🔥 [DEALS] Campaigns found:', response.data.campaigns.length);
+        // Extract all active deals from all active campaigns
+        const activeCampaigns = response.data.campaigns.filter((c: DealCampaign) => c.status === 'ACTIVE');
+        console.log('🔥 [DEALS] Active campaigns:', activeCampaigns.length);
+        const allDeals: DealItem[] = [];
+        activeCampaigns.forEach((campaign: DealCampaign) => {
+          console.log('🔥 [DEALS] Campaign:', campaign.name, 'Deals:', campaign.deals?.length || 0);
+          if (campaign.deals && campaign.deals.length > 0) {
+            campaign.deals.forEach((deal) => {
+              if (deal.isActive !== false) {
+                // Normalize categories - handle both ObjectId strings and populated objects
+                const normalizedCategories = (deal.categories || []).map((cat: any) => 
+                  typeof cat === 'string' ? cat : cat._id
+                );
+                allDeals.push({
+                  ...deal,
+                  categories: normalizedCategories,
+                });
+              }
+            });
+          }
+        });
+        console.log('🔥 [DEALS] Total deals extracted:', allDeals.length);
+        setDeals(allDeals);
+      } else {
+        console.log('🔥 [DEALS] No campaigns in response or success=false');
+      }
+    } catch (error) {
+      console.error('🔥 [DEALS] Error loading deals:', error);
+    } finally {
+      setDealsLoading(false);
+    }
+  };
+
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadMenuData();
+    await Promise.all([loadMenuData(), loadDeals()]);
     setRefreshing(false);
   };
 
   const getSelectedCategoryProducts = () => {
     const category = categories.find(cat => cat._id === selectedCategory);
     return category?.products || [];
+  };
+
+  const getDealsForCategory = () => {
+    return deals;
   };
 
   const addToCart = (product: Product) => {
@@ -116,7 +216,7 @@ export default function CustomerMenuScreen() {
     <TouchableOpacity key={product._id} style={styles.productCard} onPress={() => addToCart(product)}>
       <View style={styles.productImageContainer}>
         {product.imageUrl ? (
-          <Image source={{ uri: product.imageUrl }} style={styles.productImage} />
+          <Image source={{ uri: getFullImageUrl(product.imageUrl) }} style={styles.productImage} />
         ) : (
           <View style={styles.productImagePlaceholder}>
             <Ionicons name="restaurant-outline" size={40} color="#ccc" />
@@ -133,7 +233,7 @@ export default function CustomerMenuScreen() {
         <Text style={styles.productDescription} numberOfLines={2}>
           {product.description}
         </Text>
-        <Text style={styles.productPrice}>${product.price.toFixed(2)}</Text>
+        <Text style={styles.productPrice}>${getDisplayPrice(product).toFixed(2)}</Text>
       </View>
       <TouchableOpacity
         style={[styles.addButton, !product.isAvailable && styles.addButtonDisabled]}
@@ -145,21 +245,62 @@ export default function CustomerMenuScreen() {
     </TouchableOpacity>
   );
 
-  return (
-    <SafeAreaView style={[styles.container, { paddingTop: STATUSBAR_HEIGHT }]}>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+  const addDealToCart = (deal: DealItem) => {
+    Alert.alert('Added to Cart', `${deal.title} added to cart!`);
+  };
 
-      {/* Header */}
-      <View style={[styles.header, { marginTop: HEADER_MARGIN }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#1a1a2e" />
+  const renderDealCard = (deal: DealItem) => {
+    const discountPercent = deal.discount || (deal.originalPrice && deal.originalPrice > deal.price
+      ? Math.round(((deal.originalPrice - deal.price) / deal.originalPrice) * 100)
+      : 0);
+
+    return (
+      <TouchableOpacity
+        key={deal._id}
+        style={styles.dealCard}
+        onPress={() => addDealToCart(deal)}
+      >
+        <View style={styles.dealImageContainer}>
+          {deal.imageUrl ? (
+            <Image source={{ uri: getFullImageUrl(deal.imageUrl) }} style={styles.dealImage} />
+          ) : (
+            <View style={styles.dealImagePlaceholder}>
+              <Ionicons name="pricetag" size={32} color="#E87E35" />
+            </View>
+          )}
+          {discountPercent > 0 && (
+            <View style={styles.discountBadge}>
+              <Text style={styles.discountText}>{discountPercent}% OFF</Text>
+            </View>
+          )}
+        </View>
+        <View style={styles.dealInfo}>
+          <Text style={styles.dealTitle} numberOfLines={2}>{deal.title}</Text>
+          {deal.description && (
+            <Text style={styles.dealDescription} numberOfLines={2}>{deal.description}</Text>
+          )}
+          <View style={styles.dealPriceRow}>
+            <Text style={styles.dealPrice}>${deal.price.toFixed(2)}</Text>
+            {deal.originalPrice && deal.originalPrice > deal.price && (
+              <Text style={styles.dealOriginalPrice}>${deal.originalPrice.toFixed(2)}</Text>
+            )}
+          </View>
+        </View>
+        <TouchableOpacity
+          style={styles.dealAddButton}
+          onPress={() => addDealToCart(deal)}
+        >
+          <Ionicons name="add" size={20} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Menu</Text>
-        <View style={styles.placeholder} />
-      </View>
+      </TouchableOpacity>
+    );
+  };
 
+  return (
+    <View style={styles.container}>
       <ScrollView
         style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
@@ -211,33 +352,22 @@ export default function CustomerMenuScreen() {
           )}
         </View>
 
+        {/* Deals Section - Show after products on every category tab */}
+        {getDealsForCategory().length > 0 && (
+          <View style={styles.dealsSection}>
+            <View style={styles.dealsHeader}>
+              <Ionicons name="pricetag" size={20} color="#E87E35" />
+              <Text style={styles.dealsTitle}>Special Deals</Text>
+            </View>
+            <View style={styles.dealsContainer}>
+              {getDealsForCategory().map(renderDealCard)}
+            </View>
+          </View>
+        )}
+
         <View style={styles.bottomSpacer} />
       </ScrollView>
-
-      {/* Bottom Navigation */}
-      <View style={[styles.bottomNav, { bottom: FOOTER_MARGIN, left: 10, right: 10, borderRadius: 16, elevation: 5 }]}>
-        <TouchableOpacity style={styles.navItem}>
-          <Ionicons name="home-outline" size={24} color="#999" />
-          <Text style={styles.navText}>Home</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem}>
-          <Ionicons name="restaurant" size={24} color="#e87e35" />
-          <Text style={[styles.navText, styles.navTextActive]}>Menu</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem}>
-          <Ionicons name="receipt-outline" size={24} color="#999" />
-          <Text style={styles.navText}>Orders</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem}>
-          <Ionicons name="heart-outline" size={24} color="#999" />
-          <Text style={styles.navText}>Favorites</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem}>
-          <Ionicons name="person-outline" size={24} color="#999" />
-          <Text style={styles.navText}>Profile</Text>
-        </TouchableOpacity>
-      </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -431,5 +561,111 @@ const styles = StyleSheet.create({
   navTextActive: {
     color: '#e87e35',
     fontWeight: '600',
+  },
+  // Deals Section Styles
+  dealsSection: {
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 20,
+  },
+  dealsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 8,
+  },
+  dealsTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1a1a2e',
+  },
+  dealsContainer: {
+    gap: 12,
+  },
+  // Deal Card Styles
+  dealCard: {
+    flexDirection: 'row',
+    backgroundColor: '#FFF9F5',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#FFE5D9',
+    shadowColor: '#E87E35',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  dealImageContainer: {
+    position: 'relative',
+    marginRight: 14,
+  },
+  dealImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 12,
+  },
+  dealImagePlaceholder: {
+    width: 80,
+    height: 80,
+    borderRadius: 12,
+    backgroundColor: '#FFF0E8',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  discountBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    backgroundColor: '#E74C3C',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  discountText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  dealInfo: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  dealTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1a1a2e',
+    marginBottom: 4,
+  },
+  dealDescription: {
+    fontSize: 13,
+    color: '#666',
+    marginBottom: 8,
+    lineHeight: 18,
+  },
+  dealPriceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  dealPrice: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#E87E35',
+  },
+  dealOriginalPrice: {
+    fontSize: 13,
+    color: '#999',
+    textDecorationLine: 'line-through',
+  },
+  dealAddButton: {
+    backgroundColor: '#E87E35',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 12,
+    alignSelf: 'center',
   },
 });

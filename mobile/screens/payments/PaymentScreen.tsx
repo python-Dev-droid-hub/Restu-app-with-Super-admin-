@@ -191,14 +191,14 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({
           {/* SUBTOTAL */}
           <View style={styles.itemRow}>
             <Text style={styles.label}>Subtotal</Text>
-            <Text style={styles.value}>{currencySymbol}{order.totalAmount.toFixed(2)}</Text>
+            <Text style={styles.value}>{currencySymbol}{Number(order.totalAmount || 0).toFixed(2)}</Text>
           </View>
 
           {/* DELIVERY FEE */}
           {order.deliveryFee && order.deliveryFee > 0 && (
             <View style={styles.itemRow}>
               <Text style={styles.label}>Delivery Fee</Text>
-              <Text style={styles.value}>{currencySymbol}{order.deliveryFee.toFixed(2)}</Text>
+              <Text style={styles.value}>{currencySymbol}{Number(order.deliveryFee || 0).toFixed(2)}</Text>
             </View>
           )}
 

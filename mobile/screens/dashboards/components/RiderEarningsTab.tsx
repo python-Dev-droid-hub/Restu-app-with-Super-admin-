@@ -53,8 +53,8 @@ export default function RiderEarningsTab({
       {/* Total Earnings Card */}
       <View style={styles.earningsCard}>
         <Text style={styles.earningsLabel}>Total Earnings</Text>
-        <Text style={styles.earningsAmount}>${todayEarnings.toFixed(2)}</Text>
-        <Text style={styles.earningsPeriod}>Last 7 Days: ${weekEarnings.toFixed(2)}</Text>
+        <Text style={styles.earningsAmount}>${Number(todayEarnings || 0).toFixed(2)}</Text>
+        <Text style={styles.earningsPeriod}>Last 7 Days: ${Number(weekEarnings || 0).toFixed(2)}</Text>
         
         {/* Chart Placeholder */}
         <View style={styles.chartPlaceholder}>
@@ -88,17 +88,17 @@ export default function RiderEarningsTab({
       <View style={styles.breakdownCard}>
         <View style={styles.breakdownRow}>
           <Text style={styles.breakdownLabel}>Cash</Text>
-          <Text style={styles.breakdownValue}>${(todayEarnings * 0.4).toFixed(2)}</Text>
+          <Text style={styles.breakdownValue}>${Number((todayEarnings || 0) * 0.4).toFixed(2)}</Text>
         </View>
         <View style={styles.divider} />
         <View style={styles.breakdownRow}>
           <Text style={styles.breakdownLabel}>Online</Text>
-          <Text style={styles.breakdownValue}>${(todayEarnings * 0.5).toFixed(2)}</Text>
+          <Text style={styles.breakdownValue}>${Number((todayEarnings || 0) * 0.5).toFixed(2)}</Text>
         </View>
         <View style={styles.divider} />
         <View style={styles.breakdownRow}>
           <Text style={styles.breakdownLabel}>Tips</Text>
-          <Text style={styles.breakdownValue}>${(todayEarnings * 0.1).toFixed(2)}</Text>
+          <Text style={styles.breakdownValue}>${Number((todayEarnings || 0) * 0.1).toFixed(2)}</Text>
         </View>
       </View>
 
@@ -123,7 +123,7 @@ export default function RiderEarningsTab({
           <View key={index} style={styles.payoutRow}>
             <Text style={styles.payoutDate}>{payout.date}</Text>
             <View style={styles.payoutRight}>
-              <Text style={styles.payoutAmount}>${payout.amount.toFixed(2)}</Text>
+              <Text style={styles.payoutAmount}>${Number(payout.amount || 0).toFixed(2)}</Text>
               <Ionicons name="checkmark-circle" size={16} color={COLORS.success} />
             </View>
           </View>

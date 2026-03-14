@@ -72,6 +72,12 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     if (path === '/reports') return 'reports';
     if (path === '/notifications') return 'notifications';
     if (path === '/settings') return 'settings';
+    if (path === '/categories') return 'categories';
+    if (path === '/coupons') return 'coupons';
+    if (path === '/deals') return 'deals';
+    if (path === '/product-size') return 'product-size';
+    if (path === '/table-assignment') return 'table-assignment';
+    if (path === '/banners') return 'banners';
     return 'dashboard';
   };
 
@@ -161,22 +167,46 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             <span className="nav-icon">🏢</span>
             <span className="nav-text">{t('branches')}</span>
           </Link>
-          <div className="nav-group">
-            <Link to="/tables" className={`nav-item nav-subitem ${currentPageKey === 'tables' ? 'active' : ''}`}>
-              <span className="nav-icon">🪑</span>
-              <span className="nav-text">{t('tables')}</span>
-            </Link>
-            <Link to="/notifications" className={`nav-item nav-subitem ${currentPageKey === 'notifications' ? 'active' : ''}`}>
-              <span className="nav-icon">🔔</span>
-              <span className="nav-text">{t('notifications')}</span>
-            </Link>
-          </div>
+          
+          {/* Additional tabs matching mobile */}
+          <Link to="/notifications" className={`nav-item ${currentPageKey === 'notifications' ? 'active' : ''}`}>
+            <span className="nav-icon">🔔</span>
+            <span className="nav-text">Notifications</span>
+          </Link>
+          <Link to="/table-assignment" className={`nav-item ${currentPageKey === 'table-assignment' ? 'active' : ''}`}>
+            <span className="nav-icon">🪑</span>
+            <span className="nav-text">Table Assignment</span>
+          </Link>
+          <Link to="/categories" className={`nav-item ${currentPageKey === 'categories' ? 'active' : ''}`}>
+            <span className="nav-icon">📁</span>
+            <span className="nav-text">Categories</span>
+          </Link>
+          <Link to="/banners" className={`nav-item ${currentPageKey === 'banners' ? 'active' : ''}`}>
+            <span className="nav-icon">🖼️</span>
+            <span className="nav-text">Banner Management</span>
+          </Link>
+          <Link to="/coupons" className={`nav-item ${currentPageKey === 'coupons' ? 'active' : ''}`}>
+            <span className="nav-icon">🎟️</span>
+            <span className="nav-text">Coupons</span>
+          </Link>
+          <Link to="/deals" className={`nav-item ${currentPageKey === 'deals' ? 'active' : ''}`}>
+            <span className="nav-icon">🏷️</span>
+            <span className="nav-text">Deals</span>
+          </Link>
+          <Link to="/product-size" className={`nav-item ${currentPageKey === 'product-size' ? 'active' : ''}`}>
+            <span className="nav-icon">�</span>
+            <span className="nav-text">Product Size</span>
+          </Link>
+          <Link to="/tables" className={`nav-item ${currentPageKey === 'tables' ? 'active' : ''}`}>
+            <span className="nav-icon">🪑</span>
+            <span className="nav-text">{t('tables')}</span>
+          </Link>
           <Link to="/users" className={`nav-item ${currentPageKey === 'users' ? 'active' : ''}`}>
             <span className="nav-icon">👥</span>
             <span className="nav-text">{t('users')}</span>
           </Link>
           <Link to="/reports" className={`nav-item ${currentPageKey === 'reports' ? 'active' : ''}`}>
-            <span className="nav-icon">📊</span>
+            <span className="nav-icon">�</span>
             <span className="nav-text">{t('reports')}</span>
           </Link>
           <Link to="/settings" className={`nav-item ${currentPageKey === 'settings' ? 'active' : ''}`}>

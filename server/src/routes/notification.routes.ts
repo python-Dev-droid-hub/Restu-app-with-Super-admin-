@@ -17,7 +17,8 @@ router.get('/', authenticate, async (req: IAuthRequest, res: Response) => {
   try {
     const { limit = 20, skip = 0, read } = req.query;
 
-    console.log('[API] Get notifications for:', req.user?._id);
+    console.log('[API] Get notifications for user:', req.user?._id?.toString());
+    console.log('[API] User role:', req.user?.role);
 
     const result = await NotificationService.getNotifications(
       req.user!._id.toString(),
@@ -25,6 +26,9 @@ router.get('/', authenticate, async (req: IAuthRequest, res: Response) => {
       parseInt(skip as string),
       read !== undefined ? read === 'true' : undefined
     );
+
+    console.log('[API] Notifications found:', result.notifications?.length);
+    console.log('[API] Unread count:', result.unread);
 
     res.json({
       success: true,
@@ -54,6 +58,28 @@ router.get('/unread-count', authenticate, async (req: IAuthRequest, res: Respons
     });
   } catch (error: any) {
     console.error('[API] Unread count error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
+/**
+ * Mark all notifications as read
+ */
+router.put('/mark-all-read', authenticate, async (req: IAuthRequest, res: Response) => {
+  try {
+    const modifiedCount = await NotificationService.markAllAsRead(req.user!._id.toString());
+
+    res.json({
+      success: true,
+      message: 'All notifications marked as read',
+      modifiedCount,
+    });
+    return;
+  } catch (error: any) {
+    console.error('[API] Mark all read error:', error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -122,28 +148,6 @@ router.put('/:notificationId/read', authenticate, async (req: IAuthRequest, res:
     return;
   } catch (error: any) {
     console.error('[API] Mark read error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-});
-
-/**
- * Mark all notifications as read
- */
-router.put('/mark-all-read', authenticate, async (req: IAuthRequest, res: Response) => {
-  try {
-    const modifiedCount = await NotificationService.markAllAsRead(req.user!._id.toString());
-
-    res.json({
-      success: true,
-      message: 'All notifications marked as read',
-      modifiedCount,
-    });
-    return;
-  } catch (error: any) {
-    console.error('[API] Mark all read error:', error);
     res.status(500).json({
       success: false,
       message: error.message,

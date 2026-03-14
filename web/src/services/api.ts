@@ -12,7 +12,7 @@ class ApiClient {
 
   constructor() {
     this.instance = axios.create({
-      baseURL: import.meta.env.VITE_API_URL || 'http://192.168.18.179:3000/api',
+      baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3000/api',
       timeout: 10000,
       headers: {
         'Content-Type': 'application/json',
@@ -76,6 +76,23 @@ class ApiClient {
     }
   }
 
+  // Generic HTTP methods for flexible API calls
+  async get<T>(url: string): Promise<ApiResponse<T>> {
+    return this.request('GET', url);
+  }
+
+  async post<T>(url: string, data?: any): Promise<ApiResponse<T>> {
+    return this.request('POST', url, data);
+  }
+
+  async patch<T>(url: string, data?: any): Promise<ApiResponse<T>> {
+    return this.request('PATCH', url, data);
+  }
+
+  async delete<T>(url: string): Promise<ApiResponse<T>> {
+    return this.request('DELETE', url);
+  }
+
   // Products/Menu Management
   async getAllProducts() {
     return this.request('GET', '/menu/admin/products');
@@ -107,6 +124,14 @@ class ApiClient {
 
   async deleteProduct(productId: string) {
     return this.request('DELETE', `/menu/admin/products/${productId}`);
+  }
+
+  // Image Upload
+  async uploadImage(base64Data: string, filename: string) {
+    return this.request('POST', '/upload', {
+      image: base64Data,
+      filename: filename,
+    });
   }
 
   // User Management
@@ -157,6 +182,36 @@ class ApiClient {
     return this.request('GET', '/dashboard/admin/stats');
   }
 
+  async getAdminDashboardStats(params?: { period?: string; branchId?: string }) {
+    const queryParams = new URLSearchParams();
+    if (params?.period) queryParams.append('period', params.period);
+    if (params?.branchId && params.branchId !== 'all') queryParams.append('branchId', params.branchId);
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request('GET', `/dashboard/admin/stats${queryString}`);
+  }
+
+  async getAdminOrders(params?: { limit?: number; period?: string; branchId?: string }) {
+    const queryParams = new URLSearchParams();
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.period) queryParams.append('period', params.period);
+    if (params?.branchId && params.branchId !== 'all') queryParams.append('branchId', params.branchId);
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request('GET', `/orders${queryString}`);
+  }
+
+  async getAdminProducts(params?: { limit?: number; branchId?: string }) {
+    const queryParams = new URLSearchParams();
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.branchId && params.branchId !== 'all') queryParams.append('branchId', params.branchId);
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request('GET', `/menu/admin/products${queryString}`);
+  }
+
+  async getAllBranches() {
+    return this.request('GET', '/branches');
+  }
+
+  // Dashboard Analytics
   async getDashboardAnalytics(params?: { range?: string }) {
     const queryString = params?.range ? `?range=${params.range}` : '';
     return this.request('GET', `/dashboard/admin/analytics${queryString}`);
@@ -208,6 +263,220 @@ class ApiClient {
 
   async updateSettings(data: any) {
     return this.request('PUT', '/settings', data);
+  }
+
+  // Product Sizes
+  async getProductSizes() {
+    return this.request('GET', '/product-sizes/sizes');
+  }
+
+  async createProductSize(data: any) {
+    return this.request('POST', '/product-sizes', data);
+  }
+
+  async updateProductSize(id: string, data: any) {
+    return this.request('PUT', `/product-sizes/${id}`, data);
+  }
+
+  async deleteProductSize(id: string) {
+    return this.request('DELETE', `/product-sizes/${id}`);
+  }
+
+  // Tables
+  async getTables() {
+    return this.request('GET', '/tables');
+  }
+
+  async createTable(data: any) {
+    return this.request('POST', '/tables', data);
+  }
+
+  async updateTable(id: string, data: any) {
+    return this.request('PUT', `/tables/${id}`, data);
+  }
+
+  async deleteTable(id: string) {
+    return this.request('DELETE', `/tables/${id}`);
+  }
+
+  // Banners
+  async getBanners() {
+    return this.request('GET', '/banners');
+  }
+
+  async createBanner(data: any) {
+    return this.request('POST', '/banners', data);
+  }
+
+  async updateBanner(id: string, data: any) {
+    return this.request('PUT', `/banners/${id}`, data);
+  }
+
+  async deleteBanner(id: string) {
+    return this.request('DELETE', `/banners/${id}`);
+  }
+
+  // Deals
+  async getDeals(params?: { branch?: string; isActive?: boolean; page?: number; limit?: number }) {
+    const queryString = params ? `?${new URLSearchParams(params as Record<string, string>).toString()}` : '';
+    return this.request('GET', `/deals${queryString}`);
+  }
+
+  async getActiveDeals(branch?: string) {
+    const queryString = branch ? `?branch=${branch}` : '';
+    return this.request('GET', `/deals/active${queryString}`);
+  }
+
+  async getDealById(id: string) {
+    return this.request('GET', `/deals/${id}`);
+  }
+
+  async createDeal(data: any) {
+    return this.request('POST', '/deals', data);
+  }
+
+  async updateDeal(id: string, data: any) {
+    return this.request('PUT', `/deals/${id}`, data);
+  }
+
+  async deleteDeal(id: string) {
+    return this.request('DELETE', `/deals/${id}`);
+  }
+
+  // Deal Campaigns
+  async getDealCampaigns() {
+    return this.request('GET', '/deals/campaigns');
+  }
+
+  async getDealCampaignById(id: string) {
+    return this.request('GET', `/deals/campaigns/${id}`);
+  }
+
+  async createDealCampaign(data: any) {
+    return this.request('POST', '/deals/campaigns', data);
+  }
+
+  async updateDealCampaign(id: string, data: any) {
+    return this.request('PATCH', `/deals/campaigns/${id}`, data);
+  }
+
+  async deleteDealCampaign(id: string) {
+    return this.request('DELETE', `/deals/campaigns/${id}`);
+  }
+
+  async addDealToCampaign(campaignId: string, data: any) {
+    return this.request('POST', `/deals/campaigns/${campaignId}/deals`, data);
+  }
+
+  async updateDealInCampaign(campaignId: string, dealId: string, data: any) {
+    return this.request('PATCH', `/deals/campaigns/${campaignId}/deals/${dealId}`, data);
+  }
+
+  async deleteDealFromCampaign(campaignId: string, dealId: string) {
+    return this.request('DELETE', `/deals/campaigns/${campaignId}/deals/${dealId}`);
+  }
+
+  // Branches (additional methods)
+  async getBranches() {
+    return this.request('GET', '/branches');
+  }
+
+  async getBranchById(id: string) {
+    return this.request('GET', `/branches/${id}`);
+  }
+
+  async createBranch(data: any) {
+    return this.request('POST', '/branches', data);
+  }
+
+  async updateBranch(id: string, data: any) {
+    return this.request('PUT', `/branches/${id}`, data);
+  }
+
+  async deleteBranch(id: string) {
+    return this.request('DELETE', `/branches/${id}`);
+  }
+
+  async activateBranch(id: string) {
+    return this.request('PATCH', `/branches/${id}/activate`);
+  }
+
+  async deactivateBranch(id: string) {
+    return this.request('PATCH', `/branches/${id}/deactivate`);
+  }
+
+  // Coupons
+  async getCoupons() {
+    return this.request('GET', '/coupons');
+  }
+
+  async getCouponById(id: string) {
+    return this.request('GET', `/coupons/${id}`);
+  }
+
+  async createCoupon(data: any) {
+    return this.request('POST', '/coupons', data);
+  }
+
+  async updateCoupon(id: string, data: any) {
+    return this.request('PUT', `/coupons/${id}`, data);
+  }
+
+  async deleteCoupon(id: string) {
+    return this.request('DELETE', `/coupons/${id}`);
+  }
+
+  // Users/Customers (additional methods)
+  async getUsers(params?: { role?: string; page?: number; limit?: number }) {
+    const queryString = params ? `?${new URLSearchParams(params as Record<string, string>).toString()}` : '';
+    return this.request('GET', `/users${queryString}`);
+  }
+
+  async updateUser(id: string, data: any) {
+    return this.request('PUT', `/users/${id}`, data);
+  }
+
+  // Reports
+  async getSalesReport(params?: { startDate?: string; endDate?: string; branchId?: string }) {
+    const queryString = params ? `?${new URLSearchParams(params as Record<string, string>).toString()}` : '';
+    return this.request('GET', `/dashboard/admin/sales-report${queryString}`);
+  }
+
+  async getOrderReport(params?: { startDate?: string; endDate?: string; branchId?: string }) {
+    const queryString = params ? `?${new URLSearchParams(params as Record<string, string>).toString()}` : '';
+    return this.request('GET', `/dashboard/admin/order-report${queryString}`);
+  }
+
+  // Mark all notifications as read
+  async markAllNotificationsAsRead() {
+    return this.request('PUT', '/notifications/mark-all-read');
+  }
+
+  // Delete notification
+  async deleteNotification(id: string) {
+    return this.request('DELETE', `/notifications/${id}`);
+  }
+
+  // Reset settings
+  async resetSettings() {
+    return this.request('POST', '/settings/reset');
+  }
+
+  // Helper function to get full image URL
+  getImageUrl(imagePath: string | undefined): string {
+    if (!imagePath) return '';
+    // If already a full URL, return as-is
+    if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+      return imagePath;
+    }
+    // Get base URL without /api suffix
+    const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+    const serverBase = baseURL.replace('/api', '');
+    // Ensure path starts with /
+    const path = imagePath.startsWith('/') ? imagePath : `/${imagePath}`;
+    const finalUrl = `${serverBase}${path}`;
+    console.log('[getImageUrl] Input:', imagePath, 'Output:', finalUrl);
+    return finalUrl;
   }
 }
 

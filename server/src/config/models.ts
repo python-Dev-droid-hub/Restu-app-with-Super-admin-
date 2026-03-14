@@ -20,6 +20,7 @@ import '@/models/Payment';
 import '@/models/Notification';
 import '@/models/BranchInventory';
 import '@/models/SystemSetting';
+import '@/models/Banner';
 import '@/models/Restaurant'; // Legacy
 import '@/models/Menu'; // Legacy
 

@@ -19,6 +19,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { api } from '../../components/api/client';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface Branch {
   _id: string;
@@ -47,6 +48,8 @@ export default function AddDealScreen() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
+  const [userRole, setUserRole] = useState<string>('');
+  const [managerBranchId, setManagerBranchId] = useState<string>('');
 
   // Deal details
   const [title, setTitle] = useState('');
@@ -113,16 +116,54 @@ export default function AddDealScreen() {
 
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  const loadUserData = async () => {
+    try {
+      const stored = await AsyncStorage.getItem('userData');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        setUserRole(parsed.role || '');
+        
+        // For managers, get their assigned branch
+        if (parsed.role === 'BRANCH_MANAGER') {
+          const branchData = parsed.assignedBranch || parsed.branch;
+          if (branchData) {
+            const branchId = branchData._id || branchData.branchId || parsed.branchId;
+            setManagerBranchId(branchId);
+            // Auto-select manager's branch
+            setSelectedBranch(branchId);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error loading user data:', error);
+    }
+  };
+
   useEffect(() => {
+    loadUserData();
     loadBranches();
     loadProducts();
   }, []);
 
   const loadBranches = async () => {
     try {
+      const stored = await AsyncStorage.getItem('userData');
+      const parsed = stored ? JSON.parse(stored) : null;
+      const role = parsed?.role;
+      const userBranchId = parsed?.assignedBranch?._id || parsed?.assignedBranch || parsed?.branch?._id || parsed?.branchId;
+
       const response = await api.get('/branches');
       if (response.success) {
-        setBranches(response.data.branches || []);
+        const allBranches = response.data.branches || [];
+        
+        // For branch managers, only show their assigned branch
+        if (role === 'BRANCH_MANAGER' && userBranchId) {
+          const managerBranch = allBranches.find((b: Branch) => b._id === userBranchId);
+          setBranches(managerBranch ? [managerBranch] : []);
+        } else {
+          // For admin/super_admin, show all branches
+          setBranches(allBranches);
+        }
       }
     } catch (error) {
       console.error('Error loading branches:', error);
@@ -211,17 +252,33 @@ export default function AddDealScreen() {
       // Upload image first if selected
       let imageUrl = null;
       if (image) {
-        const formData = new FormData();
-        formData.append('image', {
-          uri: image,
-          type: 'image/jpeg',
-          name: 'deal.jpg',
-        } as any);
-        
-        const uploadResponse = await api.post('/upload', formData);
-        
-        if (uploadResponse.success) {
-          imageUrl = uploadResponse.data.url;
+        try {
+          const response = await fetch(image);
+          const blob = await response.blob();
+
+          const base64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const result = reader.result as string;
+              const base64Data = result.split(',')[1] || result;
+              resolve(base64Data);
+            };
+            reader.onerror = () => reject(new Error('Failed to read image'));
+            reader.readAsDataURL(blob);
+          });
+
+          const uploadResponse = await api.post('/upload', {
+            image: base64,
+            filename: 'deal.jpg',
+            mimeType: 'image/jpeg',
+          });
+
+          if (uploadResponse.success) {
+            imageUrl = uploadResponse.data.url;
+          }
+        } catch (uploadError) {
+          console.log('Deal image upload failed:', uploadError);
+          imageUrl = null;
         }
       }
 
@@ -264,22 +321,27 @@ export default function AddDealScreen() {
 
   const renderBranchSelector = () => (
     <View style={styles.inputGroup}>
-      <Text style={styles.inputLabel}>Branch (Optional - Leave empty for all branches)</Text>
+      <Text style={styles.inputLabel}>
+        {userRole === 'BRANCH_MANAGER' ? 'Branch (Your Assigned Branch)' : 'Branch (Optional - Leave empty for all branches)'}
+      </Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.branchContainer}>
-        <TouchableOpacity
-          style={[
-            styles.branchChip,
-            !selectedBranch && styles.branchChipSelected,
-          ]}
-          onPress={() => setSelectedBranch('')}
-        >
-          <Text style={[
-            styles.branchChipText,
-            !selectedBranch && styles.branchChipTextSelected,
-          ]}>
-            All Branches
-          </Text>
-        </TouchableOpacity>
+        {/* Only show All Branches option for non-managers */}
+        {userRole !== 'BRANCH_MANAGER' && (
+          <TouchableOpacity
+            style={[
+              styles.branchChip,
+              !selectedBranch && styles.branchChipSelected,
+            ]}
+            onPress={() => setSelectedBranch('')}
+          >
+            <Text style={[
+              styles.branchChipText,
+              !selectedBranch && styles.branchChipTextSelected,
+            ]}>
+              All Branches
+            </Text>
+          </TouchableOpacity>
+        )}
         {branches.map((branch) => (
           <TouchableOpacity
             key={branch._id}

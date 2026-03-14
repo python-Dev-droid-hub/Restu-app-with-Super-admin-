@@ -65,8 +65,29 @@ const orderItemSchema = new Schema({
   customizations: {
     type: [orderItemCustomizationSchema],
     default: []
-  }
-}, { _id: false });
+  },
+  specialInstructions: {
+    type: String,
+    trim: true,
+    maxlength: [500, 'Special instructions cannot exceed 500 characters'],
+  },
+  // Item-level status for tracking individual item preparation
+  status: {
+    type: String,
+    enum: ['PENDING', 'PREPARING', 'READY', 'SERVED'],
+    default: 'PENDING',
+  },
+  // Timestamps for item preparation tracking
+  preparingAt: {
+    type: Date,
+  },
+  readyAt: {
+    type: Date,
+  },
+  servedAt: {
+    type: Date,
+  },
+});
 
 const deliveryLocationSchema = new Schema({
   type: {
@@ -180,7 +201,7 @@ const orderSchema = new Schema({
     enum: [
       'PENDING', 'KITCHEN_ACCEPTED', 'PREPARING', 'READY', 
       'RIDER_ASSIGNED', 'PICKED_UP', 'OUT_FOR_DELIVERY', 'DELIVERED', 
-      'COMPLETED', 'CANCELLED'
+      'SERVED', 'COMPLETED', 'CANCELLED'
     ],
     default: 'PENDING',
   },
@@ -193,6 +214,16 @@ const orderSchema = new Schema({
     type: String,
     trim: true,
     maxlength: [50, 'Payment method cannot exceed 50 characters'],
+  },
+  phoneNumber: {
+    type: String,
+    trim: true,
+    maxlength: [30, 'Phone number cannot exceed 30 characters'],
+  },
+  alternatePhoneNumber: {
+    type: String,
+    trim: true,
+    maxlength: [30, 'Alternate phone number cannot exceed 30 characters'],
   },
   addressLine: {
     type: String,
@@ -230,11 +261,20 @@ const orderSchema = new Schema({
   deliveredAt: {
     type: Date,
   },
+  servedAt: {
+    type: Date,
+  },
   completedAt: {
     type: Date,
   },
   cancelledAt: {
     type: Date,
+  },
+  invoiceNumber: {
+    type: String,
+    unique: true,
+    sparse: true,
+    trim: true,
   },
   foodRating: {
     type: Number,
@@ -282,12 +322,11 @@ orderSchema.index({ deliveryLocation: '2dsphere' });
 orderSchema.index({ paymentStatus: 1 });
 orderSchema.index({ coupon: 1 });
 orderSchema.index({ deal: 1 });
+orderSchema.index({ invoiceNumber: 1 });
 
 // Pre-find middleware to exclude deleted records
-orderSchema.pre(/^find/, function(this: any, next: any) {
-  if (!this.getQuery().deletedAt) {
-    this.where({ deletedAt: null });
-  }
+orderSchema.pre('find', function(next: any) {
+  this.where({ deletedAt: null });
   next();
 });
 
@@ -377,11 +416,12 @@ orderSchema.methods.updateStatus = function(newStatus: string) {
     'PENDING': ['KITCHEN_ACCEPTED', 'CANCELLED'],
     'KITCHEN_ACCEPTED': ['PREPARING', 'CANCELLED'],
     'PREPARING': ['READY'],
-    'READY': ['RIDER_ASSIGNED'],
+    'READY': ['PICKED_UP', 'RIDER_ASSIGNED'], // Allow direct PICKED_UP for dine-in or RIDER_ASSIGNED for delivery
     'RIDER_ASSIGNED': ['PICKED_UP'],
-    'PICKED_UP': ['OUT_FOR_DELIVERY'],
+    'PICKED_UP': ['OUT_FOR_DELIVERY', 'SERVED', 'COMPLETED'], // Allow COMPLETED for dine-in with payment
     'OUT_FOR_DELIVERY': ['DELIVERED'],
     'DELIVERED': ['COMPLETED'],
+    'SERVED': ['COMPLETED'], // Dine-in orders go SERVED -> COMPLETED
     'COMPLETED': [],
     'CANCELLED': []
   };
@@ -406,6 +446,9 @@ orderSchema.methods.updateStatus = function(newStatus: string) {
       break;
     case 'DELIVERED':
       this.deliveredAt = now;
+      break;
+    case 'SERVED':
+      this.servedAt = now;
       break;
     case 'COMPLETED':
       this.completedAt = now;

@@ -59,7 +59,20 @@ export class FavoriteController {
       .populate('branch', 'branchName addressLine city state phoneNumber operatingHours')
       .sort({ createdAt: -1 });
 
-    const formattedFavorites = favorites.map(fav => ({
+    // Filter out favorites whose branch was deleted (branch populate becomes null)
+    const validFavorites = favorites.filter((fav: any) => !!fav.branch);
+
+    // Best-effort cleanup of invalid favorites to prevent repeated crashes
+    const invalidFavorites = favorites.filter((fav: any) => !fav.branch);
+    if (invalidFavorites.length > 0) {
+      try {
+        await Favorite.deleteMany({ _id: { $in: invalidFavorites.map((f: any) => f._id) } });
+      } catch (e) {
+        // ignore cleanup errors
+      }
+    }
+
+    const formattedFavorites = validFavorites.map((fav: any) => ({
       id: fav._id,
       branchId: fav.branch._id,
       branchName: (fav.branch as any).branchName,

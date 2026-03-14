@@ -18,9 +18,11 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '../../components/api/client';
 import { useSettings } from '../../context/SettingsContext';
+import { RECEIPT_DEFAULT_WIDTH, RECEIPT_PRINTABLE_WIDTH } from '../../constants/layout';
 
 const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 0;
 
@@ -49,6 +51,8 @@ interface Product {
   has_sizes?: boolean;
   category_id?: string;
   sizes?: ProductSize[];
+  effectivePrice?: number;
+  productSizes?: ProductSize[];
 }
 
 interface ProductSize {
@@ -56,6 +60,7 @@ interface ProductSize {
   size_id: string;
   size_name: string;
   price: number;
+  isDefault?: boolean;
 }
 
 interface Category {
@@ -101,7 +106,8 @@ interface Order {
 
 export default function OrderForm() {
   const navigation = useNavigation();
-  const { formatPrice, currencySymbol } = useSettings();
+  const insets = useSafeAreaInsets();
+  const { formatPrice, currencySymbol, taxRate } = useSettings();
 
   const [tables, setTables] = useState<RestaurantTable[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -116,6 +122,11 @@ export default function OrderForm() {
   const [recentOrders, setRecentOrders] = useState<Order[]>([]);
   const [orderFilter, setOrderFilter] = useState<'All' | 'Active' | 'Preparing' | 'Delayed' | 'Cancelled'>('All');
   const [showSpecialRequestModal, setShowSpecialRequestModal] = useState(false);
+  const [showInvoicePanel, setShowInvoicePanel] = useState(false);
+  const [showItemNoteModal, setShowItemNoteModal] = useState(false);
+  const [selectedProductForNote, setSelectedProductForNote] = useState<Product | null>(null);
+  const [selectedSizeForNote, setSelectedSizeForNote] = useState<ProductSize | undefined>(undefined);
+  const [itemNoteText, setItemNoteText] = useState('');
 
   useEffect(() => {
     loadData();
@@ -178,7 +189,7 @@ export default function OrderForm() {
       }
 
       // Load menu/products
-      const menuResponse = await api.get('/menu/menu');
+      const menuResponse = await api.get('/menu');
       if (menuResponse.success && menuResponse.data) {
         // The /menu endpoint returns categories with products directly
         const rawCategories = menuResponse.data.categories || menuResponse.data || [];
@@ -196,6 +207,14 @@ export default function OrderForm() {
             is_available: p.is_available ?? p.isAvailable ?? true,
             has_sizes: p.has_sizes ?? p.hasSizes ?? false,
             category_id: p.category_id || p.category,
+            effectivePrice: p.effectivePrice,
+            productSizes: (p.productSizes || []).map((s: any) => ({
+              id: String(s._id || s.id),
+              size_id: s.size_id || s.sizeId,
+              size_name: s.size_name || s.sizeName || s.name,
+              price: s.price,
+              isDefault: s.isDefault,
+            })),
             sizes: (p.sizes || p.productSizes || []).map((s: any) => ({
               id: String(s._id || s.id),
               size_id: s.size_id || s.sizeId,
@@ -204,6 +223,17 @@ export default function OrderForm() {
             })),
           })),
         }));
+        
+        // Debug log for sized products
+        const sizedProducts = formattedCategories.flatMap(c => c.products || []).filter(p => p.has_sizes);
+        if (sizedProducts.length > 0) {
+          console.log('🔍 [WAITER MENU] Sized products found:', sizedProducts.slice(0, 2).map(p => ({
+            name: p.name,
+            price: p.price,
+            effectivePrice: p.effectivePrice,
+            productSizes: p.productSizes?.map(s => ({ name: s.size_name, price: s.price, isDefault: s.isDefault })),
+          })));
+        }
         setCategories(formattedCategories);
         if (formattedCategories.length > 0) {
           setSelectedCategory(formattedCategories[0].id);
@@ -257,7 +287,7 @@ export default function OrderForm() {
     return item ? item.quantity : 0;
   };
 
-  const addToCart = (product: Product, size?: ProductSize) => {
+  const addToCart = (product: Product, size?: ProductSize, note?: string) => {
     setCart(prevCart => {
       const existingIndex = prevCart.findIndex(
         item => item.product.id === product.id && item.selectedSize?.id === size?.id
@@ -266,11 +296,70 @@ export default function OrderForm() {
       if (existingIndex >= 0) {
         const updated = [...prevCart];
         updated[existingIndex].quantity += 1;
+        // Append note if provided
+        if (note) {
+          updated[existingIndex].specialInstructions = updated[existingIndex].specialInstructions 
+            ? `${updated[existingIndex].specialInstructions}; ${note}` 
+            : note;
+        }
         return updated;
       }
 
-      return [...prevCart, { product, quantity: 1, selectedSize: size }];
+      return [...prevCart, { product, quantity: 1, selectedSize: size, specialInstructions: note || undefined }];
     });
+  };
+
+  const openNoteEditor = (product: Product, size?: ProductSize) => {
+    setSelectedProductForNote(product);
+    setSelectedSizeForNote(size);
+    // Find existing note if any
+    const existingItem = cart.find(item => item.product.id === product.id && item.selectedSize?.id === size?.id);
+    setItemNoteText(existingItem?.specialInstructions || '');
+    setShowItemNoteModal(true);
+  };
+
+  const saveItemNote = () => {
+    if (!selectedProductForNote) return;
+    
+    const product = selectedProductForNote;
+    const size = selectedSizeForNote;
+    const note = itemNoteText.trim();
+    
+    setCart(prevCart => {
+      const existingIndex = prevCart.findIndex(
+        item => item.product.id === product.id && item.selectedSize?.id === size?.id
+      );
+
+      if (existingIndex >= 0) {
+        // Update existing item's note
+        const updated = [...prevCart];
+        updated[existingIndex] = { ...updated[existingIndex], specialInstructions: note || undefined };
+        return updated;
+      }
+
+      // If item doesn't exist, add it with the note
+      return [...prevCart, { product, quantity: 1, selectedSize: size, specialInstructions: note || undefined }];
+    });
+    
+    setShowItemNoteModal(false);
+    setSelectedProductForNote(null);
+    setSelectedSizeForNote(undefined);
+    setItemNoteText('');
+  };
+
+  const updateItemNote = (productIndex: number, note: string) => {
+    setCart(prevCart => {
+      const updated = [...prevCart];
+      if (updated[productIndex]) {
+        updated[productIndex] = { ...updated[productIndex], specialInstructions: note };
+      }
+      return updated;
+    });
+  };
+
+  const getProductNote = (productId: string, sizeId?: string): string => {
+    const item = cart.find(item => item.product.id === productId && item.selectedSize?.id === sizeId);
+    return item?.specialInstructions || '';
   };
 
   const removeFromCart = (productId: string) => {
@@ -305,14 +394,30 @@ export default function OrderForm() {
     }
   };
 
+  // Helper to get display price for products (handles sized products)
+  const getDisplayPrice = (product: Product): number => {
+    if (typeof product.effectivePrice === 'number' && !Number.isNaN(product.effectivePrice)) {
+      return product.effectivePrice;
+    }
+    const sizes = product.productSizes || product.sizes;
+    if (product.has_sizes && Array.isArray(sizes) && sizes.length > 0) {
+      const defaultSize = sizes.find((s) => s?.isDefault);
+      const candidate = defaultSize?.price ?? Math.min(...sizes.map((s) => s?.price ?? Number.POSITIVE_INFINITY));
+      if (typeof candidate === 'number' && Number.isFinite(candidate)) return candidate;
+    }
+    return typeof product.price === 'number' && !Number.isNaN(product.price) ? product.price : 0;
+  };
+
   const calculateTotal = useCallback(() => {
     return cart.reduce((total, item) => {
-      const price = item.selectedSize?.price ?? item.product.price;
+      const price = item.selectedSize?.price ?? getDisplayPrice(item.product);
       return total + price * item.quantity;
     }, 0);
   }, [cart]);
 
   const handleSubmitOrder = async () => {
+    console.log('[OrderForm] Place Order pressed - selectedTable:', selectedTable, 'cart:', cart.length, 'userData:', userData?.id);
+    
     if (!selectedTable) {
       Alert.alert('Select Table', 'Please select a table for this order');
       return;
@@ -332,7 +437,7 @@ export default function OrderForm() {
     
     // Get branch from table or userData
     const branchId = table?.branch_id || table?.branchId || userData?.branch_id || userData?.assigned_branch_id;
-    console.log('Branch ID for order:', branchId, 'from table:', table?.branch_id, table?.branchId);
+    console.log('[OrderForm] Branch ID for order:', branchId, 'from table:', table?.branch_id, table?.branchId);
     
     if (!branchId) {
       Alert.alert('Error', 'Branch ID not found. Please contact admin.');
@@ -349,6 +454,7 @@ export default function OrderForm() {
           optionValue: item.selectedSize.size_name,
           extraPrice: item.selectedSize.price - item.product.price,
         }] : [],
+        specialInstructions: item.specialInstructions || '',
       })),
       restaurantId: branchId,
       orderType: 'DINE_IN',
@@ -445,7 +551,7 @@ export default function OrderForm() {
 
         <View style={styles.productInfo}>
           <Text style={styles.productName} numberOfLines={1}>{product.name}</Text>
-          <Text style={styles.productPrice}>{formatPrice(product.price)}</Text>
+          <Text style={styles.productPrice}>{formatPrice(getDisplayPrice(product))}</Text>
           {product.description && (
             <Text style={styles.productDescription} numberOfLines={1}>
               {product.description}
@@ -454,7 +560,7 @@ export default function OrderForm() {
         </View>
 
         <View style={styles.productRight}>
-          <Text style={styles.productPriceLarge}>{formatPrice(product.price)}</Text>
+          <Text style={styles.productPriceLarge}>{formatPrice(getDisplayPrice(product))}</Text>
           
           {quantity > 0 ? (
             <View style={styles.quantityControls}>
@@ -488,6 +594,21 @@ export default function OrderForm() {
               <Ionicons name="add" size={20} color={COLORS.primary} />
             </TouchableOpacity>
           )}
+          
+          {/* Special Instructions Button */}
+          <TouchableOpacity 
+            style={styles.productNoteBtn}
+            onPress={() => openNoteEditor(product)}
+          >
+            <Ionicons 
+              name={getProductNote(product.id) ? "document-text" : "create-outline"} 
+              size={14} 
+              color={getProductNote(product.id) ? COLORS.primary : COLORS.textMuted} 
+            />
+            <Text style={[styles.productNoteBtnText, getProductNote(product.id) && styles.productNoteBtnTextActive]}>
+              {getProductNote(product.id) ? 'Note' : 'Add Note'}
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
     );
@@ -510,8 +631,10 @@ export default function OrderForm() {
   }
 
   const currentCategory = categories.find(c => c.id === selectedCategory);
-  const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
   const totalAmount = calculateTotal();
+  const totalItems = cart.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
+  const taxAmount = totalAmount * ((typeof taxRate === 'number' && Number.isFinite(taxRate) ? taxRate : 0) / 100);
+  const grandTotal = totalAmount + taxAmount;
 
   return (
     <SafeAreaView style={[styles.container, { paddingTop: STATUSBAR_HEIGHT }]}>
@@ -590,17 +713,221 @@ export default function OrderForm() {
         <View style={{ height: 100 }} />
       </ScrollView>
 
+      {/* Invoice Panel - Expandable */}
+      <Modal
+        visible={showInvoicePanel}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowInvoicePanel(false)}
+      >
+        <View style={styles.invoiceOverlay}>
+          <View style={styles.invoicePanel}>
+            {/* Invoice Header */}
+            <View style={styles.invoiceHeader}>
+              <View>
+                <Text style={styles.invoiceTitle}>Invoice</Text>
+                <Text style={styles.invoiceSubtitle}>
+                  {selectedTable ? `Table #${tables.find(t => t.id === selectedTable)?.table_number}` : 'No table selected'}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowInvoicePanel(false)}>
+                <Ionicons name="close" size={24} color={COLORS.text} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Invoice Items */}
+            <ScrollView style={styles.invoiceItemsList}>
+              {cart.map((item, index) => (
+                <View key={`${item.product.id}-${item.selectedSize?.id || 'no-size'}-${index}`} style={styles.invoiceItem}>
+                  <View style={styles.invoiceItemLeft}>
+                    {item.product.image_url ? (
+                      <Image source={{ uri: item.product.image_url }} style={styles.invoiceItemImage} />
+                    ) : (
+                      <View style={styles.invoiceItemImagePlaceholder}>
+                        <Ionicons name="restaurant" size={16} color={COLORS.primary} />
+                      </View>
+                    )}
+                    <View style={styles.invoiceItemInfo}>
+                      <Text style={styles.invoiceItemName}>{item.product.name}</Text>
+                      {item.selectedSize && (
+                        <Text style={styles.invoiceItemSize}>{item.selectedSize.size_name}</Text>
+                      )}
+                      {item.specialInstructions ? (
+                        <Text style={styles.invoiceItemNote} numberOfLines={1}>{item.specialInstructions}</Text>
+                      ) : null}
+                      <Text style={styles.invoiceItemQty}>
+                        {item.quantity} × {formatPrice(item.selectedSize?.price ?? getDisplayPrice(item.product))}
+                      </Text>
+                      <TouchableOpacity 
+                        style={styles.addNoteBtn}
+                        onPress={() => {
+                          const idx = cart.findIndex(i => i.product.id === item.product.id && i.selectedSize?.id === item.selectedSize?.id);
+                          if (idx >= 0) {
+                            setSelectedProductForNote(item.product);
+                            setSelectedSizeForNote(item.selectedSize);
+                            setItemNoteText(item.specialInstructions || '');
+                            setShowItemNoteModal(true);
+                          }
+                        }}
+                      >
+                        <Ionicons name="create-outline" size={12} color={COLORS.primary} />
+                        <Text style={styles.addNoteBtnText}>{item.specialInstructions ? 'Edit Note' : 'Add Note'}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                  <View style={styles.invoiceItemRight}>
+                    <Text style={styles.invoiceItemTotal}>
+                      {formatPrice((item.selectedSize?.price ?? getDisplayPrice(item.product)) * item.quantity)}
+                    </Text>
+                    <View style={styles.invoiceItemControls}>
+                      <TouchableOpacity
+                        style={styles.invoiceQtyBtn}
+                        onPress={() => removeFromCart(item.product.id)}
+                      >
+                        <Ionicons name="remove" size={14} color={COLORS.primary} />
+                      </TouchableOpacity>
+                      <Text style={styles.invoiceQtyText}>{item.quantity}</Text>
+                      <TouchableOpacity
+                        style={[styles.invoiceQtyBtn, styles.invoiceQtyBtnAdd]}
+                        onPress={() => addToCart(item.product, item.selectedSize)}
+                      >
+                        <Ionicons name="add" size={14} color={COLORS.white} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              ))}
+              <View style={{ height: 20 }} />
+            </ScrollView>
+
+            {/* Invoice Totals */}
+            <View style={styles.invoiceTotals}>
+              <View style={styles.invoiceRow}>
+                <Text style={styles.invoiceLabel}>Subtotal</Text>
+                <Text style={styles.invoiceValue}>{formatPrice(totalAmount)}</Text>
+              </View>
+              <View style={styles.invoiceRow}>
+                <Text style={styles.invoiceLabel}>Tax</Text>
+                <Text style={styles.invoiceValue}>{formatPrice(taxAmount)}</Text>
+              </View>
+              <View style={styles.invoiceTotalRow}>
+                <Text style={styles.invoiceTotalLabel}>Total</Text>
+                <Text style={styles.invoiceTotalValue}>{formatPrice(grandTotal)}</Text>
+              </View>
+            </View>
+
+            {/* Confirm Button */}
+            <TouchableOpacity
+              style={[styles.invoiceConfirmBtn, submitting && styles.invoiceConfirmBtnDisabled]}
+              onPress={() => {
+                setShowInvoicePanel(false);
+                handleSubmitOrder();
+              }}
+              disabled={submitting}
+            >
+              {submitting ? (
+                <ActivityIndicator size="small" color={COLORS.white} />
+              ) : (
+                <>
+                  <Ionicons name="checkmark-circle" size={20} color={COLORS.white} />
+                  <Text style={styles.invoiceConfirmBtnText}>Confirm Order</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Item Note Modal */}
+      <Modal
+        visible={showItemNoteModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowItemNoteModal(false)}
+      >
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1 }}
+        >
+          <ScrollView 
+            contentContainerStyle={styles.noteModalScrollContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={styles.noteModalOverlay}>
+              <View style={styles.noteModalContent}>
+                <View style={styles.noteModalHeader}>
+                  <Text style={styles.noteModalTitle}>
+                    {selectedProductForNote?.name || 'Add Note'}
+                  </Text>
+                  <TouchableOpacity onPress={() => setShowItemNoteModal(false)}>
+                    <Ionicons name="close" size={24} color={COLORS.text} />
+                  </TouchableOpacity>
+                </View>
+                
+                <Text style={styles.noteModalSubtitle}>
+                  Add special instructions for this item (optional)
+                </Text>
+                
+                <TextInput
+                  style={styles.noteModalInput}
+                  value={itemNoteText}
+                  onChangeText={setItemNoteText}
+                  placeholder="e.g., No onions, extra spicy, well done..."
+                  placeholderTextColor={COLORS.textMuted}
+                  multiline
+                  numberOfLines={3}
+                  autoFocus
+                />
+                
+                <View style={styles.noteModalButtons}>
+                  <TouchableOpacity 
+                    style={styles.noteModalSkipBtn}
+                    onPress={() => {
+                      setShowItemNoteModal(false);
+                      setSelectedProductForNote(null);
+                      setSelectedSizeForNote(undefined);
+                      setItemNoteText('');
+                    }}
+                  >
+                    <Text style={styles.noteModalSkipBtnText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={styles.noteModalAddBtn}
+                    onPress={saveItemNote}
+                  >
+                    <Ionicons name="checkmark-circle" size={18} color={COLORS.white} />
+                    <Text style={styles.noteModalAddBtnText}>Save Note</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
+
       {/* Bottom Cart Summary */}
       {totalItems > 0 && (
-        <View style={styles.bottomCart}>
-          <View style={styles.cartInfo}>
-            <Text style={styles.cartItemCount}>{totalItems} items</Text>
+        <View style={[styles.bottomCart, { bottom: insets.bottom + 20 }]}>
+          <TouchableOpacity 
+            style={styles.cartInfo}
+            onPress={() => setShowInvoicePanel(true)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.cartInfoLeft}>
+              <Ionicons name="receipt" size={20} color={COLORS.primary} />
+              <Text style={styles.cartItemCount}>{totalItems} items</Text>
+            </View>
             <Text style={styles.cartTotal}>{formatPrice(totalAmount)}</Text>
-          </View>
+            <Ionicons name="chevron-up" size={20} color={COLORS.textMuted} />
+          </TouchableOpacity>
           <TouchableOpacity
             style={[styles.placeOrderBtn, submitting && styles.placeOrderBtnDisabled]}
-            onPress={handleSubmitOrder}
+            onPress={() => {
+              console.log('[OrderForm] Button onPress triggered');
+              handleSubmitOrder();
+            }}
             disabled={submitting}
+            activeOpacity={0.7}
           >
             {submitting ? (
               <ActivityIndicator size="small" color={COLORS.white} />
@@ -1029,7 +1356,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 12,
-    elevation: 8,
+    elevation: 10,
+    zIndex: 1000,
   },
   cartInfo: {
     flex: 1,
@@ -1164,5 +1492,292 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: COLORS.white,
+  },
+  // Invoice Panel Styles
+  invoiceOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  invoicePanel: {
+    backgroundColor: COLORS.white,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '80%',
+    paddingBottom: 34,
+  },
+  invoiceHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  invoiceTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: COLORS.text,
+  },
+  invoiceSubtitle: {
+    fontSize: 13,
+    color: COLORS.textMuted,
+    marginTop: 2,
+  },
+  invoiceItemsList: {
+    maxHeight: 300,
+    paddingHorizontal: 20,
+  },
+  invoiceItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  invoiceItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  invoiceItemImage: {
+    width: 45,
+    height: 45,
+    borderRadius: 8,
+    backgroundColor: COLORS.border,
+  },
+  invoiceItemImagePlaceholder: {
+    width: 45,
+    height: 45,
+    borderRadius: 8,
+    backgroundColor: COLORS.primaryLight,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  invoiceItemInfo: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  invoiceItemName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.text,
+  },
+  invoiceItemSize: {
+    fontSize: 12,
+    color: COLORS.primary,
+    marginTop: 2,
+  },
+  invoiceItemQty: {
+    fontSize: 12,
+    color: COLORS.textMuted,
+    marginTop: 2,
+  },
+  invoiceItemRight: {
+    alignItems: 'flex-end',
+  },
+  invoiceItemTotal: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.primary,
+    marginBottom: 6,
+  },
+  invoiceItemControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  invoiceQtyBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    backgroundColor: COLORS.primaryLight,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  invoiceQtyBtnAdd: {
+    backgroundColor: COLORS.primary,
+  },
+  invoiceQtyText: {
+    fontSize: 13,
+    fontWeight: '600',
+    minWidth: 20,
+    textAlign: 'center',
+  },
+  invoiceTotals: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderTopWidth: 2,
+    borderTopColor: COLORS.primary,
+  },
+  invoiceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  invoiceLabel: {
+    fontSize: 13,
+    color: COLORS.textMuted,
+  },
+  invoiceValue: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: COLORS.text,
+  },
+  invoiceTotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    backgroundColor: COLORS.primaryLight,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  invoiceTotalLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: COLORS.primary,
+  },
+  invoiceTotalValue: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: COLORS.primary,
+  },
+  invoiceConfirmBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.success,
+    marginHorizontal: 20,
+    paddingVertical: 14,
+    borderRadius: 12,
+    gap: 8,
+  },
+  invoiceConfirmBtnDisabled: {
+    backgroundColor: COLORS.textMuted,
+  },
+  invoiceConfirmBtnText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: COLORS.white,
+  },
+  cartInfoLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  // Invoice item note styles
+  invoiceItemNote: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+    fontStyle: 'italic',
+    marginTop: 2,
+  },
+  addNoteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
+    paddingVertical: 2,
+  },
+  addNoteBtnText: {
+    fontSize: 11,
+    color: COLORS.primary,
+    fontWeight: '500',
+  },
+  // Note modal styles
+  noteModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  noteModalContent: {
+    backgroundColor: COLORS.white,
+    borderRadius: 16,
+    padding: 20,
+    width: '85%',
+    maxWidth: 400,
+  },
+  noteModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  noteModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: COLORS.text,
+    flex: 1,
+    marginRight: 10,
+  },
+  noteModalSubtitle: {
+    fontSize: 13,
+    color: COLORS.textMuted,
+    marginBottom: 16,
+  },
+  noteModalInput: {
+    backgroundColor: COLORS.background,
+    borderRadius: 12,
+    padding: 14,
+    fontSize: 15,
+    color: COLORS.text,
+    minHeight: 80,
+    textAlignVertical: 'top',
+    marginBottom: 16,
+  },
+  noteModalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+  },
+  noteModalSkipBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  noteModalSkipBtnText: {
+    fontSize: 14,
+    color: COLORS.textMuted,
+    fontWeight: '600',
+  },
+  noteModalAddBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  noteModalAddBtnText: {
+    fontSize: 14,
+    color: COLORS.white,
+    fontWeight: '600',
+  },
+  noteModalScrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // Product note button styles
+  productNoteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    backgroundColor: COLORS.background,
+  },
+  productNoteBtnText: {
+    fontSize: 10,
+    color: COLORS.textMuted,
+    fontWeight: '500',
+  },
+  productNoteBtnTextActive: {
+    color: COLORS.primary,
   },
 });

@@ -41,6 +41,9 @@ interface DeliveryCardProps {
   onAccept?: () => void;
   onViewDetails?: () => void;
   onMarkDelivered?: () => void;
+  onStartRide?: () => void;
+  onNavigateToPickup?: () => void;
+  onNavigateToDelivery?: () => void;
   onCallCustomer?: () => void;
 }
 
@@ -49,6 +52,9 @@ const DeliveryCard: React.FC<DeliveryCardProps> = ({
   onAccept,
   onViewDetails,
   onMarkDelivered,
+  onStartRide,
+  onNavigateToPickup,
+  onNavigateToDelivery,
   onCallCustomer,
 }) => {
   // Status color mapping
@@ -94,6 +100,7 @@ const DeliveryCard: React.FC<DeliveryCardProps> = ({
 
   const isActive = delivery.status === 'assigned' || delivery.status === 'picked_up' || delivery.status === 'in_delivery';
   const isPending = delivery.status === 'pending';
+  const canStartRide = delivery.status === 'assigned' || delivery.status === 'picked_up';
 
   return (
     <TouchableOpacity
@@ -159,7 +166,7 @@ const DeliveryCard: React.FC<DeliveryCardProps> = ({
         <View style={styles.detailItem}>
           <Ionicons name="cash" size={16} color={COLORS.success} />
           <Text style={[styles.detailValue, { color: COLORS.success }]}>
-            ${delivery.estimatedEarning.toFixed(2)}
+            ${Number(delivery.estimatedEarning || 0).toFixed(2)}
           </Text>
         </View>
       </View>
@@ -174,6 +181,20 @@ const DeliveryCard: React.FC<DeliveryCardProps> = ({
 
       {isActive && (
         <View style={styles.activeActions}>
+          {canStartRide && (
+            <TouchableOpacity onPress={onStartRide} style={styles.startRideButton} activeOpacity={0.8}>
+              <Ionicons name="bicycle" size={20} color={COLORS.white} />
+              <Text style={styles.actionButtonText}>Start Ride</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity onPress={onNavigateToPickup} style={styles.navigateButton} activeOpacity={0.8}>
+            <Ionicons name="restaurant" size={20} color={COLORS.white} />
+            <Text style={styles.actionButtonText}>Pickup</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={onNavigateToDelivery} style={styles.navigateButton} activeOpacity={0.8}>
+            <Ionicons name="navigate" size={20} color={COLORS.white} />
+            <Text style={styles.actionButtonText}>Delivery</Text>
+          </TouchableOpacity>
           <TouchableOpacity onPress={onMarkDelivered} style={styles.deliveredButton} activeOpacity={0.8}>
             <Ionicons name="checkmark-circle" size={20} color={COLORS.white} />
             <Text style={styles.actionButtonText}>Mark Delivered</Text>
@@ -297,29 +318,55 @@ const styles = StyleSheet.create({
   },
   activeActions: {
     flexDirection: 'row',
-    gap: 8,
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
+    gap: 8,
+  },
+  startRideButton: {
+    flexGrow: 1,
+    flexBasis: '48%',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: COLORS.primary,
+    paddingVertical: 10,
+    borderRadius: 10,
+    gap: 6,
+  },
+  navigateButton: {
+    flexGrow: 1,
+    flexBasis: '48%',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: COLORS.info,
+    paddingVertical: 10,
+    borderRadius: 10,
+    gap: 6,
   },
   deliveredButton: {
-    flex: 1,
-    height: 44,
-    borderRadius: 8,
-    backgroundColor: COLORS.success,
-    justifyContent: 'center',
-    alignItems: 'center',
+    flexGrow: 1,
+    flexBasis: '48%',
     flexDirection: 'row',
-    gap: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.success,
+    paddingVertical: 10,
+    borderRadius: 10,
+    gap: 6,
   },
   callButton: {
-    width: 100,
-    height: 44,
-    borderRadius: 8,
-    backgroundColor: COLORS.info,
-    justifyContent: 'center',
-    alignItems: 'center',
+    flexGrow: 1,
+    flexBasis: '48%',
     flexDirection: 'row',
-    gap: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.warning,
+    paddingVertical: 10,
+    borderRadius: 10,
+    gap: 6,
   },
   actionButtonText: {
     fontSize: 14,

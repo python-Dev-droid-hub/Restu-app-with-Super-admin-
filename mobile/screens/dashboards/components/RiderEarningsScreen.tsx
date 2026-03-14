@@ -77,7 +77,7 @@ const RiderEarningsScreen: React.FC<RiderEarningsScreenProps> = ({
           <Ionicons name="trending-up" size={20} color={COLORS.white} />
         </View>
         <Text style={styles.earningsAmount}>
-          {formatPrice ? formatPrice(currentData.amount) : `$${currentData.amount.toFixed(2)}`}
+          {formatPrice ? formatPrice(currentData.amount) : `$${Number(currentData.amount || 0).toFixed(2)}`}
         </Text>
         <Text style={styles.earningsSubtitle}>
           {currentData.deliveries} deliveries
@@ -123,7 +123,7 @@ const RiderEarningsScreen: React.FC<RiderEarningsScreenProps> = ({
                 <Text style={styles.breakdownLabel}>{item.label}</Text>
               </View>
               <Text style={[styles.breakdownAmount, { color: item.color }]}>
-                ${item.amount.toFixed(2)}
+                ${Number(item.amount || 0).toFixed(2)}
               </Text>
             </View>
           ))}

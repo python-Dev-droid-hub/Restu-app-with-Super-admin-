@@ -22,6 +22,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalization } from '../../context/LocalizationContext';
 import { COLORS } from '../../constants/colors';
 import { getSpacing } from '../../utils/responsive';
+import { useUserData } from '../../hooks/useUserData';
 
 // Components
 import ResponsiveHeader from '../../components/layout/ResponsiveHeader';
@@ -45,6 +46,7 @@ export default function AdminCouponsScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { t } = useLocalization();
+  const { profileImage } = useUserData();
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -167,6 +169,7 @@ export default function AdminCouponsScreen() {
       <ResponsiveHeader
         title={t('nav.coupons')}
         notificationCount={0}
+        profileImage={profileImage}
         onNotificationPress={() => {
           // @ts-ignore
           navigation.navigate('AdminNotifications');
@@ -334,8 +337,14 @@ export default function AdminCouponsScreen() {
       <ProfileMenu
         visible={showProfileMenu}
         onClose={() => setShowProfileMenu(false)}
-        onLogout={() => navigation.navigate('Welcome' as any)}
-        onChangePassword={() => navigation.navigate('ChangePassword' as any)}
+        onLogout={() => {
+          // @ts-ignore
+          navigation.navigate('Welcome');
+        }}
+        onChangePassword={() => {
+          // @ts-ignore
+          navigation.navigate('ChangePassword');
+        }}
       />
     </View>
   );

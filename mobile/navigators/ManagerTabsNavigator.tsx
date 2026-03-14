@@ -10,6 +10,7 @@ import AdminOrdersScreen from '../screens/admin/AdminOrdersScreen';
 import AdminProductsScreen from '../screens/admin/AdminProductsScreen';
 import AdminUsersScreen from '../screens/admin/AdminUsersScreen';
 import AdminBottomNavigation from '../components/navigation/AdminBottomNavigation';
+import BannerManagementScreen from '../screens/admin/BannerManagementScreen';
 
 const Tab = createBottomTabNavigator();
 
@@ -26,7 +27,9 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
     { name: 'Table Assignment', icon: 'grid-outline', screen: 'TableAssignment' },
     { name: t('nav.categories'), icon: 'grid-outline', screen: 'AdminCategories' },
     { name: t('products.title'), icon: 'restaurant-outline', screen: 'AdminProducts' },
+    { name: 'Banner Management', icon: 'image-outline', screen: 'BannerManagement' },
     { name: t('nav.coupons'), icon: 'ticket-outline', screen: 'AdminCoupons' },
+    { name: 'Deals', icon: 'pricetag-outline', screen: 'AdminDeals' },
     { name: 'Product Size', icon: 'resize-outline', screen: 'AdminProductSizes' },
     { name: t('nav.reports'), icon: 'bar-chart-outline', screen: 'AdminReports' },
     { name: t('nav.settings'), icon: 'settings-outline', screen: 'AdminSettings' },
@@ -85,8 +88,9 @@ export default function ManagerTabsNavigator() {
     >
       <Tab.Screen name="ManagerDashboard" component={ManagerDashboard} />
       <Tab.Screen name="AdminOrders" component={AdminOrdersScreen} />
-      <Tab.Screen name="AdminProducts" component={AdminProductsScreen} />
       <Tab.Screen name="AdminUsers" component={AdminUsersScreen} />
+      <Tab.Screen name="AdminProducts" component={AdminProductsScreen} />
+      <Tab.Screen name="BannerManagement" component={BannerManagementScreen} options={{ headerShown: false }} />
     </Tab.Navigator>
   );
 }

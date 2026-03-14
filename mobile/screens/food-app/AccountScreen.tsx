@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,10 +6,16 @@ import {
   StyleSheet,
   ScrollView,
   Image,
+  StatusBar,
+  SafeAreaView,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, CommonActions } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors, typography, spacing, borderRadius } from '../../theme';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { api } from '../../components/api/client';
 
 const MENU_ITEMS = [
   { id: '1', title: 'My Orders', icon: 'receipt-outline', screen: 'OrderHistory' },
@@ -21,24 +27,108 @@ const MENU_ITEMS = [
   { id: '7', title: 'Settings', icon: 'settings-outline', screen: 'Settings' },
 ];
 
+interface UserData {
+  name?: string;
+  email?: string;
+  phone?: string;
+  image?: string;
+}
+
 export default function AccountScreen() {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
+  const [userData, setUserData] = useState<UserData>({});
+  const [stats, setStats] = useState({ orders: 0, addresses: 0, cards: 0 });
+  const [loading, setLoading] = useState(true);
+
+  const loadUserData = async () => {
+    try {
+      const stored = await AsyncStorage.getItem('userData');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        setUserData({
+          name: parsed.name || parsed.displayName || 'Customer',
+          email: parsed.email || '',
+          phone: parsed.phone || parsed.phoneNumber || '',
+          image: parsed.image || parsed.avatar || parsed.profileImage,
+        });
+      }
+    } catch (error) {
+      console.error('[AccountScreen] Error loading user data:', error);
+    }
+  };
+
+  const loadStats = async () => {
+    try {
+      // Fetch real order count from API
+      const ordersRes = await api.get('/orders/my-orders');
+      const orderCount = ordersRes.success ? (ordersRes.data?.orders?.length || 0) : 0;
+      
+      // For now, use mock data for addresses and cards until those endpoints are ready
+      setStats({
+        orders: orderCount,
+        addresses: 2,
+        cards: 1,
+      });
+    } catch (error) {
+      console.error('[AccountScreen] Error loading stats:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadUserData();
+    loadStats();
+  }, []);
+
+  const handleLogout = async () => {
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to logout?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Logout', 
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await AsyncStorage.multiRemove(['authToken', 'userRole', 'userData', 'userId']);
+              navigation.dispatch(
+                CommonActions.reset({
+                  index: 0,
+                  routes: [{ name: 'Login' }],
+                })
+              );
+            } catch (error) {
+              console.error('[AccountScreen] Logout error:', error);
+            }
+          }
+        },
+      ]
+    );
+  };
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar barStyle="dark-content" backgroundColor={colors.white} />
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Account</Text>
+      </View>
+      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
       {/* Profile Header */}
       <View style={styles.profileHeader}>
         <View style={styles.avatarContainer}>
           <Image
-            source={{ uri: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop' }}
+            source={userData.image ? { uri: userData.image } : require('../../assets/icon.png')}
             style={styles.avatar}
             defaultSource={require('../../assets/icon.png')}
           />
         </View>
         <View style={styles.profileInfo}>
-          <Text style={styles.name}>Ahmad Khan</Text>
-          <Text style={styles.phone}>+92 300 1234567</Text>
-          <Text style={styles.email}>ahmad@example.com</Text>
+          <Text style={styles.name}>{userData.name || 'Customer'}</Text>
+          <Text style={styles.phone}>{userData.phone || ''}</Text>
+          <Text style={styles.email}>{userData.email || ''}</Text>
         </View>
         <TouchableOpacity style={styles.editButton}>
           <Ionicons name="create-outline" size={20} color={colors.primary} />
@@ -48,17 +138,17 @@ export default function AccountScreen() {
       {/* Stats */}
       <View style={styles.statsContainer}>
         <View style={styles.stat}>
-          <Text style={styles.statValue}>12</Text>
+          <Text style={styles.statValue}>{stats.orders}</Text>
           <Text style={styles.statLabel}>Orders</Text>
         </View>
         <View style={styles.statDivider} />
         <View style={styles.stat}>
-          <Text style={styles.statValue}>4</Text>
+          <Text style={styles.statValue}>{stats.addresses}</Text>
           <Text style={styles.statLabel}>Addresses</Text>
         </View>
         <View style={styles.statDivider} />
         <View style={styles.stat}>
-          <Text style={styles.statValue}>2</Text>
+          <Text style={styles.statValue}>{stats.cards}</Text>
           <Text style={styles.statLabel}>Cards</Text>
         </View>
       </View>
@@ -81,18 +171,35 @@ export default function AccountScreen() {
       </View>
 
       {/* Logout */}
-      <TouchableOpacity style={styles.logoutButton}>
+      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
         <Ionicons name="log-out-outline" size={22} color={colors.danger} />
         <Text style={styles.logoutText}>Logout</Text>
       </TouchableOpacity>
 
       <View style={{ height: 40 }} />
-    </ScrollView>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  header: {
+    paddingHorizontal: spacing.horizontal,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.md,
+  },
+  headerTitle: {
+    fontSize: typography.sizes.h2,
+    fontWeight: typography.weights.bold,
+    color: colors.text_dark,
+  },
+  scrollView: {
+    flex: 1,
+  },
   profileHeader: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.white, padding: spacing.lg, marginBottom: spacing.sm },
   avatarContainer: { width: 80, height: 80, borderRadius: 40, backgroundColor: colors.primary + '20', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
   avatar: { width: 80, height: 80, borderRadius: 40 },

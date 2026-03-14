@@ -9,7 +9,8 @@ import { OrderManagement } from './OrderManagement';
 import { Analytics } from './Analytics';
 import { Settings } from './Settings';
 import { TableManagement } from './TableManagement';
-import { dashboardApi, AdminStats } from '../../api/dashboard';
+import { dashboardApi } from '../../api/dashboard';
+import type { AdminStats } from '../../api/dashboard';
 
 type TabType = 'overview' | 'users' | 'restaurants' | 'menu' | 'orders' | 'tables' | 'notifications' | 'analytics' | 'settings';
 
@@ -79,8 +80,8 @@ export function AdminDashboard() {
     ordersChange: 0,
     revenueChange: 0,
   });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [_loading, setLoading] = useState(true);
+  const [_error, setError] = useState<string | null>(null);
 
   // Get navigation items for admin
   const navigationItems = getNavigationItems('ADMIN');

@@ -33,13 +33,16 @@ import ChangePasswordScreen from '../profile/ChangePasswordScreen';
 import KitchenSettingsScreen from '../profile/KitchenSettingsScreen';
 import NotificationHistoryScreen from '../profile/NotificationHistoryScreen';
 import LogoutConfirmScreen from '../profile/LogoutConfirmScreen';
+import { getNotifications } from '../../services/notificationService';
+import * as ImagePicker from 'expo-image-picker';
 
 // Notification types with colors and icons
 const NOTIFICATION_TYPES = {
   NEW_ORDER: { color: '#FF7A59', icon: 'bag', sound: 'beep', vibrate: [200, 100, 200] },
+  NEW_COOKING_ORDER: { color: '#FF9F43', icon: 'flame', sound: 'beep', vibrate: [200, 100, 200] },
   KITCHEN_ALERT: { color: '#FF4D4D', icon: 'warning', sound: 'alarm', vibrate: [500, 200, 500, 200, 500] },
   ORDER_READY: { color: '#2BC48A', icon: 'checkmark-circle', sound: 'ding', vibrate: [300] },
-  INVENTORY_ALERT: { color: '#FF9F43', icon: 'cube', sound: 'warning', vibrate: [400, 100] }, // Keep for notification type
+  INVENTORY_ALERT: { color: '#FF9F43', icon: 'cube', sound: 'warning', vibrate: [400, 100] },
   SYSTEM_MESSAGE: { color: '#6C63FF', icon: 'information-circle', sound: 'chime', vibrate: [200] },
 };
 
@@ -93,7 +96,7 @@ interface KitchenOrder {
   estimatedReadyTime: string;
   specialInstructions?: string;
   createdAt: string;
-  status: 'PENDING' | 'PREPARING' | 'COOKING' | 'READY' | 'COMPLETED' | 'CANCELLED';
+  status: 'PENDING' | 'PREPARING' | 'KITCHEN_ACCEPTED' | 'READY' | 'COMPLETED' | 'CANCELLED';
   elapsedTime?: number;
   expectedTime?: number;
   isLate?: boolean;
@@ -118,8 +121,8 @@ interface MostOrderedItem {
 type OrderTab = 'ACTIVE' | 'READY' | 'COMPLETED' | 'CANCELLED';
 type CookingOrderTypeTab = 'DINE_IN' | 'DELIVERY';
 type CookingFilterTab = 'ACTIVE' | 'READY' | 'COMPLETED';
-type BottomTab = 'home' | 'cooking' | 'profile';
-type ProfileSubScreen = 'main' | 'edit' | 'notifications' | 'hours' | 'schedule' | 'password' | 'kitchen' | 'logout' | 'notificationHistory';
+type BottomTab = 'home' | 'cooking' | 'notifications' | 'profile';
+type ProfileSubScreen = 'main' | 'edit' | 'editName' | 'changeImage' | 'notifications' | 'hours' | 'schedule' | 'password' | 'kitchen' | 'logout' | 'notificationHistory';
 
 export default function ChefDashboard() {
   const navigation = useNavigation();
@@ -141,6 +144,7 @@ export default function ChefDashboard() {
   const [isOnline, setIsOnline] = useState(true);
   const [notificationList, setNotificationList] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [notificationFilter, setNotificationFilter] = useState<'all' | 'read' | 'unread'>('all');
   const [notificationsDisabled, setNotificationsDisabled] = useState(false);
   const [showNotificationPanel, setShowNotificationPanel] = useState(false);
   const [toasts, setToasts] = useState<any[]>([]);
@@ -182,12 +186,84 @@ export default function ChefDashboard() {
     }
   };
 
+  // Update individual item status (for chef to mark items as PREPARING, READY, SERVED)
+  const updateItemStatus = async (orderId: string, itemId: string, status: 'PREPARING' | 'READY' | 'SERVED') => {
+    console.log('[updateItemStatus] Starting:', { orderId, itemId, status });
+    
+    if (!orderId || !itemId) {
+      console.error('[updateItemStatus] ERROR: orderId or itemId is empty!');
+      throw new Error('Order ID and Item ID are required');
+    }
+    
+    try {
+      const response = await api.patch(`/orders/${orderId}/items/${itemId}/status`, { status });
+      console.log('[updateItemStatus] Response:', response);
+      
+      if (!response.success) {
+        console.error('[updateItemStatus] API Error:', response.message);
+        if (checkAuthError(response)) {
+          return;
+        }
+        throw new Error(response.message || 'Failed to update item status');
+      }
+      
+      console.log('[updateItemStatus] Success!');
+      // Reload data to reflect changes
+      await loadDashboardData();
+    } catch (error: any) {
+      console.error('[updateItemStatus] Exception:', error?.message || error);
+      throw error;
+    }
+  };
+
   // Notification polling effect - DISABLED to prevent 404 errors
   useEffect(() => {
-    // No notification endpoints available - skip polling
-    setNotificationsDisabled(true);
-    setNotificationList([]);
-    setUnreadCount(0);
+    let isMounted = true;
+
+    const toDashboardNotification = (n: any) => {
+      const createdAt = n?.createdAt ? new Date(n.createdAt) : null;
+      return {
+        id: n?._id || n?.id,
+        title: n?.title || 'Notification',
+        body: n?.body || n?.message || '',
+        type: n?.type || 'SYSTEM_MESSAGE',
+        is_read: !!n?.isRead,
+        created_at: createdAt ? createdAt.toLocaleString() : 'Just now',
+        raw: n,
+      };
+    };
+
+    const load = async () => {
+      try {
+        setNotificationsDisabled(false);
+        const res = await getNotifications(20, 0);
+        console.log('[ChefDashboard] Notifications response:', JSON.stringify(res, null, 2));
+        if (!isMounted) return;
+        if (res.success) {
+          const mapped = (res.notifications || []).map(toDashboardNotification);
+          console.log('[ChefDashboard] Mapped notifications:', mapped.length);
+          setNotificationList(mapped);
+          setUnreadCount(res.unread || 0);
+        } else {
+          console.log('[ChefDashboard] Notifications failed:', res);
+          setNotificationList([]);
+          setUnreadCount(0);
+        }
+      } catch (e) {
+        console.error('[ChefDashboard] Notification load error:', e);
+        if (!isMounted) return;
+        setNotificationList([]);
+        setUnreadCount(0);
+      }
+    };
+
+    load();
+    const interval = setInterval(load, 15000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
   useEffect(() => {
@@ -214,9 +290,19 @@ export default function ChefDashboard() {
     }
   };
 
+  useEffect(() => {
+    loadDashboardData();
+    const interval = setInterval(() => {
+      loadDashboardData();
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [userData?.assignedBranch?._id, userData?.branchId]);
+
   const [homeActiveTab, setHomeActiveTab] = useState('Active');
   const [showChecklistModal, setShowChecklistModal] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<KitchenOrder | null>(null);
+  const [mostOrdered, setMostOrdered] = useState<MostOrderedItem[]>([]);
+  const [onShift, setOnShift] = useState(true);
   const [packingChecklist, setPackingChecklist] = useState({
     itemsPacked: false,
     allItemsIncluded: false,
@@ -225,11 +311,21 @@ export default function ChefDashboard() {
     napkinsUtensils: false,
     packagingSealed: false,
   });
+  const [qualityChecks, setQualityChecks] = useState({
+    orderPackaging: false,
+    orderLabeling: false,
+    temperature: false,
+    napkinsUtensils: false,
+    packagingSealed: false,
+  });
   const [profileSubScreen, setProfileSubScreen] = useState<ProfileSubScreen>('main');
-  const [onShift, setOnShift] = useState(true);
+  const [editName, setEditName] = useState('');
+  const [savingName, setSavingName] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   const [cookingOrders, setCookingOrders] = useState<KitchenOrder[]>([]);
-  const [mostOrdered, setMostOrdered] = useState<MostOrderedItem[]>([]);
+  const [selectedCookingOrder, setSelectedCookingOrder] = useState<KitchenOrder | null>(null);
+  const [showCookingModal, setShowCookingModal] = useState(false);
 
   useEffect(() => {
     // First load user data, then load dashboard data
@@ -300,6 +396,106 @@ export default function ChefDashboard() {
       Animated.timing(bellShakeAnim, { toValue: 1, duration: 100, useNativeDriver: true }),
       Animated.timing(bellShakeAnim, { toValue: 0, duration: 100, useNativeDriver: true }),
     ]).start();
+  };
+
+  // Pick profile image (like waiter dashboard)
+  const pickProfileImage = async () => {
+    try {
+      const result = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!result.granted) {
+        Alert.alert('Permission Required', 'Please allow access to your photos.');
+        return;
+      }
+      const pickerResult = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+        base64: true,
+      });
+
+      if (!pickerResult.canceled && pickerResult.assets[0]) {
+        const asset = pickerResult.assets[0];
+        const uri = asset.uri;
+        setUploadingImage(true);
+
+        // Convert to base64 and upload
+        if (asset.base64) {
+          const base64Data = `data:image/jpeg;base64,${asset.base64}`;
+          // Step 1: upload base64 to server to get a short /uploads/... url
+          const uploadRes = await api.post('/upload', {
+            image: base64Data,
+            filename: `profile-${Date.now()}.jpg`,
+            mimeType: 'image/jpeg',
+          });
+
+          const uploadedPath = (uploadRes as any)?.data?.url;
+          if (!uploadRes.success || !uploadedPath) {
+            Alert.alert('Error', uploadRes.message || 'Failed to upload image');
+            setUploadingImage(false);
+            return;
+          }
+
+          // Step 2: save profile image url on user profile
+          const response = await api.patch('/users/profile/image', {
+            profileImage: uploadedPath,
+          });
+
+          if (response.success && (response.data?.imageUrl || response.data?.profileImage)) {
+            const imageUrl = response.data?.imageUrl || response.data?.profileImage;
+
+            // Build a full URL for display
+            const base = api.getBaseURL().replace(/\/?api\/?$/, '');
+            const fullImageUrl = String(imageUrl || '').startsWith('http') ? imageUrl : `${base}${imageUrl}`;
+            // Update local storage
+            const userDataRaw = await AsyncStorage.getItem('userData');
+            if (userDataRaw) {
+              const parsed = JSON.parse(userDataRaw);
+              const updated = { ...parsed, avatar: fullImageUrl, profileImage: fullImageUrl };
+              await AsyncStorage.setItem('userData', JSON.stringify(updated));
+              setUserData(updated);
+            }
+            Alert.alert('Success', 'Profile image updated');
+          } else {
+            Alert.alert('Error', response.message || 'Failed to upload image');
+          }
+        }
+        setUploadingImage(false);
+      }
+    } catch (error) {
+      console.error('Error picking profile image:', error);
+      setUploadingImage(false);
+      Alert.alert('Error', 'Failed to update profile image');
+    }
+  };
+
+  // Save profile name
+  const saveProfileName = async () => {
+    if (!editName.trim()) {
+      Alert.alert('Error', 'Please enter a name');
+      return;
+    }
+    setSavingName(true);
+    try {
+      const response = await api.put('/users/profile', { name: editName.trim() });
+      if (response.success) {
+        const userDataRaw = await AsyncStorage.getItem('userData');
+        if (userDataRaw) {
+          const parsed = JSON.parse(userDataRaw);
+          const updated = { ...parsed, name: editName.trim(), displayName: editName.trim() };
+          await AsyncStorage.setItem('userData', JSON.stringify(updated));
+          setUserData(updated);
+        }
+        Alert.alert('Success', 'Name updated successfully');
+        setProfileSubScreen('main');
+      } else {
+        Alert.alert('Error', response.message || 'Failed to update name');
+      }
+    } catch (error) {
+      console.error('Error saving name:', error);
+      Alert.alert('Error', 'Failed to update name');
+    }
+    setSavingName(false);
   };
 
   // Handle notification tap
@@ -447,7 +643,7 @@ export default function ChefDashboard() {
       // Fetch all dashboard data in parallel
       const [statsResponse, ordersResponse, cookingResponse, mostOrderedResponse] = await Promise.all([
         api.get('/dashboard/chef/stats'),
-        api.get('/dashboard/chef/orders'),
+        api.get(`/orders/branch/all?branchId=${encodeURIComponent(branchId || '')}`),
         api.get(`/dashboard/kitchen/orders/cooking?branch=${branchId}`),
         api.get('/dashboard/kitchen/most-ordered'),
       ]);
@@ -572,25 +768,26 @@ export default function ChefDashboard() {
 
     // Calculate real-time stats from orders data
     const newOrdersCount = homeOrders.filter(o => o.status === 'PENDING').length;
-    const activeOrdersCount = homeOrders.filter(o => ['PENDING', 'PREPARING', 'COOKING'].includes(o.status)).length;
-    const cookingOrdersCount = homeOrders.filter(o => o.status === 'COOKING' || o.status === 'PREPARING').length;
+    const activeOrdersCount = homeOrders.filter(o => ['PENDING', 'PREPARING', 'KITCHEN_ACCEPTED'].includes(o.status)).length;
+    const cookingOrdersCount = homeOrders.filter(o => o.status === 'KITCHEN_ACCEPTED' || o.status === 'PREPARING').length;
     const delayedOrdersCount = homeOrders.filter(o => {
       const created = new Date(o.createdAt || o.orderTime).getTime();
       const diffMinutes = (Date.now() - created) / 60000;
-      return diffMinutes > 20 && ['PENDING', 'PREPARING', 'COOKING'].includes(o.status);
+      return diffMinutes > 20 && ['PENDING', 'PREPARING', 'KITCHEN_ACCEPTED'].includes(o.status);
     }).length;
     const over30MinCount = homeOrders.filter(o => {
       const created = new Date(o.createdAt || o.orderTime).getTime();
       const diffMinutes = (Date.now() - created) / 60000;
-      return diffMinutes > 30 && ['PENDING', 'PREPARING', 'COOKING'].includes(o.status);
+      return diffMinutes > 30 && ['PENDING', 'PREPARING', 'KITCHEN_ACCEPTED'].includes(o.status);
     }).length;
 
     // Filter orders based on selected tab
     const filteredOrders = homeOrders.filter(order => {
-      if (homeActiveTab === 'Active') return order.status === 'PENDING' || order.status === 'PREPARING' || order.status === 'COOKING';
-      if (homeActiveTab === 'Ready') return order.status === 'READY';
-      if (homeActiveTab === 'Completed') return order.status === 'COMPLETED' || order.status === 'DELIVERED' || order.status === 'delivered';
-      if (homeActiveTab === 'Cancelled') return order.status === 'CANCELLED';
+      const s = String((order as any)?.status || '').toUpperCase();
+      if (homeActiveTab === 'Active') return ['PENDING', 'PREPARING', 'KITCHEN_ACCEPTED'].includes(s);
+      if (homeActiveTab === 'Ready') return s === 'READY';
+      if (homeActiveTab === 'Completed') return ['COMPLETED', 'DELIVERED', 'SERVED'].includes(s);
+      if (homeActiveTab === 'Cancelled') return s === 'CANCELLED';
       return true;
     });
 
@@ -616,7 +813,7 @@ export default function ChefDashboard() {
               )}
             </View>
             <View style={homeStyles.profileInfo}>
-              <Text style={homeStyles.chefName}>Chef Michael</Text>
+              <Text style={homeStyles.chefName}>{userData?.name || userData?.displayName || 'Chef'}</Text>
               <View style={homeStyles.onlineRow}>
                 <View style={homeStyles.onlineDot} />
                 <Text style={homeStyles.onlineText}>Online</Text>
@@ -724,6 +921,8 @@ export default function ChefDashboard() {
                         showToast('Failed to update order', 'error');
                       }
                     }}
+                    onItemStatusChange={updateItemStatus}
+                    role="CHEF"
                   />
                 </View>
               ))
@@ -742,14 +941,14 @@ export default function ChefDashboard() {
     const currentOrders = cookingOrderTypeTab === 'DINE_IN' ? dineInOrders : deliveryOrders;
     
     const filteredOrders = currentOrders.filter(o => {
-      if (cookingFilterTab === 'ACTIVE') return o.status === 'PENDING' || o.status === 'PREPARING' || o.status === 'COOKING';
+      if (cookingFilterTab === 'ACTIVE') return o.status === 'PENDING' || o.status === 'PREPARING' || o.status === 'KITCHEN_ACCEPTED';
       if (cookingFilterTab === 'READY') return o.status === 'READY';
-      if (cookingFilterTab === 'COMPLETED') return o.status === 'COMPLETED' || o.status === 'DELIVERED' || o.status === 'delivered';
+      if (cookingFilterTab === 'COMPLETED') return o.status === 'COMPLETED';
       return true;
     });
 
-    const dineInCount = dineInOrders.filter(o => ['PENDING', 'PREPARING', 'COOKING', 'READY'].includes(o.status)).length;
-    const deliveryCount = deliveryOrders.filter(o => ['PENDING', 'PREPARING', 'COOKING', 'READY'].includes(o.status)).length;
+    const dineInCount = dineInOrders.filter(o => ['PENDING', 'PREPARING', 'KITCHEN_ACCEPTED', 'READY'].includes(o.status)).length;
+    const deliveryCount = deliveryOrders.filter(o => ['PENDING', 'PREPARING', 'KITCHEN_ACCEPTED', 'READY'].includes(o.status)).length;
 
     const handleReadyClick = (order: KitchenOrder) => {
       if (order.orderType === 'DELIVERY') {
@@ -925,13 +1124,157 @@ export default function ChefDashboard() {
     );
   };
 
+  const renderNotifications = () => {
+    const filteredNotifications = notificationList.filter(n => {
+      if (notificationFilter === 'all') return true;
+      if (notificationFilter === 'read') return n.is_read;
+      if (notificationFilter === 'unread') return !n.is_read;
+      return true;
+    });
+
+    return (
+      <View style={[styles.tabContent, { paddingBottom: insets.bottom + 80 }]}>
+        {/* Category Tabs */}
+        <View style={styles.notificationTabs}>
+          {[
+            { key: 'all', label: 'All', count: notificationList.length },
+            { key: 'read', label: 'Read', count: notificationList.filter(n => n.is_read).length },
+            { key: 'unread', label: 'Unread', count: unreadCount },
+          ].map(tab => {
+            const isActive = notificationFilter === tab.key;
+            return (
+              <TouchableOpacity
+                key={tab.key}
+                style={[styles.notificationTab, isActive && styles.notificationTabActive]}
+                onPress={() => setNotificationFilter(tab.key as any)}
+              >
+                <Text style={[styles.notificationTabText, isActive && styles.notificationTabTextActive]}>
+                  {tab.label}
+                </Text>
+                <View style={[styles.notificationTabBadge, isActive && styles.notificationTabBadgeActive]}>
+                  <Text style={[styles.notificationTabBadgeText, isActive && styles.notificationTabBadgeTextActive]}>
+                    {tab.count}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {/* Notification List */}
+        <FlatList
+          data={filteredNotifications}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => {
+            const typeConfig = NOTIFICATION_TYPES[item.type as keyof typeof NOTIFICATION_TYPES] || NOTIFICATION_TYPES.SYSTEM_MESSAGE;
+            // Extract waiter name from notification data or body if available
+            const waiterName = item.raw?.data?.waiterName || item.raw?.waiterName || 
+                              (item.body?.includes('by') && item.body.split('by')[1]?.trim()) ||
+                              item.raw?.recipientRole === 'WAITER' ? 'Waiter' : null;
+            return (
+              <TouchableOpacity 
+                style={[notificationStyles.item, !item.is_read && notificationStyles.unreadItem]}
+                onPress={() => markNotificationAsRead(item)}
+              >
+                <View style={[notificationStyles.iconContainer, { backgroundColor: typeConfig.color + '20' }]}>
+                  <Ionicons name={typeConfig.icon as any} size={20} color={typeConfig.color} />
+                </View>
+                <View style={notificationStyles.content}>
+                  <Text style={notificationStyles.itemTitle}>{item.title}</Text>
+                  <Text style={notificationStyles.itemBody}>{item.body}</Text>
+                  {waiterName && (
+                    <View style={styles.waiterInfo}>
+                      <Ionicons name="person-circle" size={14} color={DESIGN.colors.muted} />
+                      <Text style={styles.waiterName}>By: {waiterName}</Text>
+                    </View>
+                  )}
+                  <Text style={notificationStyles.time}>{item.created_at}</Text>
+                </View>
+                {!item.is_read && <View style={notificationStyles.unreadDot} />}
+              </TouchableOpacity>
+            );
+          }}
+          ListEmptyComponent={() => (
+            <View style={notificationStyles.emptyState}>
+              <Ionicons name="notifications-off-outline" size={48} color="#ccc" />
+              <Text style={notificationStyles.emptyText}>
+                {notificationFilter === 'unread' ? 'No unread notifications' : 
+                 notificationFilter === 'read' ? 'No read notifications' : 'No notifications'}
+              </Text>
+            </View>
+          )}
+          contentContainerStyle={styles.notificationsList}
+        />
+      </View>
+    );
+  };
+
   const renderProfile = () => {
     const chefName = userData?.name || 'Chef Michael';
     const chefRole = userData?.role || 'Head Chef';
-    
+
     // Profile sub-screens - render imported components
     if (profileSubScreen === 'edit') {
       return <EditProfileScreen userData={userData} setUserData={updateUserData} onBack={() => setProfileSubScreen('main')} api={api} />;
+    }
+    // Edit Name sub-screen (only name fields)
+    if (profileSubScreen === 'editName') {
+      return (
+        <View style={styles.tabContent}>
+          <View style={styles.subHeader}>
+            <TouchableOpacity onPress={() => setProfileSubScreen('main')} style={styles.backBtn}>
+              <Ionicons name="arrow-back" size={24} color={DESIGN.colors.darkText} />
+            </TouchableOpacity>
+            <Text style={styles.pageTitle}>Edit Name</Text>
+            <View style={{ width: 24 }} />
+          </View>
+          <View style={styles.formContainer}>
+            <Text style={styles.formLabel}>Your Name</Text>
+            <TextInput
+              style={styles.formInput}
+              value={editName || chefName}
+              onChangeText={setEditName}
+              placeholder="Enter your name"
+              placeholderTextColor={DESIGN.colors.muted}
+            />
+            <TouchableOpacity
+              style={[styles.saveBtn, savingName && { opacity: 0.6 }]}
+              onPress={saveProfileName}
+              disabled={savingName}
+            >
+              <Text style={styles.saveBtnText}>{savingName ? 'Saving...' : 'Save'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      );
+    }
+    // Change Image sub-screen (only image picker)
+    if (profileSubScreen === 'changeImage') {
+      return (
+        <View style={styles.tabContent}>
+          <View style={styles.subHeader}>
+            <TouchableOpacity onPress={() => setProfileSubScreen('main')} style={styles.backBtn}>
+              <Ionicons name="arrow-back" size={24} color={DESIGN.colors.darkText} />
+            </TouchableOpacity>
+            <Text style={styles.pageTitle}>Change Profile Image</Text>
+            <View style={{ width: 24 }} />
+          </View>
+          <View style={styles.imagePickerContainer}>
+            <TouchableOpacity style={styles.imagePickerBox} onPress={pickProfileImage}>
+              {userData?.avatar ? (
+                <Image source={{ uri: userData.avatar }} style={styles.imagePickerPreview} />
+              ) : (
+                <Ionicons name="person" size={80} color={DESIGN.colors.muted} />
+              )}
+              <View style={styles.imagePickerOverlay}>
+                <Ionicons name="camera" size={32} color="#fff" />
+              </View>
+            </TouchableOpacity>
+            <Text style={styles.imagePickerHint}>Tap to change profile image</Text>
+            {uploadingImage && <Text style={styles.uploadingText}>Uploading...</Text>}
+          </View>
+        </View>
+      );
     }
     if (profileSubScreen === 'notifications') {
       return <NotificationsScreen onBack={() => setProfileSubScreen('main')} />;
@@ -972,39 +1315,19 @@ export default function ChefDashboard() {
           </View>
           <Text style={styles.profileName}>{chefName}</Text>
           <Text style={styles.profileRole}>{chefRole}</Text>
-          
-          {/* On Shift Toggle */}
-          <TouchableOpacity 
-            style={[styles.shiftToggleBtn, onShift ? styles.shiftToggleOn : styles.shiftToggleOff]}
-            onPress={() => setOnShift(!onShift)}
-          >
-            <View style={[styles.shiftIndicator, onShift ? styles.shiftIndicatorOn : styles.shiftIndicatorOff]} />
-            <Text style={[styles.shiftToggleText, onShift ? styles.shiftToggleTextOn : styles.shiftToggleTextOff]}>
-              {onShift ? 'On Shift' : 'Offline'}
-            </Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.editProfileBtn} onPress={() => setProfileSubScreen('edit')}>
-            <Text style={styles.editProfileText}>Edit Profile</Text>
-          </TouchableOpacity>
         </View>
 
         {/* Menu Items */}
         <View style={styles.profileMenu}>
           {[
-            { icon: 'person-outline', label: 'Edit Profile', action: () => setProfileSubScreen('edit'), hasArrow: true },
-            { icon: 'notifications-outline', label: 'Notifications', action: () => setProfileSubScreen('notifications'), badge: unreadCount, hasArrow: true },
+            { icon: 'image-outline', label: 'Change Profile Image', action: () => setProfileSubScreen('changeImage'), hasArrow: true },
+            { icon: 'person-outline', label: 'Edit Profile Name', action: () => { setEditName(chefName); setProfileSubScreen('editName'); }, hasArrow: true },
             { icon: 'lock-closed-outline', label: 'Change Password', action: () => setProfileSubScreen('password'), hasArrow: true },
             { icon: 'log-out-outline', label: 'Logout', action: () => setProfileSubScreen('logout'), hasArrow: true, color: DESIGN.colors.red },
           ].map((item, index) => (
             <TouchableOpacity key={index} style={styles.profileMenuItem} onPress={item.action}>
               <Ionicons name={item.icon as any} size={20} color={item.color || DESIGN.colors.muted} />
               <Text style={[styles.profileMenuText, item.color ? { color: item.color } : undefined]}>{item.label}</Text>
-              {item.badge ? (
-                <View style={styles.menuBadge}>
-                  <Text style={styles.menuBadgeText}>{item.badge}</Text>
-                </View>
-              ) : null}
               <Ionicons name="chevron-forward" size={20} color={DESIGN.colors.muted} />
             </TouchableOpacity>
           ))}
@@ -1024,12 +1347,47 @@ export default function ChefDashboard() {
       <StatusBar barStyle="dark-content" backgroundColor={DESIGN.colors.white} />
 
       {/* Header - Hidden on Home tab since renderHome has its own */}
-      {bottomTab !== 'home' && (
+      {bottomTab !== 'home' && bottomTab !== 'profile' && (
         <View style={styles.header}>
           <View style={styles.headerTopRow}>
-            <Text style={styles.pageTitle}>
-              {bottomTab === 'cooking' ? 'Cooking' : null}
-            </Text>
+            {bottomTab === 'notifications' ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <TouchableOpacity style={styles.iconBtn} onPress={() => setShowNotificationPanel(true)}>
+                  <Ionicons name="notifications-outline" size={22} color={DESIGN.colors.darkText} />
+                  {unreadCount > 0 && (
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText}>{unreadCount}</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+                <Text style={styles.pageTitle}>Notifications</Text>
+              </View>
+            ) : (
+              <Text style={styles.pageTitle}>
+                {bottomTab === 'cooking' ? 'Cooking' : bottomTab === 'profile' ? 'Profile' : ''}
+              </Text>
+            )}
+            {bottomTab !== 'notifications' && (
+              <View style={styles.headerIcons}>
+                <TouchableOpacity style={styles.iconBtn} onPress={() => setShowNotificationPanel(true)}>
+                  <Ionicons name="notifications-outline" size={22} color={DESIGN.colors.darkText} />
+                  {unreadCount > 0 && (
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText}>{unreadCount}</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </View>
+      )}
+
+      {/* Profile Header (same style as other pages) */}
+      {bottomTab === 'profile' && (
+        <View style={styles.header}>
+          <View style={styles.headerTopRow}>
+            <Text style={styles.pageTitle}>Profile</Text>
             <View style={styles.headerIcons}>
               <TouchableOpacity style={styles.iconBtn} onPress={() => setShowNotificationPanel(true)}>
                 <Ionicons name="notifications-outline" size={22} color={DESIGN.colors.darkText} />
@@ -1047,6 +1405,7 @@ export default function ChefDashboard() {
       {/* Main Content */}
       {bottomTab === 'home' && renderHome()}
       {bottomTab === 'cooking' && renderCooking()}
+      {bottomTab === 'notifications' && renderNotifications()}
       {bottomTab === 'profile' && renderProfile()}
 
       {/* Bottom Navigation */}
@@ -1054,6 +1413,7 @@ export default function ChefDashboard() {
         {[
           { key: 'home', label: 'Home', icon: 'home' },
           { key: 'cooking', label: 'Cooking', icon: 'flame' },
+          { key: 'notifications', label: 'Notifications', icon: 'notifications', badge: unreadCount },
           { key: 'profile', label: 'Profile', icon: 'person' },
         ].map(tab => {
           const isActive = bottomTab === tab.key;
@@ -1063,11 +1423,20 @@ export default function ChefDashboard() {
               style={styles.navItem}
               onPress={() => setBottomTab(tab.key as BottomTab)}
             >
-              <Ionicons 
-                name={isActive ? (tab.icon as any) : (`${tab.icon}-outline` as any)} 
-                size={24} 
-                color={isActive ? DESIGN.colors.orange : DESIGN.colors.muted} 
-              />
+              <View style={styles.navIconContainer}>
+                <Ionicons 
+                  name={isActive ? (tab.icon as any) : (`${tab.icon}-outline` as any)} 
+                  size={24} 
+                  color={isActive ? DESIGN.colors.orange : DESIGN.colors.muted} 
+                />
+                {(tab as any).badge > 0 && (
+                  <View style={styles.navBadge}>
+                    <Text style={styles.navBadgeText}>
+                      {(tab as any).badge > 99 ? '99+' : (tab as any).badge}
+                    </Text>
+                  </View>
+                )}
+              </View>
               <Text style={[styles.navLabel, isActive && styles.navLabelActive]}>{tab.label}</Text>
               {isActive && <View style={styles.navIndicator} />}
             </TouchableOpacity>
@@ -1081,9 +1450,18 @@ export default function ChefDashboard() {
         transparent
         animationType="slide"
         onRequestClose={() => setShowNotificationPanel(false)}
+        statusBarTranslucent
       >
-        <View style={notificationStyles.overlay}>
-          <View style={notificationStyles.panel}>
+        <TouchableOpacity 
+          style={notificationStyles.overlay}
+          activeOpacity={1}
+          onPress={() => setShowNotificationPanel(false)}
+        >
+          <TouchableOpacity 
+            style={notificationStyles.panel}
+            activeOpacity={1}
+            onPress={() => {}}
+          >
             {/* Header */}
             <View style={notificationStyles.header}>
               <View>
@@ -1096,7 +1474,7 @@ export default function ChefDashboard() {
                     setNotificationList(prev => prev.map(n => ({ ...n, is_read: true })));
                     setUnreadCount(0);
                     try {
-                      await api.put('/notifications/waiter/read-all');
+                      await api.put('/notifications/mark-all-read');
                     } catch (error) {
                       console.log('Error marking all notifications as read:', error);
                     }
@@ -1147,13 +1525,13 @@ export default function ChefDashboard() {
               style={notificationStyles.viewAll}
               onPress={() => {
                 setShowNotificationPanel(false);
-                setProfileSubScreen('notificationHistory');
+                setBottomTab('notifications');
               }}
             >
               <Text style={notificationStyles.viewAllText}>View All Notifications</Text>
             </TouchableOpacity>
-          </View>
-        </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
 
       {/* Toast Notifications */}
@@ -2003,6 +2381,123 @@ const styles = StyleSheet.create({
     backgroundColor: DESIGN.colors.orange,
     borderRadius: 2,
   },
+  navIconContainer: {
+    position: 'relative',
+  },
+  navBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -8,
+    backgroundColor: DESIGN.colors.red,
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  navBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  // Notifications tab styles
+  notificationsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: DESIGN.spacing.pagePad,
+    paddingTop: 16,
+    paddingBottom: 12,
+    backgroundColor: DESIGN.colors.white,
+    borderBottomWidth: 1,
+    borderBottomColor: DESIGN.colors.border,
+  },
+  notificationsTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: DESIGN.colors.darkText,
+  },
+  markAllReadBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: DESIGN.colors.orange + '15',
+    borderRadius: 12,
+  },
+  markAllReadText: {
+    fontSize: 12,
+    color: DESIGN.colors.orange,
+    fontWeight: '700',
+  },
+  notificationsList: {
+    paddingHorizontal: DESIGN.spacing.pagePad,
+    paddingTop: 12,
+  },
+  notificationsHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    gap: 10,
+  },
+  notificationTabs: {
+    flexDirection: 'row',
+    paddingHorizontal: DESIGN.spacing.pagePad,
+    paddingTop: 12,
+    paddingBottom: 8,
+    backgroundColor: DESIGN.colors.white,
+    gap: 8,
+  },
+  notificationTab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: DESIGN.colors.lightBg,
+    borderRadius: 20,
+    gap: 6,
+  },
+  notificationTabActive: {
+    backgroundColor: DESIGN.colors.orange + '15',
+  },
+  notificationTabText: {
+    fontSize: 13,
+    color: DESIGN.colors.muted,
+    fontWeight: '600',
+  },
+  notificationTabTextActive: {
+    color: DESIGN.colors.orange,
+    fontWeight: '700',
+  },
+  notificationTabBadge: {
+    backgroundColor: DESIGN.colors.muted + '20',
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  notificationTabBadgeActive: {
+    backgroundColor: DESIGN.colors.orange,
+  },
+  notificationTabBadgeText: {
+    fontSize: 10,
+    color: DESIGN.colors.muted,
+    fontWeight: '700',
+  },
+  notificationTabBadgeTextActive: {
+    color: '#fff',
+  },
+  waiterInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
+  },
+  waiterName: {
+    fontSize: 12,
+    color: DESIGN.colors.muted,
+  },
   // Home page styles
   content: {
     flex: 1,
@@ -2101,6 +2596,89 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: DESIGN.colors.muted,
     marginTop: 4,
+  },
+  // Profile sub-screen styles
+  subHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: DESIGN.spacing.pagePad,
+    paddingTop: 16,
+    paddingBottom: 12,
+    backgroundColor: DESIGN.colors.white,
+    borderBottomWidth: 1,
+    borderBottomColor: DESIGN.colors.border,
+  },
+  backBtn: {
+    padding: 4,
+  },
+  formContainer: {
+    padding: DESIGN.spacing.pagePad,
+  },
+  formLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: DESIGN.colors.darkText,
+    marginBottom: 8,
+  },
+  formInput: {
+    backgroundColor: DESIGN.colors.white,
+    borderWidth: 1,
+    borderColor: DESIGN.colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 16,
+    color: DESIGN.colors.darkText,
+    marginBottom: 16,
+  },
+  saveBtn: {
+    backgroundColor: DESIGN.colors.orange,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  saveBtnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  imagePickerContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  imagePickerBox: {
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    backgroundColor: DESIGN.colors.lightBg,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  imagePickerPreview: {
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+  },
+  imagePickerOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  imagePickerHint: {
+    marginTop: 16,
+    fontSize: 14,
+    color: DESIGN.colors.muted,
+  },
+  uploadingText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: DESIGN.colors.orange,
+    fontWeight: '600',
   },
 });
 

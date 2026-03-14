@@ -12,17 +12,18 @@ class ApiClient {
   private baseURL: string;
 
   constructor() {
-    // For mobile development, use the computer's IP address instead of localhost
-    // Replace with your computer's IP address (run ipconfig/ifconfig to find it)
-    this.baseURL = __DEV__
-      ? 'http://192.168.0.140:3000/api'  // Replace with your computer's IP
-      : 'http://your-production-api-url/api'; // For production
+    // Use environment variable for API URL, fallback to development defaults
+    const devApiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.0.140:3000/api';
+    const prodApiUrl = process.env.EXPO_PUBLIC_API_URL_PRODUCTION || 'https://your-production-api.com/api';
+
+    this.baseURL = __DEV__ ? devApiUrl : prodApiUrl;
 
     console.log('[API] Base URL:', this.baseURL);
+    console.log('[API] Environment:', __DEV__ ? 'development' : 'production');
 
     this.instance = axios.create({
       baseURL: this.baseURL,
-      timeout: 10000,
+      timeout: 30000, // Increased from 10s to 30s for slower networks
       headers: {
         'Content-Type': 'application/json',
       },
@@ -131,6 +132,20 @@ class ApiClient {
   async delete<T = any>(url: string): Promise<ApiResponse<T>> {
     try {
       const response: AxiosResponse<ApiResponse<T>> = await this.instance.delete(url);
+      return response.data;
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Network error',
+      };
+    }
+  }
+
+  async uploadFile<T = any>(url: string, formData: FormData): Promise<ApiResponse<T>> {
+    try {
+      const response: AxiosResponse<ApiResponse<T>> = await this.instance.patch(url, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
       return response.data;
     } catch (error: any) {
       return {

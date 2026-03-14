@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import {
   View,
   Text,
@@ -7,73 +7,85 @@ import {
   FlatList,
   Image,
   Alert,
+  StatusBar,
+  SafeAreaView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect } from '@react-navigation/native';
 import { colors, typography, spacing, borderRadius, shadows } from '../../theme';
-import { formatPrice, formatPriceDecimal } from '../../utils/formatHelpers';
-import { calculateBill, CartItem } from '../../utils/cartHelpers';
-
-const MOCK_CART_ITEMS: CartItem[] = [
-  { _id: '1', name: 'Chicken Biryani', price: 250, originalPrice: 350, quantity: 2, size: 'Regular', image: 'https://images.unsplash.com/photo-1563379926898-05f4575a45d8?w=100&h=100&fit=crop' },
-  { _id: '2', name: 'Tandoori Chicken', price: 180, originalPrice: 250, quantity: 1, size: 'Half', image: 'https://images.unsplash.com/photo-1601058268499-e526861c0f8f?w=100&h=100&fit=crop' },
-  { _id: '3', name: 'Coca Cola (Large)', price: 60, quantity: 2, image: 'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=100&h=100&fit=crop' },
-];
+import { useFormatPrice } from '../../utils/formatHelpers';
+import { calculateBill } from '../../utils/cartHelpers';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useCart } from '../../context/CartContext';
+import { useSettings } from '../../context/SettingsContext';
+import api from '../../services/api';
 
 export default function CartScreen() {
   const navigation = useNavigation();
-  const [cartItems, setCartItems] = useState<CartItem[]>(MOCK_CART_ITEMS);
+  const insets = useSafeAreaInsets();
+  const { cartItems, updateQuantity, removeFromCart, getCartCount } = useCart();
+  const { taxRate, formatPrice, deliveryFee, refreshSettings } = useSettings();
+  const formatPriceDynamic = useFormatPrice();
 
-  const bill = useMemo(() => {
-    const calculated = calculateBill(cartItems, { deliveryFee: 50, taxPercent: 5 });
-    // Debug logging
-    console.log('[Cart] Items:');
-    cartItems.forEach(item => {
-      console.log(`  ${item.name}: ₹${item.price} × ${item.quantity} = ₹${item.price * item.quantity}`);
-    });
-    console.log(`[Cart] Subtotal: ₹${calculated.subtotal}`);
-    console.log(`[Cart] Discount: ₹${calculated.discount}`);
-    console.log(`[Cart] Delivery Fee: ₹${calculated.deliveryFee}`);
-    console.log(`[Cart] Tax (${calculated.taxPercentage}%): ₹${calculated.tax}`);
-    console.log(`[Cart] Total: ₹${calculated.total}`);
-    return calculated;
-  }, [cartItems]);
+  useFocusEffect(
+    React.useCallback(() => {
+      refreshSettings();
+    }, [refreshSettings])
+  );
 
-  const updateQuantity = (id: string, change: number) => {
-    setCartItems(prev => prev.map(item => {
-      if (item._id === id) {
-        const newQty = Math.max(1, item.quantity + change);
-        return { ...item, quantity: newQty };
-      }
-      return item;
-    }));
+  const getFullImageUrl = (url?: string) => {
+    if (!url) return '';
+    const normalized = url.replace(/\\/g, '/');
+    if (normalized.startsWith('http://') || normalized.startsWith('https://')) return normalized;
+    const base = String((api as any)?.defaults?.baseURL || '').replace(/\/?api\/?$/, '');
+    if (normalized.startsWith('/')) return `${base}${normalized}`;
+    if (base) return `${base}/${normalized}`;
+    return normalized;
   };
 
-  const removeItem = (id: string) => {
+  const bill = useMemo(() => {
+    // Use realtime tax rate and delivery fee from branch settings
+    const calculated = calculateBill(cartItems, { deliveryFee, taxPercent: taxRate });
+    return calculated;
+  }, [cartItems, taxRate, deliveryFee]);
+
+  const handleUpdateQuantity = (id: string, change: number) => {
+    const item = cartItems.find(i => i._id === id);
+    if (item) {
+      const newQty = Math.max(1, item.quantity + change);
+      updateQuantity(id, newQty);
+    }
+  };
+
+  const handleRemoveItem = (id: string) => {
     Alert.alert('Remove Item', 'Are you sure you want to remove this item?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Remove', onPress: () => setCartItems(prev => prev.filter(item => item._id !== id)), style: 'destructive' },
+      { text: 'Remove', onPress: () => removeFromCart(id), style: 'destructive' },
     ]);
   };
 
-  const renderCartItem = ({ item }: { item: CartItem }) => (
+  const renderCartItem = ({ item }: { item: typeof cartItems[0] }) => (
     <View style={styles.cartItem}>
-      <Image source={{ uri: item.image }} style={styles.itemImage} />
+      <Image
+        source={{ uri: getFullImageUrl(item.image) || 'https://via.placeholder.com/100' }}
+        style={styles.itemImage}
+      />
       <View style={styles.itemInfo}>
         <Text style={styles.itemName}>{item.name}</Text>
-        <Text style={styles.itemSize}>{item.size || 'Standard'}</Text>
-        <Text style={styles.itemPrice}>{formatPrice(item.price * item.quantity)}</Text>
+        {!!item.size && <Text style={styles.itemSize}>{item.size}</Text>}
+        <Text style={styles.itemPrice}>{formatPriceDynamic(item.price * item.quantity)}</Text>
       </View>
       <View style={styles.quantityControls}>
-        <TouchableOpacity onPress={() => updateQuantity(item._id, -1)} style={styles.qtyButton}>
+        <TouchableOpacity onPress={() => handleUpdateQuantity(item._id, -1)} style={styles.qtyButton}>
           <Ionicons name="remove" size={16} color={colors.text_dark} />
         </TouchableOpacity>
         <Text style={styles.quantity}>{item.quantity}</Text>
-        <TouchableOpacity onPress={() => updateQuantity(item._id, 1)} style={styles.qtyButton}>
+        <TouchableOpacity onPress={() => handleUpdateQuantity(item._id, 1)} style={styles.qtyButton}>
           <Ionicons name="add" size={16} color={colors.text_dark} />
         </TouchableOpacity>
       </View>
-      <TouchableOpacity onPress={() => removeItem(item._id)} style={styles.removeButton}>
+      <TouchableOpacity onPress={() => handleRemoveItem(item._id)} style={styles.removeButton}>
         <Ionicons name="trash-outline" size={20} color={colors.danger} />
       </TouchableOpacity>
     </View>
@@ -81,22 +93,32 @@ export default function CartScreen() {
 
   if (cartItems.length === 0) {
     return (
-      <View style={styles.emptyContainer}>
-        <Ionicons name="cart-outline" size={80} color={colors.gray_300} />
-        <Text style={styles.emptyTitle}>Your cart is empty</Text>
-        <Text style={styles.emptySubtitle}>Add items to get started</Text>
-        <TouchableOpacity style={styles.browseButton} onPress={() => navigation.navigate('Home') }>
-          <Text style={styles.browseButtonText}>BROWSE MENU</Text>
-        </TouchableOpacity>
-      </View>
+      <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
+        <StatusBar barStyle="dark-content" backgroundColor={colors.white} />
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>My Cart</Text>
+        </View>
+        <View style={styles.emptyContainer}>
+          <Ionicons name="cart-outline" size={80} color={colors.gray_300} />
+          <Text style={styles.emptyTitle}>Your cart is empty</Text>
+          <Text style={styles.emptySubtitle}>Add items to get started</Text>
+          <TouchableOpacity
+            style={styles.browseButton}
+            onPress={() => (navigation as any).navigate('MainTabs', { screen: 'Home' })}
+          >
+            <Text style={styles.browseButtonText}>BROWSE MENU</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar barStyle="dark-content" backgroundColor={colors.white} />
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>My Cart ({cartItems.length} items)</Text>
+        <Text style={styles.headerTitle}>My Cart ({getCartCount()} items)</Text>
       </View>
 
       <FlatList
@@ -111,42 +133,42 @@ export default function CartScreen() {
       <View style={styles.billContainer}>
         <Text style={styles.billTitle}>BILL DETAILS</Text>
         <View style={styles.billRow}>
-          <Text style={styles.billLabel}>Subtotal ({cartItems.reduce((acc, item) => acc + item.quantity, 0)} items)</Text>
-          <Text style={styles.billValue}>{formatPriceDecimal(bill.subtotal)}</Text>
+          <Text style={styles.billLabel}>Subtotal ({getCartCount()} items)</Text>
+          <Text style={styles.billValue}>{formatPriceDynamic(bill.subtotal)}</Text>
         </View>
         {bill.discount > 0 && (
           <View style={styles.billRow}>
             <Text style={styles.billLabel}>Discount</Text>
-            <Text style={[styles.billValue, styles.discountText]}>-{formatPriceDecimal(bill.discount)}</Text>
+            <Text style={[styles.billValue, styles.discountText]}>-{formatPriceDynamic(bill.discount)}</Text>
           </View>
         )}
         <View style={styles.billRow}>
           <Text style={styles.billLabel}>Delivery Fee</Text>
           <Text style={[styles.billValue, bill.deliveryFee === 0 && styles.freeText]}>
-            {bill.deliveryFee === 0 ? 'FREE' : formatPriceDecimal(bill.deliveryFee)}
+            {bill.deliveryFee === 0 ? 'FREE' : formatPriceDynamic(bill.deliveryFee)}
           </Text>
         </View>
         <View style={styles.billRow}>
           <Text style={styles.billLabel}>Tax ({bill.taxPercentage}%)</Text>
-          <Text style={styles.billValue}>{formatPriceDecimal(bill.tax)}</Text>
+          <Text style={styles.billValue}>{formatPriceDynamic(bill.tax)}</Text>
         </View>
         <View style={styles.divider} />
         <View style={styles.billRow}>
           <Text style={styles.totalLabel}>TOTAL</Text>
-          <Text style={styles.totalValue}>{formatPriceDecimal(bill.total)}</Text>
+          <Text style={styles.totalValue}>{formatPriceDynamic(bill.total)}</Text>
         </View>
       </View>
 
       {/* Action Buttons */}
       <View style={styles.footer}>
         <TouchableOpacity style={styles.checkoutButton} onPress={() => navigation.navigate('Checkout' as never) }>
-          <Text style={styles.checkoutText}>PROCEED TO CHECKOUT - {formatPriceDecimal(bill.total)}</Text>
+          <Text style={styles.checkoutText}>PROCEED TO CHECKOUT - {formatPriceDynamic(bill.total)}</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.continueButton} onPress={() => navigation.navigate('Home' as never) }>
+        <TouchableOpacity style={styles.continueButton} onPress={() => (navigation as any).navigate('MainTabs', { screen: 'Home' }) }>
           <Text style={styles.continueText}>CONTINUE SHOPPING</Text>
         </TouchableOpacity>
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 

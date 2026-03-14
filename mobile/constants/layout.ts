@@ -3,6 +3,13 @@ import { Platform, StatusBar } from 'react-native';
 // Status bar height for Android
 export const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 0;
 
+// Standard Invoice/Receipt Page Sizes (for thermal printers)
+export const RECEIPT_WIDTH_80MM = 80; // Standard 80mm thermal paper width (most common)
+export const RECEIPT_WIDTH_58MM = 58; // Small 58mm thermal paper width
+export const RECEIPT_DEFAULT_WIDTH = RECEIPT_WIDTH_80MM; // Default to 80mm
+export const RECEIPT_MARGIN_MM = 4; // 4mm margin on each side
+export const RECEIPT_PRINTABLE_WIDTH = RECEIPT_DEFAULT_WIDTH - (RECEIPT_MARGIN_MM * 2); // 72mm printable area
+
 // Header margins for different platforms
 export const HEADER_MARGIN = Platform.OS === 'ios' ? 50 : 20;
 

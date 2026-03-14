@@ -19,21 +19,37 @@ export class MenuRepository {
   }
 
   async findMenuItemById(id: string | Types.ObjectId): Promise<any | null> {
-    return await MenuItem.findById(id)
-      .populate('category', 'name description');
+    console.log('[MenuRepository] findMenuItemById called with:', id);
+    try {
+      const item = await MenuItem.findById(id)
+        .populate('category', 'name description')
+        .populate({ path: 'productSizes', populate: { path: 'size' } });
+      console.log('[MenuRepository] findById result:', item ? { id: item._id, name: item.name, deletedAt: item.deletedAt } : null);
+      return item;
+    } catch (error: any) {
+      console.error('[MenuRepository] findById error:', error.message);
+      return null;
+    }
   }
 
   async updateMenuItem(id: string | Types.ObjectId, updateData: any): Promise<any | null> {
-    return await MenuItem.findByIdAndUpdate(
-      id,
-      updateData,
-      { new: true, runValidators: true }
-    ).populate('category', 'name description');
+    const menuItem = await MenuItem.findById(id);
+    if (!menuItem) return null;
+
+    Object.assign(menuItem, updateData);
+    await menuItem.save();
+
+    return await MenuItem.findById(menuItem._id)
+      .populate('category', 'name description');
   }
 
   async deleteMenuItem(id: string | Types.ObjectId): Promise<boolean> {
     const result = await MenuItem.findByIdAndDelete(id);
     return !!result;
+  }
+
+  async deleteProduct(id: string | Types.ObjectId): Promise<boolean> {
+    return await this.deleteMenuItem(id);
   }
 
   async getMenuItemsByRestaurant(
@@ -47,6 +63,7 @@ export class MenuRepository {
     const [items, total] = await Promise.all([
       MenuItem.find({ restaurant: restaurantId, ...filter })
         .populate('category', 'name description')
+        .populate({ path: 'productSizes', populate: { path: 'size' } })
         .sort('category displayOrder name')
         .skip(skip)
         .limit(limit),
@@ -223,7 +240,9 @@ export class MenuRepository {
           restaurant: restaurantId,
           category: category._id,
           isAvailable: true,
-        }).sort('name');
+        })
+          .populate({ path: 'productSizes', populate: { path: 'size' } })
+          .sort('name');
 
         return {
           ...category.toObject(),
@@ -241,6 +260,7 @@ export class MenuRepository {
 
     return await MenuItem.find(filter)
       .populate('category', 'name description')
+      .populate({ path: 'productSizes', populate: { path: 'size' } })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);

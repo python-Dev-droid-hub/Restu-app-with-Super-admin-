@@ -2,17 +2,26 @@ import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
+  SafeAreaView,
   TouchableOpacity,
   StyleSheet,
   FlatList,
   Image,
   RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, typography, spacing, borderRadius, shadows } from '../../theme';
-import { formatPrice, formatDate } from '../../utils/formatHelpers';
+import { formatDate } from '../../utils/formatHelpers';
+import { useSettings } from '../../context/SettingsContext';
 import api from '../../services/api';
+
+// Get API base URL for images
+const API_BASE_URL = __DEV__
+  ? 'http://192.168.0.140:3000'
+  : 'https://your-production-api.com';
 
 interface Order {
   _id: string;
@@ -52,8 +61,63 @@ const getStatusLabel = (status: string) => {
   }
 };
 
+// Helper to get full image URL
+const getImageUrl = (imagePath?: string): string | undefined => {
+  if (!imagePath) return undefined;
+  
+  // If it's already a full URL, return it
+  if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+    return imagePath;
+  }
+  
+  // If it's a relative path, prepend the API base URL
+  if (imagePath.startsWith('/')) {
+    return `${API_BASE_URL}${imagePath}`;
+  }
+  
+  return imagePath;
+};
+
+// Order Item Image Component with fallback
+const OrderItemImage = ({ imageUrl }: { imageUrl?: string }) => {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  
+  const fullUrl = getImageUrl(imageUrl);
+  
+  if (!fullUrl || error) {
+    return (
+      <View style={styles.itemImagePlaceholder}>
+        <Ionicons name="restaurant-outline" size={20} color={colors.gray_400} />
+      </View>
+    );
+  }
+  
+  return (
+    <View style={styles.imageContainer}>
+      <Image 
+        source={{ uri: fullUrl }} 
+        style={styles.itemImage}
+        onLoadStart={() => setLoading(true)}
+        onLoadEnd={() => setLoading(false)}
+        onError={() => {
+          setLoading(false);
+          setError(true);
+        }}
+      />
+      {loading && (
+        <View style={styles.imageLoadingOverlay}>
+          <ActivityIndicator size="small" color={colors.primary} />
+        </View>
+      )}
+    </View>
+  );
+};
+
 export default function OrderHistoryScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation() as any;
+  const insets = useSafeAreaInsets();
+  const { formatPrice } = useSettings();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -62,7 +126,35 @@ export default function OrderHistoryScreen() {
   const fetchOrders = async () => {
     try {
       const response = await api.get('/orders/my-orders');
-      setOrders(response.data.data || []);
+      const maybeOrders = response?.data?.data?.orders ?? response?.data?.orders ?? response?.data?.data;
+      const rawOrders = Array.isArray(maybeOrders) ? maybeOrders : [];
+
+      const mapped: Order[] = rawOrders.map((o: any) => {
+        const rawItems = Array.isArray(o?.items) ? o.items : [];
+        const mappedItems = rawItems.map((it: any) => {
+          const product = it?.product;
+          const name = it?.productName || product?.name || it?.name || 'Item';
+          const quantity = Number(it?.quantity) || 1;
+          const unitPrice = Number(it?.unitPrice ?? it?.price ?? 0);
+          const image = product?.imageUrl || product?.image || it?.image;
+          return { name, quantity, price: unitPrice, image };
+        });
+
+        const statusRaw = String(o?.status || '').toLowerCase();
+        const status = (statusRaw as any) || 'pending';
+
+        return {
+          _id: o?._id,
+          orderNumber: o?.orderNumber || `ORD-${String(o?._id || '').slice(-6).toUpperCase()}`,
+          status,
+          totalAmount: Number(o?.totalAmount ?? o?.finalAmount ?? o?.total ?? 0),
+          items: mappedItems,
+          createdAt: o?.createdAt || o?.created_at || new Date().toISOString(),
+          branchName: o?.branch?.branchName || o?.branch?.name || o?.branchName,
+        };
+      });
+
+      setOrders(mapped);
     } catch (error) {
       console.error('Failed to fetch orders:', error);
       // Use mock data if API fails
@@ -156,13 +248,7 @@ export default function OrderHistoryScreen() {
       <View style={styles.itemsContainer}>
         {item.items.slice(0, 3).map((orderItem, index) => (
           <View key={index} style={styles.itemRow}>
-            {orderItem.image ? (
-              <Image source={{ uri: orderItem.image }} style={styles.itemImage} />
-            ) : (
-              <View style={styles.itemImagePlaceholder}>
-                <Ionicons name="restaurant" size={16} color={colors.gray_400} />
-              </View>
-            )}
+            <OrderItemImage imageUrl={orderItem.image} />
             <Text style={styles.itemName} numberOfLines={1}>
               {orderItem.quantity}× {orderItem.name}
             </Text>
@@ -192,7 +278,10 @@ export default function OrderHistoryScreen() {
             <Text style={styles.cancelText}>CANCEL</Text>
           </TouchableOpacity>
         )}
-        <TouchableOpacity style={styles.trackButton}>
+        <TouchableOpacity
+          style={styles.trackButton}
+          onPress={() => navigation.navigate('OrderTracking' as never, { orderId: item._id })}
+        >
           <Text style={styles.trackText}>TRACK ORDER</Text>
         </TouchableOpacity>
       </View>
@@ -200,9 +289,9 @@ export default function OrderHistoryScreen() {
   );
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: spacing.lg }]}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={24} color={colors.text_dark} />
         </TouchableOpacity>
@@ -254,7 +343,7 @@ export default function OrderHistoryScreen() {
           </View>
         }
       />
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -265,7 +354,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
+    paddingTop: 0,
     paddingBottom: spacing.md,
     backgroundColor: colors.white,
   },
@@ -346,19 +435,33 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   itemImage: {
-    width: 40,
-    height: 40,
-    borderRadius: borderRadius.sm,
-    marginRight: spacing.sm,
+    width: 48,
+    height: 48,
+    borderRadius: borderRadius.md,
   },
   itemImagePlaceholder: {
-    width: 40,
-    height: 40,
-    borderRadius: borderRadius.sm,
+    width: 48,
+    height: 48,
+    borderRadius: borderRadius.md,
     backgroundColor: colors.gray_100,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: spacing.sm,
+  },
+  imageContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: borderRadius.md,
+    marginRight: spacing.sm,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  imageLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: colors.gray_100,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: borderRadius.md,
   },
   itemName: {
     flex: 1,

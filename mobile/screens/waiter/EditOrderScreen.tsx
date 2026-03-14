@@ -18,6 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 interface OrderItem {
   id: string;
+  _id?: string;
   productId: string;
   productName: string;
   quantity: number;
@@ -25,6 +26,16 @@ interface OrderItem {
   totalPrice: number;
   image?: string;
   customizations?: any[];
+  specialInstructions?: string;
+  selectedSize?: ProductSize;
+}
+
+interface ProductSize {
+  id: string;
+  size_id: string;
+  size_name: string;
+  price: number;
+  isDefault?: boolean;
 }
 
 interface Product {
@@ -32,9 +43,22 @@ interface Product {
   name: string;
   price: number;
   imageUrl?: string;
+  image_url?: string;
   description?: string;
   category?: string;
+  category_id?: string;
   isAvailable?: boolean;
+  is_available?: boolean;
+  has_sizes?: boolean;
+  effectivePrice?: number;
+  productSizes?: ProductSize[];
+  sizes?: ProductSize[];
+}
+
+interface Category {
+  id: string;
+  name: string;
+  products?: Product[];
 }
 
 interface Order {
@@ -54,13 +78,13 @@ export default function EditOrderScreen() {
 
   const [order, setOrder] = useState<Order | null>(null);
   const [items, setItems] = useState<OrderItem[]>([]);
-  const [specialInstructions, setSpecialInstructions] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [showAddItem, setShowAddItem] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [categories, setCategories] = useState<string[]>(['all']);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [showItemEditor, setShowItemEditor] = useState<string | null>(null);
+  const [editingItemNote, setEditingItemNote] = useState('');
 
   useEffect(() => {
     loadOrder();
@@ -73,19 +97,25 @@ export default function EditOrderScreen() {
       if (response.success && response.data) {
         const orderData = response.data;
         setOrder(orderData);
-        setSpecialInstructions(orderData.specialInstructions || '');
         
         // Format items
-        const formattedItems = (orderData.items || []).map((item: any) => ({
-          id: item.id || item._id || `${Date.now()}-${Math.random()}`,
-          productId: item.product?._id || item.product || item.menuItemId,
-          productName: item.productName || item.product?.name || 'Unknown Item',
-          quantity: item.quantity || 1,
-          unitPrice: item.unitPrice || item.price || 0,
-          totalPrice: item.totalPrice || (item.unitPrice * item.quantity) || 0,
-          image: item.product?.imageUrl || item.product?.image,
-          customizations: item.customizations || [],
-        }));
+        const formattedItems = (orderData.items || []).map((item: any) => {
+          const imageUrl = item.product?.imageUrl || item.product?.image;
+          // Use MongoDB _id as the stable identifier
+          const itemId = item._id || item.id || `${Date.now()}-${Math.random()}`;
+          return {
+            id: itemId,
+            _id: item._id, // Keep original MongoDB _id for API calls
+            productId: item.product?._id || item.product || item.menuItemId,
+            productName: item.productName || item.product?.name || 'Unknown Item',
+            quantity: item.quantity || 1,
+            unitPrice: item.unitPrice || item.price || 0,
+            totalPrice: item.totalPrice || (item.unitPrice * item.quantity) || 0,
+            image: imageUrl ? (imageUrl.startsWith('http') ? imageUrl : `${api.getBaseURL()}${imageUrl}`) : undefined,
+            customizations: item.customizations || [],
+            specialInstructions: item.specialInstructions || '',
+          };
+        });
         setItems(formattedItems);
       }
     } catch (error) {
@@ -98,14 +128,56 @@ export default function EditOrderScreen() {
 
   const loadProducts = async () => {
     try {
-      const response = await api.get('/menu/items');
+      const response = await api.get('/menu');
       if (response.success && response.data) {
-        const prods = response.data.items || response.data || [];
-        setProducts(prods.filter((p: Product) => p.isAvailable !== false));
+        const rawCategories = response.data.categories || response.data || [];
+        const allProducts: Product[] = [];
         
-        // Extract unique categories
-        const cats: string[] = [...new Set(prods.map((p: Product) => p.category).filter(Boolean)) as Set<string>];
-        setCategories(['all', ...cats]);
+        const formattedCategories: Category[] = rawCategories.map((cat: any) => {
+          const catProducts = (cat.products || cat.items || []).map((p: any) => {
+            const product: Product = {
+              id: String(p._id || p.id),
+              name: p.name,
+              price: p.price,
+              imageUrl: p.imageUrl ? `${api.getBaseURL()}${p.imageUrl}` : (p.image_url || p.images?.[0]),
+              image_url: p.imageUrl ? `${api.getBaseURL()}${p.imageUrl}` : (p.image_url || p.images?.[0]),
+              description: p.description,
+              category: cat.name,
+              category_id: String(cat._id || cat.id),
+              isAvailable: p.is_available ?? p.isAvailable ?? true,
+              is_available: p.is_available ?? p.isAvailable ?? true,
+              has_sizes: p.has_sizes ?? p.hasSizes ?? false,
+              effectivePrice: p.effectivePrice,
+              productSizes: (p.productSizes || []).map((s: any) => ({
+                id: String(s._id || s.id),
+                size_id: s.size_id || s.sizeId,
+                size_name: s.size_name || s.sizeName || s.name,
+                price: s.price,
+                isDefault: s.isDefault,
+              })),
+              sizes: (p.sizes || p.productSizes || []).map((s: any) => ({
+                id: String(s._id || s.id),
+                size_id: s.size_id || s.sizeId,
+                size_name: s.size_name || s.sizeName || s.name,
+                price: s.price,
+              })),
+            };
+            allProducts.push(product);
+            return product;
+          });
+          
+          return {
+            id: String(cat._id || cat.id),
+            name: cat.name,
+            products: catProducts,
+          };
+        });
+        
+        setCategories(formattedCategories);
+        setProducts(allProducts);
+        if (formattedCategories.length > 0) {
+          setSelectedCategory(formattedCategories[0].id);
+        }
       }
     } catch (error) {
       console.error('Error loading products:', error);
@@ -129,6 +201,28 @@ export default function EditOrderScreen() {
     }
   };
 
+  const updateItemNote = (itemId: string, note: string) => {
+    setItems(prev => prev.map(item => 
+      item.id === itemId 
+        ? { ...item, specialInstructions: note }
+        : item
+    ));
+  };
+
+  const openItemNoteEditor = (itemId: string) => {
+    const item = items.find(i => i.id === itemId);
+    setEditingItemNote(item?.specialInstructions || '');
+    setShowItemEditor(itemId);
+  };
+
+  const saveItemNote = () => {
+    if (showItemEditor) {
+      updateItemNote(showItemEditor, editingItemNote);
+    }
+    setShowItemEditor(null);
+    setEditingItemNote('');
+  };
+
   const addProductToOrder = (product: Product) => {
     const existingIndex = items.findIndex(item => item.productId === product.id);
     
@@ -141,14 +235,15 @@ export default function EditOrderScreen() {
       ));
     } else {
       // Add new item
+      const unitPrice = getDisplayPrice(product);
       const newItem: OrderItem = {
         id: `${Date.now()}-${Math.random()}`,
         productId: product.id,
         productName: product.name,
         quantity: 1,
-        unitPrice: product.price,
-        totalPrice: product.price,
-        image: product.imageUrl,
+        unitPrice: unitPrice,
+        totalPrice: unitPrice,
+        image: product.imageUrl || product.image_url,
         customizations: [],
       };
       setItems(prev => [...prev, newItem]);
@@ -163,27 +258,50 @@ export default function EditOrderScreen() {
 
     setSaving(true);
     try {
-      // Calculate items to add and remove
-      const originalItemIds = (order?.items || []).map(i => i.id);
-      const currentItemIds = items.map(i => i.id);
+      // Get original item IDs (use _id from MongoDB)
+      const originalItemIds = (order?.items || []).map(i => i._id || i.id);
+      const currentItemIds = items.map(i => i._id || i.id);
       
-      // Items to remove (were in original but not in current)
+      console.log('[EDIT ORDER] Original items:', originalItemIds);
+      console.log('[EDIT ORDER] Current items:', currentItemIds);
+      
+      // Items to remove (were in original but not in current) - send MongoDB _id
       const removeItems = originalItemIds.filter(id => !currentItemIds.includes(id));
+      console.log('[EDIT ORDER] Items to remove:', removeItems);
       
-      // Items to add (new items that weren't in original)
+      // Items to add (new items that weren't in original - no _id)
       const addItems = items
-        .filter(item => !originalItemIds.includes(item.id))
+        .filter(item => !item._id || !originalItemIds.includes(item._id))
         .map(item => ({
           menuItemId: item.productId,
           quantity: item.quantity,
           customizations: item.customizations || [],
+          specialInstructions: item.specialInstructions || '',
         }));
+      console.log('[EDIT ORDER] Items to add:', addItems.length);
+      
+      // Items to update (changed quantity or notes - have _id)
+      const updateItems = items
+        .filter(item => item._id && originalItemIds.includes(item._id))
+        .filter(item => {
+          const orig = order?.items?.find(i => (i._id || i.id) === item._id);
+          return orig && (orig.quantity !== item.quantity || orig.specialInstructions !== item.specialInstructions);
+        })
+        .map(item => ({
+          itemId: item._id,
+          quantity: item.quantity,
+          specialInstructions: item.specialInstructions || '',
+        }));
+      console.log('[EDIT ORDER] Items to update:', updateItems.length);
 
-      const response = await api.put(`/orders/${orderId}`, {
-        specialInstructions: specialInstructions.trim(),
+      const payload = {
         addItems: addItems.length > 0 ? addItems : undefined,
         removeItems: removeItems.length > 0 ? removeItems : undefined,
-      });
+        updateItems: updateItems.length > 0 ? updateItems : undefined,
+      };
+      console.log('[EDIT ORDER] Sending payload:', JSON.stringify(payload, null, 2));
+
+      const response = await api.put(`/orders/${orderId}`, payload);
 
       if (response.success) {
         Alert.alert('Success', 'Order updated successfully', [
@@ -200,9 +318,23 @@ export default function EditOrderScreen() {
     }
   };
 
-  const filteredProducts = selectedCategory === 'all' 
-    ? products 
-    : products.filter(p => p.category === selectedCategory);
+  // Helper to get display price for products with sizes
+  const getDisplayPrice = (product: Product): number => {
+    if (typeof product.effectivePrice === 'number' && !Number.isNaN(product.effectivePrice)) {
+      return product.effectivePrice;
+    }
+    const sizes = product.productSizes || product.sizes;
+    if (product.has_sizes && Array.isArray(sizes) && sizes.length > 0) {
+      const defaultSize = sizes.find((s) => s?.isDefault);
+      const candidate = defaultSize?.price ?? Math.min(...sizes.map((s) => s?.price ?? Number.POSITIVE_INFINITY));
+      if (typeof candidate === 'number' && Number.isFinite(candidate)) return candidate;
+    }
+    return typeof product.price === 'number' && !Number.isNaN(product.price) ? product.price : 0;
+  };
+
+  const filteredProducts = selectedCategory 
+    ? products.filter(p => p.category_id === selectedCategory)
+    : products;
 
   if (loading) {
     return (
@@ -237,37 +369,14 @@ export default function EditOrderScreen() {
           </View>
         )}
 
-        {/* Special Instructions */}
+        {/* Current Order Items */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Special Instructions</Text>
-          <TextInput
-            style={styles.instructionsInput}
-            value={specialInstructions}
-            onChangeText={setSpecialInstructions}
-            placeholder="Add special instructions..."
-            placeholderTextColor="#8E8E93"
-            multiline
-            numberOfLines={3}
-          />
-        </View>
-
-        {/* Order Items */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Order Items ({items.length})</Text>
-            <TouchableOpacity 
-              style={styles.addItemBtn}
-              onPress={() => setShowAddItem(true)}
-            >
-              <Ionicons name="add" size={20} color="#fff" />
-              <Text style={styles.addItemText}>Add Item</Text>
-            </TouchableOpacity>
-          </View>
-
+          <Text style={styles.sectionTitle}>Current Items ({items.length})</Text>
+          
           {items.length === 0 ? (
             <View style={styles.emptyState}>
               <Text style={styles.emptyText}>No items in order</Text>
-              <Text style={styles.emptySubtext}>Tap "Add Item" to add products</Text>
+              <Text style={styles.emptySubtext}>Add products from categories below</Text>
             </View>
           ) : (
             items.map((item, index) => (
@@ -278,7 +387,7 @@ export default function EditOrderScreen() {
                     <Image source={{ uri: item.image }} style={styles.itemImage} />
                   ) : (
                     <View style={styles.itemImagePlaceholder}>
-                      <Ionicons name="restaurant" size={28} color="#FF7A59" />
+                      <Ionicons name="restaurant" size={24} color="#FF7A59" />
                     </View>
                   )}
                 </View>
@@ -288,7 +397,26 @@ export default function EditOrderScreen() {
                   <Text style={styles.itemName} numberOfLines={1} ellipsizeMode="tail">
                     {item.productName}
                   </Text>
-                  <Text style={styles.itemPrice}>${item.unitPrice.toFixed(2)} each</Text>
+                  <Text style={styles.itemPrice}>${Number(item.unitPrice || 0).toFixed(2)} each</Text>
+                  
+                  {/* Per-item special instructions */}
+                  <TouchableOpacity 
+                    style={styles.noteBtn}
+                    onPress={() => openItemNoteEditor(item.id)}
+                  >
+                    <Ionicons 
+                      name={item.specialInstructions ? "document-text" : "create-outline"} 
+                      size={14} 
+                      color={item.specialInstructions ? "#FF7A59" : "#8E8E93"} 
+                    />
+                    <Text style={[styles.noteBtnText, item.specialInstructions && styles.noteBtnTextActive]}>
+                      {item.specialInstructions ? 'Edit Note' : 'Add Note'}
+                    </Text>
+                  </TouchableOpacity>
+                  
+                  {item.specialInstructions ? (
+                    <Text style={styles.itemNote} numberOfLines={1}>{item.specialInstructions}</Text>
+                  ) : null}
                 </View>
 
                 {/* Quantity Controls */}
@@ -313,7 +441,7 @@ export default function EditOrderScreen() {
                 </View>
 
                 {/* Total Price */}
-                <Text style={styles.itemTotal}>${(item.unitPrice * item.quantity).toFixed(2)}</Text>
+                <Text style={styles.itemTotal}>${Number((item.unitPrice || 0) * (item.quantity || 1)).toFixed(2)}</Text>
               </View>
             ))
           )}
@@ -322,12 +450,121 @@ export default function EditOrderScreen() {
         {/* Total */}
         <View style={styles.totalSection}>
           <Text style={styles.totalLabel}>Total Amount</Text>
-          <Text style={styles.totalAmount}>${totalAmount.toFixed(2)}</Text>
+          <Text style={styles.totalAmount}>${Number(totalAmount || 0).toFixed(2)}</Text>
+        </View>
+
+        {/* Category Tabs */}
+        <View style={styles.categoriesSection}>
+          <Text style={styles.categoriesTitle}>Add More Items</Text>
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            style={styles.categoryScroll}
+            contentContainerStyle={styles.categoryContainer}
+          >
+            {categories.map(cat => (
+              <TouchableOpacity
+                key={cat.id}
+                style={[
+                  styles.categoryTab,
+                  selectedCategory === cat.id && styles.categoryTabActive
+                ]}
+                onPress={() => setSelectedCategory(cat.id)}
+              >
+                <Text style={[
+                  styles.categoryTabText,
+                  selectedCategory === cat.id && styles.categoryTabTextActive
+                ]}>
+                  {cat.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+
+        {/* Products Grid */}
+        <View style={styles.productsSection}>
+          <View style={styles.productsGrid}>
+            {filteredProducts.filter(p => p.is_available !== false && p.isAvailable !== false).map(product => {
+              const inOrder = items.some(item => item.productId === product.id);
+              const orderQty = items.find(item => item.productId === product.id)?.quantity || 0;
+              
+              return (
+                <TouchableOpacity
+                  key={product.id}
+                  style={[styles.productCard, inOrder && styles.productCardActive]}
+                  onPress={() => addProductToOrder(product)}
+                  activeOpacity={0.7}
+                >
+                  {(product.imageUrl || product.image_url) ? (
+                    <Image source={{ uri: product.imageUrl || product.image_url }} style={styles.productImage} />
+                  ) : (
+                    <View style={styles.productImagePlaceholder}>
+                      <Ionicons name="restaurant" size={28} color="#FF7A59" />
+                    </View>
+                  )}
+                  
+                  <View style={styles.productInfo}>
+                    <Text style={styles.productName} numberOfLines={2}>{product.name}</Text>
+                    <Text style={styles.productPrice}>${getDisplayPrice(product).toFixed(2)}</Text>
+                  </View>
+                  
+                  {inOrder && (
+                    <View style={styles.inOrderBadge}>
+                      <Ionicons name="checkmark-circle" size={14} color="#34C759" />
+                      <Text style={styles.inOrderText}>{orderQty}</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </View>
 
         {/* Bottom padding */}
-        <View style={{ height: 100 }} />
+        <View style={{ height: 120 }} />
       </ScrollView>
+
+      {/* Item Note Editor Modal */}
+      <Modal
+        visible={showItemEditor !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowItemEditor(null)}
+      >
+        <View style={styles.noteModalOverlay}>
+          <View style={styles.noteModal}>
+            <Text style={styles.noteModalTitle}>Special Instructions</Text>
+            <Text style={styles.noteModalSubtitle}>
+              {items.find(i => i.id === showItemEditor)?.productName}
+            </Text>
+            <TextInput
+              style={styles.noteInput}
+              value={editingItemNote}
+              onChangeText={setEditingItemNote}
+              placeholder="e.g., No onions, extra spicy..."
+              placeholderTextColor="#8E8E93"
+              multiline
+              numberOfLines={3}
+              autoFocus
+            />
+            <View style={styles.noteModalButtons}>
+              <TouchableOpacity 
+                style={styles.noteCancelBtn}
+                onPress={() => {
+                  setShowItemEditor(null);
+                  setEditingItemNote('');
+                }}
+              >
+                <Text style={styles.noteCancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.noteSaveBtn} onPress={saveItemNote}>
+                <Text style={styles.noteSaveBtnText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Bottom Actions */}
       <View style={styles.bottomActions}>
@@ -351,94 +588,6 @@ export default function EditOrderScreen() {
           )}
         </TouchableOpacity>
       </View>
-
-      {/* Add Item Modal */}
-      <Modal
-        visible={showAddItem}
-        animationType="slide"
-        onRequestClose={() => setShowAddItem(false)}
-      >
-        <SafeAreaView style={styles.modalContainer}>
-          {/* Modal Header */}
-          <View style={styles.modalHeader}>
-            <TouchableOpacity onPress={() => setShowAddItem(false)}>
-              <Ionicons name="close" size={28} color="#1A1A2E" />
-            </TouchableOpacity>
-            <Text style={styles.modalTitle}>Add Items</Text>
-            <View style={{ width: 28 }} />
-          </View>
-
-          {/* Category Filter */}
-          <ScrollView 
-            horizontal 
-            showsHorizontalScrollIndicator={false}
-            style={styles.categoryScroll}
-            contentContainerStyle={styles.categoryContainer}
-          >
-            {categories.map(cat => (
-              <TouchableOpacity
-                key={cat}
-                style={[
-                  styles.categoryBtn,
-                  selectedCategory === cat && styles.categoryBtnActive
-                ]}
-                onPress={() => setSelectedCategory(cat)}
-              >
-                <Text style={[
-                  styles.categoryText,
-                  selectedCategory === cat && styles.categoryTextActive
-                ]}>
-                  {cat.charAt(0).toUpperCase() + cat.slice(1)}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-
-          {/* Products List */}
-          <ScrollView style={styles.productsList}>
-            <View style={styles.productsGrid}>
-              {filteredProducts.map(product => {
-                const inOrder = items.some(item => item.productId === product.id);
-                const orderQty = items.find(item => item.productId === product.id)?.quantity || 0;
-                
-                return (
-                  <TouchableOpacity
-                    key={product.id}
-                    style={[styles.productCard, inOrder && styles.productCardActive]}
-                    onPress={() => addProductToOrder(product)}
-                  >
-                    {product.imageUrl ? (
-                      <Image source={{ uri: product.imageUrl }} style={styles.productImage} />
-                    ) : (
-                      <View style={styles.productImagePlaceholder}>
-                        <Ionicons name="restaurant" size={32} color="#FF7A59" />
-                      </View>
-                    )}
-                    
-                    <Text style={styles.productName} numberOfLines={2}>{product.name}</Text>
-                    <Text style={styles.productPrice}>${product.price.toFixed(2)}</Text>
-                    
-                    {inOrder && (
-                      <View style={styles.inOrderBadge}>
-                        <Text style={styles.inOrderText}>In Order ({orderQty})</Text>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-            <View style={{ height: 100 }} />
-          </ScrollView>
-
-          {/* Done Button */}
-          <TouchableOpacity 
-            style={styles.doneBtn}
-            onPress={() => setShowAddItem(false)}
-          >
-            <Text style={styles.doneBtnText}>Done</Text>
-          </TouchableOpacity>
-        </SafeAreaView>
-      </Modal>
     </SafeAreaView>
   );
 }
@@ -820,5 +969,128 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#fff',
+  },
+  // Per-item note styles
+  noteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+    gap: 4,
+  },
+  noteBtnText: {
+    fontSize: 12,
+    color: '#8E8E93',
+  },
+  noteBtnTextActive: {
+    color: '#FF7A59',
+    fontWeight: '600',
+  },
+  itemNote: {
+    fontSize: 11,
+    color: '#8E8E93',
+    fontStyle: 'italic',
+    marginTop: 4,
+  },
+  // Categories section styles
+  categoriesSection: {
+    marginTop: 20,
+    backgroundColor: '#fff',
+    paddingVertical: 12,
+  },
+  categoriesTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1A1A2E',
+    paddingHorizontal: 16,
+    marginBottom: 8,
+  },
+  categoryTab: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#F8F9FA',
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+    marginRight: 8,
+  },
+  categoryTabActive: {
+    backgroundColor: '#FF7A59',
+    borderColor: '#FF7A59',
+  },
+  categoryTabText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1A1A2E',
+  },
+  categoryTabTextActive: {
+    color: '#fff',
+  },
+  // Products section styles
+  productsSection: {
+    padding: 16,
+  },
+  productInfo: {
+    width: '100%',
+    alignItems: 'center',
+  },
+  // Note modal styles
+  noteModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  noteModal: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    width: '85%',
+    maxWidth: 400,
+  },
+  noteModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1A1A2E',
+    marginBottom: 4,
+  },
+  noteModalSubtitle: {
+    fontSize: 14,
+    color: '#8E8E93',
+    marginBottom: 16,
+  },
+  noteInput: {
+    backgroundColor: '#F8F9FA',
+    borderRadius: 12,
+    padding: 14,
+    fontSize: 15,
+    color: '#1A1A2E',
+    minHeight: 80,
+    textAlignVertical: 'top',
+    marginBottom: 16,
+  },
+  noteModalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+  },
+  noteCancelBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  noteCancelBtnText: {
+    fontSize: 14,
+    color: '#8E8E93',
+    fontWeight: '600',
+  },
+  noteSaveBtn: {
+    backgroundColor: '#FF7A59',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  noteSaveBtnText: {
+    fontSize: 14,
+    color: '#fff',
+    fontWeight: '600',
   },
 });

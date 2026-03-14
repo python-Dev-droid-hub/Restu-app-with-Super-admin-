@@ -86,7 +86,7 @@ export default function KitchenSettingsScreen({ onBack, userRole, branchId }: Ki
     { name: 'Table Assignment', icon: 'grid-outline', screen: 'TableAssignment' },
     // Only show Branches for SUPER_ADMIN
     ...(currentUserRole === 'SUPER_ADMIN' ? [{ name: 'Branches', icon: 'business-outline', screen: 'AdminBranches' }] : []),
-    { name: 'Deals', icon: 'pricetag-outline', screen: 'AdminDeals' },
+    { name: 'Deals', icon: 'pricetag-outline', screen: 'AdminDealCampaigns' },
     { name: 'Coupons', icon: 'ticket-outline', screen: 'AdminCoupons' },
     { name: 'Product Size', icon: 'resize-outline', screen: 'AdminProductSizes' },
     { name: 'Categories', icon: 'grid-outline', screen: 'AdminCategories' },

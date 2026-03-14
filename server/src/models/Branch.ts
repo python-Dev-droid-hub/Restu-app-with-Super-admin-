@@ -106,6 +106,17 @@ const branchSchema = new Schema({
     min: [100, 'Delivery radius must be at least 100 meters'],
     max: [50000, 'Delivery radius cannot exceed 50km']
   },
+  taxRate: {
+    type: Number,
+    default: 0,
+    min: 0,
+    max: 100,
+  },
+  deliveryFee: {
+    type: Number,
+    default: 0,
+    min: 0,
+  },
   branchManager: {
     type: Schema.Types.ObjectId,
     ref: 'User'

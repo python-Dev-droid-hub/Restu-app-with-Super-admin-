@@ -2,13 +2,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
-  ScrollView,
   StyleSheet,
   SafeAreaView,
   StatusBar,
   TouchableOpacity,
-  RefreshControl,
   Alert,
+  Linking,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -98,7 +98,6 @@ export default function RiderDashboard() {
   const navigation = useNavigation();
   const { formatPrice } = useSettings();
   const [activeTab, setActiveTab] = useState<TabType>('Home');
-  const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // Data states
@@ -327,19 +326,6 @@ export default function RiderDashboard() {
     return () => clearInterval(interval);
   }, [fetchStats, fetchActiveDelivery, checkNewOrders, fetchNotifications]);
 
-  // Handle refresh
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await Promise.all([
-      fetchStats(),
-      fetchActiveDelivery(),
-      fetchOrders(),
-      fetchEarnings(),
-      fetchNotifications(),
-    ]);
-    setRefreshing(false);
-  }, [fetchStats, fetchActiveDelivery, fetchOrders, fetchEarnings, fetchNotifications]);
-
   // Accept order
   const handleAcceptOrder = async (orderId: string) => {
     // ... (rest of the code remains the same)
@@ -377,6 +363,83 @@ export default function RiderDashboard() {
       Alert.alert('Error', 'Failed to mark as delivered');
     }
   };
+
+  const handleStartRide = async (orderId: string) => {
+    try {
+      const response = await api.put(`/orders/${orderId}/deliver`, { status: 'OUT_FOR_DELIVERY' });
+      if (response.success) {
+        fetchStats();
+        fetchOrders();
+        Alert.alert('Success', 'Ride started! Order is now out for delivery.');
+      }
+    } catch (error) {
+      console.error('Error starting ride:', error);
+      Alert.alert('Error', 'Failed to start ride');
+    }
+  };
+
+  const openInMaps = async (coords?: { latitude: number; longitude: number }) => {
+    if (!coords?.latitude || !coords?.longitude) {
+      Alert.alert('Error', 'Location not available for this order');
+      return;
+    }
+
+    const { latitude, longitude } = coords;
+
+    try {
+      const url = Platform.select({
+        ios: `maps://app?daddr=${latitude},${longitude}&dirflg=d`,
+        android: `google.navigation:q=${latitude},${longitude}`,
+      });
+      if (!url) {
+        Alert.alert('Error', 'Unable to create navigation URL');
+        return;
+      }
+      const canOpen = await Linking.canOpenURL(url);
+      if (!canOpen) {
+        Alert.alert('Error', 'Unable to open maps application');
+        return;
+      }
+      await Linking.openURL(url);
+    } catch (error) {
+      console.error('Error opening maps:', error);
+      Alert.alert('Error', 'Failed to open navigation');
+    }
+  };
+
+  const showOrderInfo = useCallback(
+    (orderId: string) => {
+      const order = orders.find((o) => String(o?._id) === String(orderId));
+      if (!order) {
+        Alert.alert('Order', 'Order details not found in your assigned orders. Please refresh.');
+        return;
+      }
+
+      Alert.alert(
+        'Assigned Order',
+        `Order: ${order.orderNumber}\nCustomer: ${order.customerName}\nPickup: ${order.pickupLocation}\nDelivery: ${order.deliveryLocation}`,
+        [
+          {
+            text: 'Pickup Nav',
+            onPress: () => openInMaps(order?.pickupCoords),
+          },
+          {
+            text: 'Delivery Nav',
+            onPress: () => openInMaps(order?.deliveryCoords),
+          },
+          {
+            text: 'Start Ride',
+            onPress: () => handleStartRide(orderId),
+          },
+          {
+            text: 'Close',
+            style: 'cancel',
+          },
+        ]
+      );
+    },
+    [handleStartRide, orders]
+  );
 
   // Toggle duty status
   const toggleDuty = () => {
@@ -416,24 +479,36 @@ export default function RiderDashboard() {
       />
 
       {/* Content */}
-      <ScrollView
-        style={styles.content}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-        showsVerticalScrollIndicator={false}
-      >
+      <View style={styles.content}>
         {activeTab === 'Home' && (
           <RiderHomeContent
             deliveries={orders}
             hasActiveDeliveries={orders.length > 0 || !!activeOrder}
             isLoading={loading}
             onAcceptOrders={() => setActiveTab('Orders')}
-            onAcceptDelivery={(deliveryId) => handleAcceptOrder(deliveryId)}
-            onMarkDelivered={(deliveryId) => handleMarkDelivered(deliveryId)}
-            onCallCustomer={(phone) => {
-              if (phone) {
-                // Open phone dialer
+            onAcceptDelivery={(deliveryId: string) => handleAcceptOrder(deliveryId)}
+            onMarkDelivered={(deliveryId: string) => handleMarkDelivered(deliveryId)}
+            onStartRide={(deliveryId: string) => handleStartRide(deliveryId)}
+            onNavigateToPickup={(deliveryId: string) => {
+              const order = orders.find((o) => o?._id === deliveryId);
+              openInMaps(order?.pickupCoords);
+            }}
+            onNavigateToDelivery={(deliveryId: string) => {
+              const order = orders.find((o) => o?._id === deliveryId);
+              openInMaps(order?.deliveryCoords);
+            }}
+            onCallCustomer={async (phone: string) => {
+              if (!phone) return;
+              try {
+                const url = `tel:${phone}`;
+                const canOpen = await Linking.canOpenURL(url);
+                if (!canOpen) {
+                  Alert.alert('Error', 'Unable to open phone dialer');
+                  return;
+                }
+                await Linking.openURL(url);
+              } catch (e) {
+                Alert.alert('Error', 'Failed to open phone dialer');
               }
             }}
           />
@@ -464,15 +539,19 @@ export default function RiderDashboard() {
         {activeTab === 'Notifications' && (
           <RiderNotificationsTab
             onNotificationCountChange={setUnreadCount}
+            onNotificationPress={(n: any) => {
+              const orderId = n?.data?.orderId || n?.relatedOrder;
+              if (orderId) {
+                setActiveTab('Home');
+                showOrderInfo(String(orderId));
+              }
+            }}
           />
         )}
-
-        {/* Bottom padding for footer */}
-        <View style={{ height: SPACING.footerHeight + insets.bottom + 20 }} />
-      </ScrollView>
+      </View>
 
       {/* Professional Bottom Navigation */}
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: Math.max(8, insets.bottom), height: SPACING.footerHeight + Math.max(0, insets.bottom) }]}>
         <TouchableOpacity
           style={[styles.tabButton, activeTab === 'Home' && styles.activeTabButton]}
           onPress={() => setActiveTab('Home')}
@@ -549,7 +628,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: COLORS.lightGray,
     paddingVertical: 8,
-    paddingBottom: 8,
+    paddingBottom: 0,
   },
   tabButton: {
     alignItems: 'center',

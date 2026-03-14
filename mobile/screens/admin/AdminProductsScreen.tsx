@@ -39,12 +39,38 @@ interface MenuItem {
   name: string;
   description: string;
   price: number;
+  effectivePrice?: number;
   category: string | { _id: string; name: string };
   isAvailable: boolean;
   imageUrl?: string;
   hasSizes?: boolean;
+  productSizes?: Array<{
+    price: number;
+    isDefault?: boolean;
+    size?: {
+      _id?: string;
+      id?: string;
+      size_name?: string;
+      name?: string;
+    };
+  }>;
   preparationTime?: number;
 }
+
+const getDisplayPrice = (item: MenuItem): number => {
+  if (typeof item.effectivePrice === 'number' && !Number.isNaN(item.effectivePrice)) {
+    return item.effectivePrice;
+  }
+
+  const sizes = item.productSizes;
+  if (item.hasSizes && Array.isArray(sizes) && sizes.length > 0) {
+    const defaultSize = sizes.find((s) => s?.isDefault);
+    const candidate = defaultSize?.price ?? Math.min(...sizes.map((s) => s?.price ?? Number.POSITIVE_INFINITY));
+    if (typeof candidate === 'number' && Number.isFinite(candidate)) return candidate;
+  }
+
+  return typeof item.price === 'number' && !Number.isNaN(item.price) ? item.price : 0;
+};
 
 export default function AdminProductsScreen() {
   const navigation = useNavigation();
@@ -87,6 +113,18 @@ export default function AdminProductsScreen() {
       if (response.success) {
         const products = response.data.products || [];
         console.log('🔍 [ADMIN PRODUCTS] Loaded products:', products.length);
+        if (products.length > 0) {
+          const sample = products.find((p: any) => p?.hasSizes) || products[0];
+          console.log('🔍 [ADMIN PRODUCTS] Sample product for price debug:', {
+            id: sample?._id,
+            name: sample?.name,
+            price: sample?.price,
+            hasSizes: sample?.hasSizes,
+            effectivePrice: sample?.effectivePrice,
+            productSizesCount: Array.isArray(sample?.productSizes) ? sample.productSizes.length : 0,
+            productSizes: sample?.productSizes
+          });
+        }
         setMenuItems(products);
       } else {
         console.log('🔍 [ADMIN PRODUCTS] API call failed');
@@ -131,7 +169,7 @@ export default function AdminProductsScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              const response = await api.delete(`/products/${itemId}`);
+              const response = await api.delete(`/menu/admin/products/${itemId}`);
               if (response.success) {
                 Alert.alert('Success', 'Menu item deleted');
                 loadMenuItems();
@@ -256,7 +294,7 @@ export default function AdminProductsScreen() {
 
                 {/* Price and Edit/Delete Actions */}
                 <View style={styles.itemFooter}>
-                  <Text style={styles.itemPrice}>{currencySymbol}{(item.price || 0).toFixed(2)}</Text>
+                  <Text style={styles.itemPrice}>{currencySymbol}{getDisplayPrice(item).toFixed(2)}</Text>
                   
                   <View style={styles.actionButtons}>
                     <TouchableOpacity 
@@ -320,7 +358,8 @@ export default function AdminProductsScreen() {
                 style={styles.menuItem}
                 onPress={() => {
                   setShowMoreMenu(false);
-                  navigation.navigate(item.screen as any);
+                  // @ts-ignore
+                  navigation.navigate(item.screen);
                 }}
               >
                 <Ionicons name={item.icon as any} size={24} color={COLORS.orange} />
@@ -336,8 +375,14 @@ export default function AdminProductsScreen() {
       <ProfileMenu
         visible={showProfileMenu}
         onClose={() => setShowProfileMenu(false)}
-        onLogout={() => navigation.navigate('Welcome' as any)}
-        onChangePassword={() => navigation.navigate('ChangePassword' as any)}
+        onLogout={() => {
+          // @ts-ignore
+          navigation.navigate('Welcome');
+        }}
+        onChangePassword={() => {
+          // @ts-ignore
+          navigation.navigate('ChangePassword');
+        }}
       />
 
       {/* Bottom Navigation */}

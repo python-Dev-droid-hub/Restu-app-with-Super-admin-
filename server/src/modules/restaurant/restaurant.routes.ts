@@ -46,6 +46,7 @@ const updateRestaurantSchema = Joi.object({
   cuisine: Joi.array().items(Joi.string().valid('Italian', 'Chinese', 'Indian', 'Mexican', 'American', 'Japanese', 'Thai', 'French', 'Mediterranean', 'Other')).optional(),
   priceRange: Joi.string().valid('$', '$$', '$$$', '$$$$').optional(),
   deliveryTime: Joi.number().min(10).max(120).optional(),
+  taxRate: Joi.number().min(0).max(100).optional(),
   deliveryFee: Joi.number().min(0).optional(),
   minOrderAmount: Joi.number().min(0).optional(),
   operatingHours: Joi.object().optional(),

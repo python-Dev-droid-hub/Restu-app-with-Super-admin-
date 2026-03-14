@@ -19,6 +19,8 @@ import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '../../components/api/client';
 import { Ionicons } from '@expo/vector-icons';
+import { initializeSocket } from '../../services/realtimeService';
+import Toast from 'react-native-toast-message';
 
 const { width, height } = Dimensions.get('window');
 const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 0;
@@ -49,19 +51,33 @@ export default function LoginScreen() {
         await AsyncStorage.setItem('userRole', response.data.user.role);
         await AsyncStorage.setItem('userData', JSON.stringify(response.data.user));
 
+        // Initialize WebSocket for real-time notifications
+        const userId = response.data.user._id || response.data.user.id;
+        const userRole = response.data.user.role;
+        
+        if (userId && userRole) {
+          console.log('[LoginScreen] Initializing WebSocket for user:', userId, 'role:', userRole);
+          initializeSocket(userId.toString(), userRole);
+          
+          Toast.show({
+            type: 'success',
+            text1: 'Welcome back!',
+            text2: 'Real-time notifications enabled',
+            duration: 2000,
+          });
+        }
+
         // Navigate to appropriate dashboard based on user role
         const role = response.data.user.role;
         let dashboardName = 'CustomerDashboard';
 
         switch (role) {
           case 'SUPER_ADMIN':
-            dashboardName = 'SuperAdminDashboard';
-            break;
-          case 'BRANCH_MANAGER':
-            dashboardName = 'ManagerDashboard';
-            break;
           case 'ADMIN':
             dashboardName = 'AdminDashboard';
+            break;
+          case 'BRANCH_MANAGER':
+            dashboardName = 'ManagerTabs';
             break;
           case 'CHEF':
             dashboardName = 'ChefDashboard';

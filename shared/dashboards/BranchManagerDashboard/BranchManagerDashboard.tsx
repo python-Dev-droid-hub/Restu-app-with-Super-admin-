@@ -320,7 +320,7 @@ export function BranchManagerDashboard() {
               />
               <StatCard
                 title="Customer Rating"
-                value={stats.customerRating}
+                value={stats.customerRating || 0}
                 change={0.2}
                 icon="⭐"
                 color="warning"
@@ -339,15 +339,15 @@ export function BranchManagerDashboard() {
               </div>
               <div style={{ display: 'flex', gap: '24px' }}>
                 <div style={{ flex: 1, textAlign: 'center' }}>
-                  <div style={{ fontSize: '32px', fontWeight: 700, color: '#f44336' }}>{stats.tablesOccupied}</div>
+                  <div style={{ fontSize: '32px', fontWeight: 700, color: '#f44336' }}>{stats.tablesOccupied || 0}</div>
                   <div style={{ fontSize: '14px', color: '#666' }}>Occupied</div>
                 </div>
                 <div style={{ flex: 1, textAlign: 'center' }}>
-                  <div style={{ fontSize: '32px', fontWeight: 700, color: '#4caf50' }}>{stats.totalTables - stats.tablesOccupied}</div>
+                  <div style={{ fontSize: '32px', fontWeight: 700, color: '#4caf50' }}>{(stats.totalTables || 0) - (stats.tablesOccupied || 0)}</div>
                   <div style={{ fontSize: '14px', color: '#666' }}>Available</div>
                 </div>
                 <div style={{ flex: 1, textAlign: 'center' }}>
-                  <div style={{ fontSize: '32px', fontWeight: 700, color: '#1a1a2e' }}>{stats.totalTables}</div>
+                  <div style={{ fontSize: '32px', fontWeight: 700, color: '#1a1a2e' }}>{stats.totalTables || 0}</div>
                   <div style={{ fontSize: '14px', color: '#666' }}>Total</div>
                 </div>
               </div>

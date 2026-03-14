@@ -17,6 +17,19 @@ interface Favorite {
   addedAt: string;
 }
 
+interface Order {
+  _id: string;
+  id?: string;
+  orderNumber: string;
+  status: string;
+  totalAmount: number;
+  createdAt: string;
+  orderDate?: string;
+  restaurantName?: string;
+  deliveryAddress?: string;
+  items?: Array<{ name: string; quantity: number; price: number }>;
+}
+
 interface CustomerStats {
   totalOrders: number;
   totalSpent: number;
@@ -65,12 +78,14 @@ export function CustomerDashboard() {
       const ordersResponse = await api.get<CustomerOrdersResponse>('/orders/my-orders');
       if (ordersResponse.success && ordersResponse.data) {
         const formattedOrders = ordersResponse.data.orders.map((order: any) => ({
+          _id: order._id,
           id: order._id,
           orderNumber: order.orderNumber || `ORD-${order._id.toString().slice(-6).toUpperCase()}`,
           restaurantName: order.branch?.branchName || 'Unknown Restaurant',
           items: order.items?.map((item: any) => item.product?.name || 'Unknown Item') || [],
           totalAmount: order.totalAmount || 0,
           status: order.status || 'PENDING',
+          createdAt: order.createdAt,
           orderDate: order.createdAt ? new Date(order.createdAt).toLocaleDateString() : 'Unknown',
           deliveryAddress: order.deliveryAddress?.street || 'N/A',
         }));
@@ -140,7 +155,7 @@ export function CustomerDashboard() {
 
       <div style={{ marginBottom: '12px' }}>
         <div style={{ fontSize: '14px', color: '#666', marginBottom: '4px' }}>Items:</div>
-        <div style={{ fontSize: '14px', color: '#1a1a2e' }}>{order.items.join(', ')}</div>
+        <div style={{ fontSize: '14px', color: '#1a1a2e' }}>{(order.items || []).join(', ')}</div>
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

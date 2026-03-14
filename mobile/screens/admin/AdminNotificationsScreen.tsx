@@ -50,18 +50,29 @@ export default function AdminNotificationsScreen() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'all' | 'active'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'unread'>('all');
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   const [userRole, setUserRole] = useState<string>('');
   const { profileImage } = useUserData();
   const [assignedBranch, setAssignedBranch] = useState<{_id?: string; name?: string; code?: string}>({});
+  
+  // Branch filter for admin
+  const [branches, setBranches] = useState<{_id: string; name: string}[]>([]);
+  const [selectedBranch, setSelectedBranch] = useState<string>('all');
+  const [showBranchDropdown, setShowBranchDropdown] = useState(false);
 
   // Load user role and branch on mount
   useEffect(() => {
     loadUserData();
+    loadBranches();
   }, []);
+
+  // Reload notifications when branch filter changes
+  useEffect(() => {
+    loadNotifications();
+  }, [selectedBranch]);
 
   const loadUserData = async () => {
     try {
@@ -101,12 +112,40 @@ export default function AdminNotificationsScreen() {
     loadNotifications();
   }, []);
 
+  const loadBranches = async () => {
+    try {
+      const response: any = await api.get('/branches');
+      if (response?.success) {
+        const rawList = response?.data?.branches || response?.data?.data?.branches || response?.data?.data?.restaurants || response?.data || [];
+        const normalized = (Array.isArray(rawList) ? rawList : []).map((b: any) => ({
+          _id: b?._id || b?.id,
+          name: b?.name || b?.branchName || b?.restaurantName,
+        })).filter((b: any) => !!b._id && !!b.name);
+        setBranches(normalized);
+      }
+    } catch (error) {
+      console.error('Error loading branches:', error);
+    }
+  };
+
   const loadNotifications = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/notifications');
-      if (response.success && response.data) {
-        setNotifications(response.data.notifications || []);
+      const params = new URLSearchParams();
+      params.append('limit', '50');
+      if (selectedBranch !== 'all') {
+        params.append('branchId', selectedBranch);
+      }
+      const url = `/notifications/admin?${params.toString()}`;
+      console.log('[AdminNotifications] Fetching from:', url);
+      const response = await api.get(url);
+      console.log('[AdminNotifications] Response:', JSON.stringify(response, null, 2));
+      if (response.success) {
+        // Handle nested data structure
+        const responseData = (response as any).data || response;
+        const notificationsData = responseData.notifications || responseData.data || [];
+        console.log('[AdminNotifications] Loaded notifications:', notificationsData.length);
+        setNotifications(notificationsData);
       }
     } catch (error) {
       console.error('Error loading notifications:', error);
@@ -118,7 +157,7 @@ export default function AdminNotificationsScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadNotifications();
+    await Promise.all([loadNotifications(), loadBranches()]);
     setRefreshing(false);
   };
 
@@ -165,6 +204,12 @@ export default function AdminNotificationsScreen() {
     );
   };
 
+  const getSelectedBranchName = () => {
+    if (selectedBranch === 'all') return 'All Branches';
+    const branch = branches.find(b => b._id === selectedBranch);
+    return branch?.name || 'Select Branch';
+  };
+
   const getNotificationTypeColor = (type: string) => {
     const colors: Record<string, string> = {
       INFO: '#2196f3',
@@ -175,58 +220,47 @@ export default function AdminNotificationsScreen() {
     return colors[type] || '#757575';
   };
 
-  const filteredNotifications = activeTab === 'active'
-    ? notifications.filter(n => n.isActive)
+  const filteredNotifications = activeTab === 'unread' 
+    ? notifications.filter((n: any) => !n.isRead)
     : notifications;
 
-  const NotificationCard = ({ notification }: { notification: Notification }) => (
-    <View style={styles.notificationCard}>
-      <View style={styles.notificationHeader}>
-        <View style={styles.notificationInfo}>
-          <Text style={styles.notificationTitle}>{notification.title}</Text>
-          <Text style={styles.notificationMessage} numberOfLines={2}>
-            {notification.message}
-          </Text>
-        </View>
-        <View style={[styles.typeBadge, { backgroundColor: getNotificationTypeColor(notification.type) }]}>
-          <Text style={styles.typeText}>{notification.type}</Text>
-        </View>
-      </View>
-
-      <View style={styles.notificationDetails}>
-        <Text style={styles.notificationDetail}>
-          👥 Target: {notification.targetUsers.length > 0 ? `${notification.targetUsers.length} users` : 'All users'}
-        </Text>
-        <Text style={styles.notificationDetail}>
-          📅 Created: {new Date(notification.createdAt).toLocaleDateString()}
-        </Text>
-        {notification.sentAt && (
-          <Text style={styles.notificationDetail}>
-            📤 Sent: {new Date(notification.sentAt).toLocaleDateString()}
-          </Text>
-        )}
-      </View>
-
-      <View style={styles.notificationFooter}>
-        <View style={[styles.statusIndicator, { backgroundColor: notification.isActive ? '#4caf50' : '#f44336' }]}>
-          <Text style={styles.statusText}>{notification.isActive ? 'Active' : 'Inactive'}</Text>
-        </View>
-        <View style={styles.actionButtons}>
-          <TouchableOpacity
-            style={[styles.actionButton, { backgroundColor: notification.isActive ? '#f44336' : '#4caf50' }]}
-            onPress={() => toggleNotificationStatus(notification._id, notification.isActive)}
-          >
-            <Text style={styles.actionButtonText}>
-              {notification.isActive ? 'Deactivate' : 'Activate'}
+  const NotificationCard = ({ notification }: { notification: any }) => {
+    // Extract waiter name from notification data
+    const waiterName = notification.data?.waiterName || notification.data?.waiter?.name || 
+                       notification.waiterName || notification.assignedTo?.name ||
+                       (notification.body?.includes('by') && notification.body.split('by')[1]?.trim()) ||
+                       null;
+    return (
+      <View style={styles.notificationCard}>
+        <View style={styles.notificationHeader}>
+          <View style={styles.notificationInfo}>
+            <Text style={styles.notificationTitle}>{notification.title}</Text>
+            <Text style={styles.notificationMessage} numberOfLines={3}>
+              {notification.body || notification.message}
             </Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#2196f3' }]}>
-            <Text style={styles.actionButtonText}>Edit</Text>
-          </TouchableOpacity>
+            {waiterName && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                <Ionicons name="person-circle" size={14} color="#888" />
+                <Text style={{ fontSize: 12, color: '#888', marginLeft: 4 }}>By: {waiterName}</Text>
+              </View>
+            )}
+          </View>
+          <View style={[styles.typeBadge, { backgroundColor: getNotificationTypeColor(notification.type || 'INFO') }]}>
+            <Text style={styles.typeText}>{notification.type || 'INFO'}</Text>
+          </View>
+        </View>
+
+        <View style={styles.notificationDetails}>
+          <Text style={styles.notificationDetail}>
+            {notification.isRead ? '✓ Read' : '● Unread'}
+          </Text>
+          <Text style={styles.notificationDetail}>
+            📅 {notification.createdAt ? new Date(notification.createdAt).toLocaleString() : 'Just now'}
+          </Text>
         </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <View style={[styles.container, { paddingBottom: insets.bottom }]}>
@@ -244,6 +278,49 @@ export default function AdminNotificationsScreen() {
         onProfilePress={() => setShowProfileMenu(true)}
       />
 
+      {/* Branch Selector for Admin */}
+      <View style={styles.branchSelectorContainer}>
+        <TouchableOpacity 
+          style={styles.branchSelector}
+          onPress={() => setShowBranchDropdown(!showBranchDropdown)}
+        >
+          <Ionicons name="business-outline" size={18} color="#E87E35" />
+          <Text style={styles.branchSelectorText}>{getSelectedBranchName()}</Text>
+          <Ionicons name={showBranchDropdown ? "chevron-up" : "chevron-down"} size={16} color="#666" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Branch Dropdown */}
+      {showBranchDropdown && (
+        <View style={styles.branchDropdownContainer}>
+          <TouchableOpacity
+            style={[styles.branchDropdownItem, selectedBranch === 'all' && styles.branchDropdownItemActive]}
+            onPress={() => {
+              setSelectedBranch('all');
+              setShowBranchDropdown(false);
+            }}
+          >
+            <Text style={[styles.branchDropdownText, selectedBranch === 'all' && styles.branchDropdownTextActive]}>
+              All Branches
+            </Text>
+          </TouchableOpacity>
+          {branches.map((branch) => (
+            <TouchableOpacity
+              key={branch._id}
+              style={[styles.branchDropdownItem, selectedBranch === branch._id && styles.branchDropdownItemActive]}
+              onPress={() => {
+                setSelectedBranch(branch._id);
+                setShowBranchDropdown(false);
+              }}
+            >
+              <Text style={[styles.branchDropdownText, selectedBranch === branch._id && styles.branchDropdownTextActive]}>
+                {branch.name}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
       <View style={styles.tabNavigation}>
         <TouchableOpacity
           style={[styles.tabButton, activeTab === 'all' && styles.tabButtonActive]}
@@ -254,11 +331,11 @@ export default function AdminNotificationsScreen() {
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.tabButton, activeTab === 'active' && styles.tabButtonActive]}
-          onPress={() => setActiveTab('active')}
+          style={[styles.tabButton, activeTab === 'unread' && styles.tabButtonActive]}
+          onPress={() => setActiveTab('unread')}
         >
-          <Text style={[styles.tabText, activeTab === 'active' && styles.tabTextActive]}>
-            Active ({notifications.filter(n => n.isActive).length})
+          <Text style={[styles.tabText, activeTab === 'unread' && styles.tabTextActive]}>
+            Unread ({notifications.filter((n: any) => !n.isRead).length})
           </Text>
         </TouchableOpacity>
       </View>
@@ -287,17 +364,17 @@ export default function AdminNotificationsScreen() {
         <View style={styles.statsContainer}>
           <View style={[styles.statCard, { borderLeftColor: '#1976d2' }]}>
             <Text style={styles.statValue}>{notifications.length}</Text>
-            <Text style={styles.statLabel}>Total Notifications</Text>
+            <Text style={styles.statLabel}>Total</Text>
           </View>
           <View style={[styles.statCard, { borderLeftColor: '#4caf50' }]}>
-            <Text style={styles.statValue}>{notifications.filter(n => n.isActive).length}</Text>
-            <Text style={styles.statLabel}>Active Notifications</Text>
+            <Text style={styles.statValue}>{notifications.filter((n: any) => !n.isRead).length}</Text>
+            <Text style={styles.statLabel}>Unread</Text>
           </View>
         </View>
 
         <View style={styles.notificationsContainer}>
           <Text style={styles.sectionTitle}>
-            {activeTab === 'active' ? 'Active Notifications' : 'All Notifications'}
+            {activeTab === 'unread' ? 'Unread Notifications' : 'All Notifications'}
           </Text>
 
           {filteredNotifications.length > 0 ? (
@@ -308,25 +385,16 @@ export default function AdminNotificationsScreen() {
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyIcon}>🔔</Text>
               <Text style={styles.emptyText}>
-                {activeTab === 'active' ? 'No active notifications' : 'No notifications found'}
+                {activeTab === 'unread' ? 'No unread notifications' : 'No notifications found'}
               </Text>
               <Text style={styles.emptySubtext}>
-                {activeTab === 'active' ? 'Active notifications will appear here' : 'Create your first notification'}
+                {activeTab === 'unread' ? 'Unread notifications will appear here' : 'Notifications sent to you will appear here'}
               </Text>
             </View>
           )}
         </View>
         <View style={styles.bottomSpacer} />
       </ScrollView>
-
-      <TouchableOpacity 
-        style={[styles.fab, { bottom: getSpacing(22) + insets.bottom }]}
-        onPress={() => {
-          // TODO: Open create notification modal
-        }}
-      >
-        <Ionicons name="add" size={28} color="#fff" />
-      </TouchableOpacity>
 
       {/* Bottom Navigation */}
       <AdminBottomNavigation onMorePress={() => setShowMoreMenu(true)} />
@@ -335,8 +403,14 @@ export default function AdminNotificationsScreen() {
       <ProfileMenu
         visible={showProfileMenu}
         onClose={() => setShowProfileMenu(false)}
-        onLogout={() => navigation.navigate('Welcome' as any)}
-        onChangePassword={() => navigation.navigate('ChangePassword' as any)}
+        onLogout={() => {
+          // @ts-ignore
+          navigation.navigate('Welcome');
+        }}
+        onChangePassword={() => {
+          // @ts-ignore
+          navigation.navigate('ChangePassword');
+        }}
       />
 
       {/* More Menu Modal */}
@@ -719,6 +793,60 @@ const styles = StyleSheet.create({
   branchCodeText: {
     fontSize: 12,
     color: '#fff',
+    fontWeight: '700',
+  },
+  // Branch Selector Styles
+  branchSelectorContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  branchSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#E87E35',
+  },
+  branchSelectorText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#333',
+    fontWeight: '500',
+  },
+  branchDropdownContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E87E35',
+    marginHorizontal: 16,
+    marginBottom: 8,
+    paddingVertical: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  branchDropdownItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  branchDropdownItemActive: {
+    backgroundColor: '#FFF3E0',
+  },
+  branchDropdownText: {
+    fontSize: 14,
+    color: '#333',
+    fontWeight: '500',
+  },
+  branchDropdownTextActive: {
+    color: '#E87E35',
     fontWeight: '700',
   },
 });

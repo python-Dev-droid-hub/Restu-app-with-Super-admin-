@@ -193,7 +193,7 @@ export function TableManagement() {
 
   const handleRemoveWaiter = async (tableId: string) => {
     try {
-      const response = await api.put(`/tables/${tableId}/remove-waiter`);
+      const response = await api.put(`/tables/${tableId}/remove-waiter`, {});
       if (response.success) {
         fetchTables();
         alert('Waiter removed successfully!');

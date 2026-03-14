@@ -384,7 +384,7 @@ const Products: React.FC = () => {
                   <div key={product._id} className="product-card">
                     <div className="product-image">
                       {product.images?.[0] ? (
-                        <img src={product.images[0]} alt={product.name} />
+                        <img src={api.getImageUrl(product.images[0])} alt={product.name} />
                       ) : (
                         <div className="no-image">🍕</div>
                       )}
