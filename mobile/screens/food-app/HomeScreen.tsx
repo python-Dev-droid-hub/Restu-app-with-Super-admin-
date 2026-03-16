@@ -243,16 +243,24 @@ export default function HomeScreen() {
   const loadDeals = useCallback(async () => {
     try {
       setDealsLoading(true);
+      console.log('[HomeScreen] Loading deals from /deals/campaigns/active');
       const res = await api.get('/deals/campaigns/active');
+      console.log('[HomeScreen] Deals API response:', JSON.stringify(res?.data, null, 2));
       const campaigns: DealCampaign[] = res?.data?.data?.campaigns || res?.data?.campaigns || [];
+      console.log('[HomeScreen] Parsed campaigns:', campaigns.length);
       const activeCampaigns = Array.isArray(campaigns)
         ? campaigns
             .filter((c) => c?.status === 'ACTIVE')
-            .map((c) => ({
-              ...c,
-              deals: Array.isArray(c.deals) ? c.deals.filter((d) => d && d.isActive !== false) : [],
-            }))
+            .map((c) => {
+              const filteredDeals = Array.isArray(c.deals) ? c.deals.filter((d) => d && d.isActive !== false) : [];
+              console.log('[HomeScreen] Campaign:', c.name, 'deals:', filteredDeals.length);
+              return {
+                ...c,
+                deals: filteredDeals,
+              };
+            })
         : [];
+      console.log('[HomeScreen] Final active campaigns with deals:', activeCampaigns.length);
       setDealCampaigns(activeCampaigns);
     } catch (error) {
       console.error('[HomeScreen] Error loading deals:', error);
@@ -279,12 +287,12 @@ export default function HomeScreen() {
 
   const loadFavorites = useCallback(async () => {
     try {
-      const response = await api.get('/favorites');
-      if (response.data) {
-        // Extract branchIds from favorites
-        const favoriteBranchIds = response.data.favorites?.map((f: any) => f.branchId || f._id) || [];
-        setFavorites(favoriteBranchIds);
-      }
+      console.log('[HomeScreen] Loading favorites...');
+      const response: any = await api.get('/customer/favorites');
+      const items = response?.data?.favorites || [];
+      const productIds = items.map((f: any) => String(f?.product?.id || f?.product?._id || '')).filter(Boolean);
+      console.log('[HomeScreen] Loaded favorites productIds:', productIds);
+      setFavorites(productIds);
     } catch (error) {
       console.error('[HomeScreen] Error loading favorites:', error);
     }
@@ -347,7 +355,8 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       checkAndLoadBranch();
-    }, [checkAndLoadBranch])
+      loadFavorites();
+    }, [checkAndLoadBranch, loadFavorites])
   );
 
   const handleBranchSelected = useCallback(async (branch: Branch) => {
@@ -369,25 +378,55 @@ export default function HomeScreen() {
     await loadMenu(branch._id);
   }, [previousBranchId, clearCart, loadMenu]);
 
-  const handleToggleFavorite = useCallback(async (_productId: string, branchId?: string) => {
-    const targetId = branchId || selectedBranchId;
-    if (!targetId) return;
+  const handleToggleFavorite = useCallback(async (productId: string) => {
+    const targetId = String(productId || '').trim();
+    console.log('[HomeScreen] handleToggleFavorite called');
+    console.log('[HomeScreen] Raw productId:', productId);
+    console.log('[HomeScreen] typeof productId:', typeof productId);
+    console.log('[HomeScreen] targetId after trim:', targetId);
+    console.log('[HomeScreen] targetId length:', targetId.length);
+    
+    if (!targetId) {
+      console.log('[HomeScreen] Empty targetId, skipping');
+      return;
+    }
+    
+    // Validate ObjectId format (24 hex characters)
+    const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(targetId);
+    console.log('[HomeScreen] isValidObjectId:', isValidObjectId);
+    
     const isCurrentlyFavorite = favorites.includes(targetId);
+    console.log('[HomeScreen] isCurrentlyFavorite:', isCurrentlyFavorite, 'favorites:', favorites);
     
     try {
       if (isCurrentlyFavorite) {
-        // Remove from favorites
-        await api.delete(`/favorites/${targetId}`);
+        // Remove from favorites (need favorite record id; refetch is simplest)
+        const existing: any = await api.get('/customer/favorites');
+        const fav = (existing?.data?.favorites || []).find((f: any) => String(f?.product?.id || f?.product?._id) === targetId);
+        console.log('[HomeScreen] Found favorite to remove:', fav);
+        if (fav?.id) {
+          await api.delete(`/customer/favorites/${fav.id}`);
+          console.log('[HomeScreen] Successfully removed favorite');
+        }
         setFavorites((prev) => prev.filter((id) => id !== targetId));
       } else {
         // Add to favorites
-        await api.post('/favorites', { branchId: targetId });
-        setFavorites((prev) => [...prev, targetId]);
+        console.log('[HomeScreen] Adding to favorites, productId:', targetId);
+        const response: any = await api.post('/customer/favorites', { productId: targetId });
+        console.log('[HomeScreen] Add favorite response status:', response?.status);
+        console.log('[HomeScreen] Add favorite response data:', response?.data);
+        if (response?.data?.success || response?.status === 201) {
+          setFavorites((prev) => [...prev, targetId]);
+          console.log('[HomeScreen] Successfully added to local favorites state');
+        } else {
+          console.error('[HomeScreen] Failed to add favorite:', response?.data?.message || 'Unknown error');
+        }
       }
-    } catch (error) {
-      console.error('[HomeScreen] Error toggling favorite:', error);
+    } catch (error: any) {
+      console.error('[HomeScreen] Error toggling favorite:', error?.message || error);
+      console.error('[HomeScreen] Error response:', error?.response?.data);
     }
-  }, [favorites, selectedBranchId]);
+  }, [favorites]);
 
   const handleAddToCart = useCallback((productItem: Product) => {
     const rawImage =
@@ -466,8 +505,8 @@ export default function HomeScreen() {
           product={item}
           onPress={() => navigation.navigate('ProductDetail', { product: item })}
           onAddToCart={() => handleAddToCart(item)}
-          onToggleFavorite={() => handleToggleFavorite(item._id || item.id, item.branchId)}
-          isFavorite={favorites.includes(item.branchId || selectedBranchId || '')}
+          onToggleFavorite={() => handleToggleFavorite(item._id || item.id)}
+          isFavorite={favorites.includes(String(item._id || item.id))}
         />
       </View>
     ),
@@ -479,7 +518,7 @@ export default function HomeScreen() {
       ? Math.round(((deal.originalPrice - deal.price) / deal.originalPrice) * 100)
       : 0);
     const imageUri = getFullImageUrl(deal.imageUrl);
-    const isFavorite = !!selectedBranchId && favorites.includes(selectedBranchId);
+    const isFavorite = favorites.includes(String(deal._id || ''));
     return (
       <TouchableOpacity key={deal._id} activeOpacity={0.9} style={styles.dealCard}>
         <View style={styles.dealImageContainer}>
@@ -490,16 +529,13 @@ export default function HomeScreen() {
               <Ionicons name="pricetag" size={28} color={colors.primary} />
             </View>
           )}
-          <TouchableOpacity
-            onPress={() => handleToggleFavorite(deal._id, selectedBranchId || undefined)}
-            style={styles.dealFavoriteButton}
-          >
+          <View style={styles.dealFavoriteButton}>
             <Ionicons
               name={isFavorite ? 'heart' : 'heart-outline'}
               size={18}
               color={isFavorite ? colors.danger : colors.gray_500}
             />
-          </TouchableOpacity>
+          </View>
           {discountPercent > 0 && (
             <View style={styles.dealDiscountBadge}>
               <Text style={styles.dealDiscountText}>{discountPercent}% OFF</Text>

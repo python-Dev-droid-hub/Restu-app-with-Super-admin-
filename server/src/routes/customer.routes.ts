@@ -6,6 +6,7 @@ import { Branch } from '../models/Branch';
 import { Deal } from '../models/Deal';
 import { Order } from '../models/Order';
 import { Favorite } from '../models/Favorite';
+import { ProductSize } from '../models/ProductSize';
 import { sendSuccess, sendError, asyncHandler } from '../utils/response';
 
 const router = Router();
@@ -35,11 +36,42 @@ router.get('/home', asyncHandler(async (req, res) => {
     isActive: true,
     isAvailable: true 
   })
-    .select('name description price originalPrice image rating reviews category')
+    .select('name description price originalPrice image rating reviews category hasSizes')
     .populate('category', 'name')
     .sort({ rating: -1, reviews: -1 })
     .limit(10)
     .lean();
+
+  const popularNeedingPrice = popularProducts
+    .filter((p: any) => p && p.hasSizes && (p.price === undefined || p.price === null))
+    .map((p: any) => String(p._id));
+
+  let popularSizePriceByProductId: Record<string, number> = {};
+  if (popularNeedingPrice.length > 0) {
+    const sizes = await ProductSize.find({
+      product: { $in: popularNeedingPrice },
+      deletedAt: null,
+      isAvailable: true,
+    })
+      .select('product price isDefault')
+      .lean();
+
+    for (const s of sizes as any[]) {
+      const pid = String(s.product);
+      const price = typeof s.price === 'number' ? s.price : 0;
+      const existing = popularSizePriceByProductId[pid];
+
+      if (s.isDefault) {
+        popularSizePriceByProductId[pid] = price;
+        continue;
+      }
+      if (existing === undefined) {
+        popularSizePriceByProductId[pid] = price;
+        continue;
+      }
+      popularSizePriceByProductId[pid] = Math.min(existing, price);
+    }
+  }
 
   // Get nearby branches (simplified - return all active branches)
   const branches = await Branch.find({ isActive: true })
@@ -61,17 +93,20 @@ router.get('/home', asyncHandler(async (req, res) => {
       icon: c.icon || '🍽️',
       image: c.image
     })),
-    popularProducts: popularProducts.map(p => ({
+    popularProducts: popularProducts.map(p => {
+      const computedPrice = (p as any).price ?? popularSizePriceByProductId[String((p as any)._id)] ?? 0;
+      return ({
       id: p._id,
       name: p.name,
       description: p.description,
-      price: p.price,
-      originalPrice: p.originalPrice || p.price,
+      price: computedPrice,
+      originalPrice: p.originalPrice || computedPrice,
       image: p.image || 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=300&h=200&fit=crop',
       rating: p.rating || 4.5,
       reviews: p.reviews || 0,
       category: p.category?.name || 'Food'
-    })),
+    });
+    }),
     branches
   }, 'Home data retrieved successfully');
 }));
@@ -121,7 +156,7 @@ router.get('/products', asyncHandler(async (req, res) => {
 
   const [products, total] = await Promise.all([
     Product.find(query)
-      .select('name description price originalPrice image rating reviews category sizes')
+      .select('name description price originalPrice image rating reviews category sizes hasSizes')
       .populate('category', 'name')
       .sort(sortOption)
       .skip(skip)
@@ -130,19 +165,53 @@ router.get('/products', asyncHandler(async (req, res) => {
     Product.countDocuments(query)
   ]);
 
+  const listNeedingPrice = products
+    .filter((p: any) => p && p.hasSizes && (p.price === undefined || p.price === null))
+    .map((p: any) => String(p._id));
+
+  let listSizePriceByProductId: Record<string, number> = {};
+  if (listNeedingPrice.length > 0) {
+    const sizes = await ProductSize.find({
+      product: { $in: listNeedingPrice },
+      deletedAt: null,
+      isAvailable: true,
+    })
+      .select('product price isDefault')
+      .lean();
+
+    for (const s of sizes as any[]) {
+      const pid = String(s.product);
+      const price = typeof s.price === 'number' ? s.price : 0;
+      const existing = listSizePriceByProductId[pid];
+
+      if (s.isDefault) {
+        listSizePriceByProductId[pid] = price;
+        continue;
+      }
+      if (existing === undefined) {
+        listSizePriceByProductId[pid] = price;
+        continue;
+      }
+      listSizePriceByProductId[pid] = Math.min(existing, price);
+    }
+  }
+
   sendSuccess(res, {
-    products: products.map(p => ({
+    products: products.map(p => {
+      const computedPrice = (p as any).price ?? listSizePriceByProductId[String((p as any)._id)] ?? 0;
+      return ({
       id: p._id,
       name: p.name,
       description: p.description,
-      price: p.price,
-      originalPrice: p.originalPrice,
+      price: computedPrice,
+      originalPrice: p.originalPrice || computedPrice,
       image: p.image || 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=300&h=200&fit=crop',
       rating: p.rating || 4.5,
       reviews: p.reviews || 0,
       category: p.category?.name || 'Food',
       sizes: p.sizes || []
-    })),
+    });
+    }),
     pagination: {
       page: Number(page),
       limit: Number(limit),
@@ -169,17 +238,71 @@ router.get('/products/:id', asyncHandler(async (req, res) => {
     _id: { $ne: product._id },
     isActive: true
   })
-    .select('name price image rating')
+    .select('name price image rating hasSizes')
     .limit(4)
     .lean();
+
+  let productComputedPrice = (product as any).price;
+  if ((product as any).hasSizes && (productComputedPrice === undefined || productComputedPrice === null)) {
+    const sizes = await ProductSize.find({
+      product: String((product as any)._id),
+      deletedAt: null,
+      isAvailable: true,
+    })
+      .select('price isDefault')
+      .lean();
+
+    let computed: number | undefined;
+    for (const s of sizes as any[]) {
+      const price = typeof s.price === 'number' ? s.price : 0;
+      if (s.isDefault) {
+        computed = price;
+        break;
+      }
+      if (computed === undefined) computed = price;
+      else computed = Math.min(computed, price);
+    }
+    productComputedPrice = computed ?? 0;
+  }
+
+  const relatedNeedingPrice = relatedProducts
+    .filter((p: any) => p && p.hasSizes && (p.price === undefined || p.price === null))
+    .map((p: any) => String(p._id));
+
+  let relatedSizePriceByProductId: Record<string, number> = {};
+  if (relatedNeedingPrice.length > 0) {
+    const sizes = await ProductSize.find({
+      product: { $in: relatedNeedingPrice },
+      deletedAt: null,
+      isAvailable: true,
+    })
+      .select('product price isDefault')
+      .lean();
+
+    for (const s of sizes as any[]) {
+      const pid = String(s.product);
+      const price = typeof s.price === 'number' ? s.price : 0;
+      const existing = relatedSizePriceByProductId[pid];
+
+      if (s.isDefault) {
+        relatedSizePriceByProductId[pid] = price;
+        continue;
+      }
+      if (existing === undefined) {
+        relatedSizePriceByProductId[pid] = price;
+        continue;
+      }
+      relatedSizePriceByProductId[pid] = Math.min(existing, price);
+    }
+  }
 
   sendSuccess(res, {
     product: {
       id: product._id,
       name: product.name,
       description: product.description,
-      price: product.price,
-      originalPrice: product.originalPrice,
+      price: productComputedPrice,
+      originalPrice: product.originalPrice || productComputedPrice,
       image: product.image,
       rating: product.rating || 4.5,
       reviews: product.reviews || 0,
@@ -190,7 +313,7 @@ router.get('/products/:id', asyncHandler(async (req, res) => {
     relatedProducts: relatedProducts.map(p => ({
       id: p._id,
       name: p.name,
-      price: p.price,
+      price: (p as any).price ?? relatedSizePriceByProductId[String((p as any)._id)] ?? 0,
       image: p.image,
       rating: p.rating
     }))
@@ -289,23 +412,53 @@ router.get('/branches', asyncHandler(async (req, res) => {
 router.get('/favorites', authenticate, authorize('CUSTOMER'), asyncHandler(async (req, res) => {
   const userId = (req as any).user._id;
 
-  const favorites = await Favorite.find({ user: userId })
-    .populate('product', 'name price originalPrice image rating reviews')
-    .populate('restaurant', 'name address')
+  const favorites = await Favorite.find({ customer: userId, type: 'PRODUCT' })
+    .populate('product', 'name price originalPrice imageUrl hasSizes')
     .sort({ createdAt: -1 })
     .lean();
+
+  const productsNeedingPrice = favorites
+    .map((f: any) => f?.product)
+    .filter((p: any) => p && p.hasSizes && (p.price === undefined || p.price === null))
+    .map((p: any) => String(p._id));
+
+  let sizePriceByProductId: Record<string, number> = {};
+  if (productsNeedingPrice.length > 0) {
+    const sizes = await ProductSize.find({
+      product: { $in: productsNeedingPrice },
+      deletedAt: null,
+      isAvailable: true,
+    })
+      .select('product price isDefault')
+      .lean();
+
+    // Prefer default size price; fallback to lowest price.
+    for (const s of sizes as any[]) {
+      const pid = String(s.product);
+      const price = typeof s.price === 'number' ? s.price : 0;
+      const existing = sizePriceByProductId[pid];
+
+      if (s.isDefault) {
+        sizePriceByProductId[pid] = price;
+        continue;
+      }
+      if (existing === undefined) {
+        sizePriceByProductId[pid] = price;
+        continue;
+      }
+      sizePriceByProductId[pid] = Math.min(existing, price);
+    }
+  }
 
   sendSuccess(res, {
     favorites: favorites.map(f => ({
       id: f._id,
       product: f.product ? {
-        id: f.product._id,
+        id: (f.product as any)._id,
         name: (f.product as any).name,
-        price: (f.product as any).price,
+        price: (f.product as any).price ?? sizePriceByProductId[String((f.product as any)._id)] ?? 0,
         originalPrice: (f.product as any).originalPrice,
-        image: (f.product as any).image,
-        rating: (f.product as any).rating || 4.5,
-        restaurant: (f.product as any).restaurant?.name || 'Restaurant'
+        imageUrl: (f.product as any).imageUrl,
       } : null
     })).filter(f => f.product !== null)
   }, 'Favorites retrieved successfully');
@@ -316,19 +469,35 @@ router.post('/favorites', authenticate, authorize('CUSTOMER'), asyncHandler(asyn
   const userId = (req as any).user._id;
   const { productId } = req.body;
 
+  console.log('[Customer/Favorites] Add request - userId:', userId, 'productId:', productId);
+
+  if (!productId) {
+    console.log('[Customer/Favorites] Error: productId is missing');
+    return sendError(res, 'productId is required', 400);
+  }
+
+  // Validate productId is a valid ObjectId
+  const mongoose = require('mongoose');
+  if (!mongoose.Types.ObjectId.isValid(productId)) {
+    console.log('[Customer/Favorites] Error: Invalid productId format:', productId);
+    return sendError(res, 'Invalid productId format', 400);
+  }
+
   // Check if already exists
-  const existing = await Favorite.findOne({ user: userId, product: productId });
+  const existing = await Favorite.findOne({ customer: userId, type: 'PRODUCT', product: productId });
   if (existing) {
+    console.log('[Customer/Favorites] Error: Product already in favorites');
     return sendError(res, 'Product already in favorites', 400);
   }
 
   const favorite = new Favorite({
-    user: userId,
+    customer: userId,
     product: productId,
-    type: 'product'
+    type: 'PRODUCT'
   });
 
   await favorite.save();
+  console.log('[Customer/Favorites] Success: Added favorite with id:', favorite._id);
   sendSuccess(res, { id: favorite._id }, 'Added to favorites successfully', 201);
 }));
 
@@ -338,7 +507,8 @@ router.delete('/favorites/:id', authenticate, authorize('CUSTOMER'), asyncHandle
   
   await Favorite.findOneAndDelete({ 
     _id: req.params.id,
-    user: userId 
+    customer: userId,
+    type: 'PRODUCT'
   });
 
   sendSuccess(res, null, 'Removed from favorites successfully');

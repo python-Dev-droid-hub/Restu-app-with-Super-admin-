@@ -61,6 +61,26 @@ const userSchema = new Schema({
     trim: true,
     maxlength: [50, 'Vehicle type cannot exceed 50 characters'],
   },
+  // Rider duty status
+  onDuty: {
+    type: Boolean,
+    default: false,
+  },
+  // Rider current location for auto-assignment
+  currentLocation: {
+    type: {
+      type: String,
+      enum: ['Point'],
+      default: 'Point',
+    },
+    coordinates: {
+      type: [Number], // [longitude, latitude]
+      default: undefined,
+    },
+  },
+  lastLocationUpdate: {
+    type: Date,
+  },
   // For Chefs
   specialization: {
     type: String,
@@ -142,6 +162,7 @@ userSchema.index({ email: 1 });
 userSchema.index({ role: 1 });
 userSchema.index({ isActive: 1, deletedAt: 1 });
 userSchema.index({ assignedBranch: 1 });
+userSchema.index({ currentLocation: '2dsphere' }); // For geospatial queries
 
 // Pre-find middleware to exclude deleted records
 userSchema.pre(/^find/, function(this: any, next: any) {

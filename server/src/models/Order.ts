@@ -132,6 +132,12 @@ const orderSchema = new Schema({
     ref: 'User',
     required: [true, 'Customer is required'],
   },
+  customerName: {
+    type: String,
+    required: [true, 'Customer name is required'],
+    trim: true,
+    maxlength: [100, 'Customer name cannot exceed 100 characters'],
+  },
   rider: {
     type: Schema.Types.ObjectId,
     ref: 'User',

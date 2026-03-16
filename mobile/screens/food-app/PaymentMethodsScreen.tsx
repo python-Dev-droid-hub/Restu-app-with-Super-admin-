@@ -9,10 +9,15 @@ import {
   Modal,
   TextInput,
   ScrollView,
+  SafeAreaView,
+  StatusBar,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { colors, typography, spacing, borderRadius, shadows } from '../../theme';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface PaymentMethod {
   id: string;
@@ -24,6 +29,7 @@ interface PaymentMethod {
 
 export default function PaymentMethodsScreen() {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([
     {
       id: '1',
@@ -83,7 +89,8 @@ export default function PaymentMethodsScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar barStyle="dark-content" backgroundColor={colors.white} />
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
@@ -140,8 +147,8 @@ export default function PaymentMethodsScreen() {
 
       {/* Add Modal */}
       <Modal visible={showModal} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, justifyContent: 'flex-end' }}>
+          <View style={[styles.modalContent, { paddingBottom: insets.bottom + 20 }]}>
             <View style={styles.modalHeader}>
               <TouchableOpacity onPress={() => setShowModal(false)}>
                 <Ionicons name="close" size={24} color={colors.text_dark} />
@@ -219,9 +226,9 @@ export default function PaymentMethodsScreen() {
               <Text style={styles.saveButtonText}>ADD PAYMENT METHOD</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 

@@ -78,6 +78,12 @@ interface DealCampaign {
   _id: string;
   name: string;
   status: string;
+  heroBanner?: {
+    imageUrl?: string;
+    title?: string;
+    subtitle?: string;
+    bgColor?: string;
+  };
   deals: DealItem[];
 }
 
@@ -98,6 +104,7 @@ export default function CustomerOverviewTab({
 }: CustomerOverviewTabProps) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [deals, setDeals] = useState<DealItem[]>([]);
+  const [dealCampaigns, setDealCampaigns] = useState<DealCampaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string>('');
 
@@ -127,11 +134,17 @@ export default function CustomerOverviewTab({
         }
       }
 
-      const campaigns = (dealsRes as any)?.data?.campaigns;
+      const campaigns =
+        (dealsRes as any)?.data?.campaigns ||
+        (dealsRes as any)?.data?.data?.campaigns ||
+        [];
+
       if (dealsRes.success && Array.isArray(campaigns)) {
         console.log('🏠 [HOME] Campaigns count:', campaigns.length);
         const activeCampaigns = campaigns.filter((c: DealCampaign) => c.status === 'ACTIVE');
         console.log('🏠 [HOME] Active campaigns:', activeCampaigns.length);
+
+        setDealCampaigns(activeCampaigns);
         
         const allDeals: DealItem[] = [];
         activeCampaigns.forEach((campaign: DealCampaign) => {
@@ -298,27 +311,32 @@ export default function CustomerOverviewTab({
 
       {/* Deals Section */}
       <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Special Deals</Text>
-          <Text style={styles.debugText}>({deals.length} deals)</Text>
-          <Ionicons name="pricetag" size={20} color={COLORS.primary} />
-        </View>
+        {dealCampaigns
+          .filter((c) => c?.heroBanner?.imageUrl)
+          .slice(0, 1)
+          .map((c) => {
+            const hero = getFullImageUrl(c.heroBanner?.imageUrl);
+            return hero ? <Image key={c._id} source={{ uri: hero }} style={styles.campaignHeroImage} /> : null;
+          })}
+
         {deals.length > 0 ? (
-          <ScrollView 
-            horizontal 
+          <ScrollView
+            horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.dealsScrollContent}
           >
             {deals.map((deal) => {
-              const discountPercent = deal.discount || (deal.originalPrice && deal.originalPrice > deal.price
-                ? Math.round(((deal.originalPrice - deal.price) / deal.originalPrice) * 100)
-                : 0);
+              const discountPercent =
+                deal.discount ||
+                (deal.originalPrice && deal.originalPrice > deal.price
+                  ? Math.round(((deal.originalPrice - deal.price) / deal.originalPrice) * 100)
+                  : 0);
               return (
                 <TouchableOpacity key={deal._id} style={styles.dealCard}>
                   <View style={styles.dealImageContainer}>
                     {deal.imageUrl ? (
-                      <Image 
-                        source={{ uri: getFullImageUrl(deal.imageUrl) }} 
+                      <Image
+                        source={{ uri: getFullImageUrl(deal.imageUrl) }}
                         style={styles.dealImage}
                       />
                     ) : (
@@ -333,9 +351,13 @@ export default function CustomerOverviewTab({
                     )}
                   </View>
                   <View style={styles.dealInfo}>
-                    <Text style={styles.dealTitle} numberOfLines={2}>{deal.title}</Text>
+                    <Text style={styles.dealTitle} numberOfLines={2}>
+                      {deal.title}
+                    </Text>
                     {deal.description && (
-                      <Text style={styles.dealDescription} numberOfLines={2}>{deal.description}</Text>
+                      <Text style={styles.dealDescription} numberOfLines={2}>
+                        {deal.description}
+                      </Text>
                     )}
                     <View style={styles.dealPriceRow}>
                       <Text style={styles.dealPrice}>{formatPrice(deal.price)}</Text>
@@ -348,9 +370,7 @@ export default function CustomerOverviewTab({
               );
             })}
           </ScrollView>
-        ) : (
-          <Text style={styles.noDealsText}>No deals available at the moment</Text>
-        )}
+        ) : null}
       </View>
 
       {/* Promo Banner */}

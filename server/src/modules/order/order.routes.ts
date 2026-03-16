@@ -18,6 +18,7 @@ const createOrderSchema = Joi.object({
     })
   ).min(1).required(),
   restaurantId: Joi.string().required(),
+  customerName: Joi.string().trim().min(2).max(100).required(),
   phoneNumber: Joi.string().max(30).optional().allow(''),
   alternatePhoneNumber: Joi.string().max(30).optional().allow(''),
   deliveryAddress: Joi.object({
@@ -61,8 +62,8 @@ const cancelOrderSchema = Joi.object({
 });
 
 const addReviewSchema = Joi.object({
-  rating: Joi.number().min(1).max(5).required(),
-  review: Joi.string().max(1000).optional(),
+  foodRating: Joi.number().min(1).max(5).required(),
+  deliveryRating: Joi.number().min(1).max(5).required(),
 });
 
 const orderParamsSchema = Joi.object({

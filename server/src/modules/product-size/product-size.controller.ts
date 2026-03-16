@@ -4,6 +4,36 @@ import { Size } from '@/models/Size';
 import { Product } from '@/models/Product';
 
 export class ProductSizeController {
+  private syncProductBasePriceFromSizes = async (productId: any): Promise<void> => {
+    const sizes = await ProductSize.find({
+      product: productId,
+      deletedAt: null,
+      isAvailable: true,
+    })
+      .select('price isDefault')
+      .lean();
+
+    if (!sizes || sizes.length === 0) return;
+
+    let computed: number | undefined;
+    for (const s of sizes as any[]) {
+      const price = typeof s.price === 'number' && !Number.isNaN(s.price) ? s.price : 0;
+      if (s.isDefault) {
+        computed = price;
+        break;
+      }
+      if (computed === undefined) computed = price;
+      else computed = Math.min(computed, price);
+    }
+
+    if (computed === undefined) return;
+
+    await Product.updateOne(
+      { _id: productId },
+      { $set: { price: computed, hasSizes: true } }
+    );
+  };
+
   // Get all sizes (master list) - show all for admin management
   async getAllSizes(req: Request, res: Response) {
     try {
@@ -222,6 +252,8 @@ export class ProductSizeController {
           }
         }
         
+        await this.syncProductBasePriceFromSizes(product);
+
         return res.status(201).json({
           success: true,
           message: `Assigned ${createdAssignments.length} sizes to product`,
@@ -265,6 +297,8 @@ export class ProductSizeController {
       const populatedProductSize = await ProductSize.findById(productSize._id)
         .populate('size')
         .populate('product', 'name');
+
+      await this.syncProductBasePriceFromSizes(product);
 
       return res.status(201).json({
         success: true,
@@ -310,6 +344,8 @@ export class ProductSizeController {
 
       await productSize.save();
 
+      await this.syncProductBasePriceFromSizes(productSize.product);
+
       const updatedProductSize = await ProductSize.findById(id)
         .populate('size')
         .populate('product', 'name');
@@ -344,6 +380,8 @@ export class ProductSizeController {
 
       await productSize.softDelete();
 
+      await this.syncProductBasePriceFromSizes(productSize.product);
+
       return res.status(200).json({
         success: true,
         message: 'Product size deleted successfully'
@@ -371,7 +409,11 @@ export class ProductSizeController {
         });
       }
 
+      const productId = productSize.product;
+
       await productSize.restore();
+
+      await this.syncProductBasePriceFromSizes(productId);
 
       const restoredProductSize = await ProductSize.findById(id)
         .populate('size')

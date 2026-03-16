@@ -198,8 +198,29 @@ export default function CheckoutScreen() {
         zipCode: address?.zipCode || '75300',
       };
 
+      let customerName = '';
+      try {
+        const userDataRaw = await AsyncStorage.getItem('userData');
+        if (userDataRaw) {
+          const userData = JSON.parse(userDataRaw);
+          customerName = String(userData?.display_name || userData?.displayName || userData?.name || '').trim();
+        }
+      } catch {
+        // ignore
+      }
+
+      if (!customerName) {
+        customerName = String(phoneNumber || '').trim();
+      }
+
+      if (!customerName) {
+        Alert.alert('Error', 'Customer name is required. Please update your profile name.');
+        return;
+      }
+
       const payload = {
         restaurantId, // Backend expects restaurantId (not branchId)
+        customerName,
         orderType: 'DELIVERY', // Backend expects uppercase: DELIVERY, DINE_IN, TAKEAWAY
         paymentMethod: paymentMethod === 'cod' ? 'cash' : paymentMethod,
         deliveryInstructions: instructions,

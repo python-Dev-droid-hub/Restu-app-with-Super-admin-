@@ -8,6 +8,7 @@ import {
   RefreshControl,
   TextInput,
   ActivityIndicator,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../../components/api/client';
@@ -33,6 +34,8 @@ interface Order {
   createdAt: string;
   branch?: { name: string };
   items?: Array<{ name: string; quantity: number }>;
+  foodRating?: number;
+  deliveryRating?: number;
 }
 
 interface CustomerOrdersTabProps {
@@ -45,10 +48,15 @@ export default function CustomerOrdersTab({ formatPrice }: CustomerOrdersTabProp
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'completed'>('all');
+  const [ratingModalVisible, setRatingModalVisible] = useState(false);
+  const [ratingOrderId, setRatingOrderId] = useState<string | null>(null);
+  const [foodRating, setFoodRating] = useState<number>(0);
+  const [deliveryRating, setDeliveryRating] = useState<number>(0);
+  const [submittingRating, setSubmittingRating] = useState(false);
 
   const fetchOrders = useCallback(async () => {
     try {
-      const response = await api.get('/orders?limit=50');
+      const response = await api.get('/customer/orders');
       if (response.success && response.data) {
         setOrders(response.data.orders || []);
       }
@@ -126,6 +134,69 @@ export default function CustomerOrdersTab({ formatPrice }: CustomerOrdersTabProp
     return true;
   });
 
+  const isOrderRatable = (order: Order) => {
+    return (
+      order.status?.toUpperCase() === 'DELIVERED' &&
+      !(order.foodRating || order.deliveryRating)
+    );
+  };
+
+  const openRatingModal = (order: Order) => {
+    setRatingOrderId(order._id);
+    setFoodRating(0);
+    setDeliveryRating(0);
+    setRatingModalVisible(true);
+  };
+
+  const closeRatingModal = () => {
+    setRatingModalVisible(false);
+    setRatingOrderId(null);
+    setFoodRating(0);
+    setDeliveryRating(0);
+  };
+
+  const submitRating = async () => {
+    if (!ratingOrderId) return;
+    if (foodRating < 1 || deliveryRating < 1) return;
+
+    try {
+      setSubmittingRating(true);
+      const response = await api.put(`/orders/${ratingOrderId}/review`, {
+        foodRating,
+        deliveryRating,
+      });
+      if (response.success) {
+        closeRatingModal();
+        await fetchOrders();
+      }
+    } catch (error) {
+      console.error('Error submitting rating:', error);
+    } finally {
+      setSubmittingRating(false);
+    }
+  };
+
+  const renderStars = (value: number, onChange: (v: number) => void) => {
+    return (
+      <View style={styles.starsRow}>
+        {[1, 2, 3, 4, 5].map((v) => (
+          <TouchableOpacity
+            key={v}
+            onPress={() => onChange(v)}
+            style={styles.starBtn}
+            activeOpacity={0.8}
+          >
+            <Ionicons
+              name={v <= value ? 'star' : 'star-outline'}
+              size={22}
+              color={v <= value ? COLORS.warning : COLORS.gray}
+            />
+          </TouchableOpacity>
+        ))}
+      </View>
+    );
+  };
+
   const renderOrderItem = ({ item }: { item: Order }) => (
     <TouchableOpacity style={styles.orderCard}>
       <View style={styles.orderHeader}>
@@ -151,6 +222,16 @@ export default function CustomerOrdersTab({ formatPrice }: CustomerOrdersTabProp
         <Ionicons name="time-outline" size={14} color={COLORS.gray} />
         <Text style={styles.orderTime}>{formatTime(item.createdAt)}</Text>
       </View>
+
+      {isOrderRatable(item) ? (
+        <TouchableOpacity
+          style={styles.rateButton}
+          onPress={() => openRatingModal(item)}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.rateButtonText}>Rate Order</Text>
+        </TouchableOpacity>
+      ) : null}
     </TouchableOpacity>
   );
 
@@ -213,6 +294,48 @@ export default function CustomerOrdersTab({ formatPrice }: CustomerOrdersTabProp
         }
         contentContainerStyle={styles.listContent}
       />
+
+      <Modal
+        visible={ratingModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeRatingModal}
+      >
+        <View style={styles.ratingOverlay}>
+          <View style={styles.ratingCard}>
+            <Text style={styles.ratingTitle}>Rate your order</Text>
+
+            <Text style={styles.ratingLabel}>Food Rating</Text>
+            {renderStars(foodRating, setFoodRating)}
+
+            <Text style={styles.ratingLabel}>Delivery Rating</Text>
+            {renderStars(deliveryRating, setDeliveryRating)}
+
+            <View style={styles.ratingActions}>
+              <TouchableOpacity
+                style={[styles.ratingActionBtn, styles.ratingCancelBtn]}
+                onPress={closeRatingModal}
+                disabled={submittingRating}
+              >
+                <Text style={styles.ratingCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.ratingActionBtn,
+                  styles.ratingSubmitBtn,
+                  (foodRating < 1 || deliveryRating < 1 || submittingRating) && styles.ratingSubmitBtnDisabled,
+                ]}
+                onPress={submitRating}
+                disabled={foodRating < 1 || deliveryRating < 1 || submittingRating}
+              >
+                <Text style={styles.ratingSubmitText}>
+                  {submittingRating ? 'Submitting...' : 'Submit'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -276,6 +399,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     padding: 16,
+    paddingBottom: 100,
     paddingTop: 0,
   },
   orderCard: {
@@ -361,5 +485,77 @@ const styles = StyleSheet.create({
     color: COLORS.gray,
     marginTop: 8,
     textAlign: 'center',
+  },
+  rateButton: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  rateButtonText: {
+    color: COLORS.white,
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  ratingOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  ratingCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: 14,
+    padding: 16,
+  },
+  ratingTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.darkText,
+    marginBottom: 12,
+  },
+  ratingLabel: {
+    fontSize: 13,
+    color: COLORS.gray,
+    marginTop: 8,
+    marginBottom: 6,
+  },
+  starsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  starBtn: {
+    paddingRight: 6,
+    paddingVertical: 4,
+  },
+  ratingActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: 16,
+  },
+  ratingActionBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  ratingCancelBtn: {
+    backgroundColor: COLORS.lightGray,
+  },
+  ratingCancelText: {
+    color: COLORS.darkText,
+    fontWeight: '600',
+  },
+  ratingSubmitBtn: {
+    backgroundColor: COLORS.primary,
+  },
+  ratingSubmitBtnDisabled: {
+    opacity: 0.6,
+  },
+  ratingSubmitText: {
+    color: COLORS.white,
+    fontWeight: '700',
   },
 });

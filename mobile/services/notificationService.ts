@@ -22,11 +22,33 @@ export interface Notification {
   };
 }
 
+const normalizeNotification = (n: any): Notification => {
+  const read =
+    typeof n?.read === 'boolean'
+      ? n.read
+      : typeof n?.isRead === 'boolean'
+        ? n.isRead
+        : false;
+
+  return {
+    _id: String(n?._id || n?.id || ''),
+    type: String(n?.type || ''),
+    title: String(n?.title || 'Notification'),
+    body: n?.body,
+    message: n?.message,
+    description: n?.description,
+    read,
+    readAt: n?.readAt,
+    priority: (n?.priority || 'NORMAL') as any,
+    createdAt: n?.createdAt,
+    data: n?.data,
+  };
+};
+
 /**
  * Get all notifications
  */
 export const getNotifications = async (limit = 20, skip = 0, read?: boolean, branchId?: string) => {
-  console.log('[notificationService] getNotifications CALLED - limit:', limit, 'skip:', skip, 'branchId:', branchId);
   try {
     // Build query string
     const params = new URLSearchParams();
@@ -41,20 +63,19 @@ export const getNotifications = async (limit = 20, skip = 0, read?: boolean, bra
 
     const queryString = params.toString();
     const url = queryString ? `/notifications?${queryString}` : '/notifications';
-    console.log('[notificationService] Fetching from URL:', url);
-    
     const response: any = await api.get(url);
-    console.log('[notificationService] Raw response:', JSON.stringify(response, null, 2));
 
     // Handle nested data structure - backend wraps response in data field
     const responseData = response.data || response;
     
     if (response.success || responseData.notifications) {
+      const normalized = (responseData.notifications || []).map(normalizeNotification);
+      const unreadComputed = normalized.filter((n: Notification) => !n.read).length;
       return {
         success: true,
-        notifications: (responseData.notifications || []) as Notification[],
-        total: responseData.total || 0,
-        unread: responseData.unread || 0,
+        notifications: normalized,
+        total: responseData.total || normalized.length || 0,
+        unread: typeof responseData.unread === 'number' ? responseData.unread : unreadComputed,
       };
     }
 
@@ -81,7 +102,7 @@ export const getNotifications = async (limit = 20, skip = 0, read?: boolean, bra
 export const getUnreadCount = async () => {
   try {
     const response: any = await api.get('/notifications/unread-count');
-    return response.unreadCount || 0;
+    return response.data?.unreadCount || 0;
   } catch (error) {
     console.error('Get unread count error:', error);
     return 0;
@@ -94,7 +115,7 @@ export const getUnreadCount = async () => {
 export const markNotificationAsRead = async (notificationId: string) => {
   try {
     const response = await api.put(`/notifications/${notificationId}/read`);
-    return response.data?.success || false;
+    return !!response.success;
   } catch (error) {
     console.error('Mark as read error:', error);
     return false;
@@ -107,7 +128,7 @@ export const markNotificationAsRead = async (notificationId: string) => {
 export const markAllAsRead = async () => {
   try {
     const response = await api.put('/notifications/mark-all-read');
-    return response.data?.success || false;
+    return !!response.success;
   } catch (error) {
     console.error('Mark all as read error:', error);
     return false;
@@ -120,7 +141,7 @@ export const markAllAsRead = async () => {
 export const deleteNotification = async (notificationId: string) => {
   try {
     const response = await api.delete(`/notifications/${notificationId}`);
-    return response.data?.success || false;
+    return !!response.success;
   } catch (error) {
     console.error('Delete notification error:', error);
     return false;
@@ -133,7 +154,7 @@ export const deleteNotification = async (notificationId: string) => {
 export const clearAllNotifications = async () => {
   try {
     const response = await api.delete('/notifications');
-    return response.data?.success || false;
+    return !!response.success;
   } catch (error) {
     console.error('Clear all error:', error);
     return false;

@@ -3,10 +3,12 @@ import {
   View,
   Text,
   ScrollView,
+  KeyboardAvoidingView,
   TouchableOpacity,
   TextInput,
   Alert,
   StyleSheet,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -55,9 +57,9 @@ export default function ChangePasswordScreen({ onBack, userData, api }: ChangePa
 
   const handleChangePassword = async () => {
     try {
-      const response = await api.patch(`/users/${userData?.id}/change-password`, {
-        current_password: currentPassword,
-        new_password: newPassword,
+      const response = await api.put('/users/change-password', {
+        currentPassword,
+        newPassword,
       });
       if (response.success) {
         Alert.alert('Success', 'Password changed successfully!');
@@ -69,91 +71,91 @@ export default function ChangePasswordScreen({ onBack, userData, api }: ChangePa
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onBack}>
-          <Ionicons name="arrow-back" size={24} color={DESIGN.colors.darkText} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Change Password</Text>
-        <View style={{ width: 24 }} />
-      </View>
-
-      {/* Current Password */}
-      <View style={styles.field}>
-        <Text style={styles.label}>Current Password</Text>
-        <View style={styles.passwordInput}>
-          <TextInput
-            style={styles.passwordField}
-            value={currentPassword}
-            onChangeText={setCurrentPassword}
-            secureTextEntry={!showCurrent}
-            placeholder="Enter current password"
-          />
-          <TouchableOpacity onPress={() => setShowCurrent(!showCurrent)}>
-            <Ionicons name={showCurrent ? 'eye-off' : 'eye'} size={20} color={DESIGN.colors.muted} />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* New Password */}
-      <View style={styles.field}>
-        <Text style={styles.label}>New Password</Text>
-        <View style={styles.passwordInput}>
-          <TextInput
-            style={styles.passwordField}
-            value={newPassword}
-            onChangeText={setNewPassword}
-            secureTextEntry={!showNew}
-            placeholder="Enter new password"
-          />
-          <TouchableOpacity onPress={() => setShowNew(!showNew)}>
-            <Ionicons name={showNew ? 'eye-off' : 'eye'} size={20} color={DESIGN.colors.muted} />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Requirements */}
-      <View style={styles.requirementsBox}>
-        {requirements.map((req, idx) => (
-          <View key={idx} style={styles.requirementRow}>
-            <Ionicons name={req.met ? 'checkmark-circle' : 'ellipse-outline'} size={16} color={req.met ? DESIGN.colors.green : DESIGN.colors.muted} />
-            <Text style={[styles.requirementText, req.met && styles.requirementMet]}>{req.label}</Text>
-          </View>
-        ))}
-      </View>
-
-      {/* Confirm Password */}
-      <View style={styles.field}>
-        <Text style={styles.label}>Confirm Password</Text>
-        <View style={styles.passwordInput}>
-          <TextInput
-            style={styles.passwordField}
-            value={confirmPassword}
-            onChangeText={setConfirmPassword}
-            secureTextEntry={!showConfirm}
-            placeholder="Confirm new password"
-          />
-          <TouchableOpacity onPress={() => setShowConfirm(!showConfirm)}>
-            <Ionicons name={showConfirm ? 'eye-off' : 'eye'} size={20} color={DESIGN.colors.muted} />
-          </TouchableOpacity>
-        </View>
-        {confirmPassword.length > 0 && (
-          <Text style={[styles.matchText, passwordsMatch ? styles.matchSuccess : styles.matchError]}>
-            {passwordsMatch ? 'Passwords match ✓' : 'Passwords do not match ✗'}
-          </Text>
-        )}
-      </View>
-
-      {/* Change Button */}
-      <TouchableOpacity 
-        style={[styles.saveBtn, !canSubmit && styles.saveBtnDisabled]} 
-        disabled={!canSubmit}
-        onPress={handleChangePassword}
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView
+        style={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
       >
-        <Text style={styles.saveBtnText}>Change Password</Text>
-      </TouchableOpacity>
-    </ScrollView>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={onBack}>
+            <Ionicons name="arrow-back" size={24} color={DESIGN.colors.darkText} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Change Password</Text>
+          <View style={{ width: 24 }} />
+        </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>Current Password</Text>
+          <View style={styles.passwordInput}>
+            <TextInput
+              style={styles.passwordField}
+              value={currentPassword}
+              onChangeText={setCurrentPassword}
+              secureTextEntry={!showCurrent}
+              placeholder="Enter current password"
+            />
+            <TouchableOpacity onPress={() => setShowCurrent(!showCurrent)}>
+              <Ionicons name={showCurrent ? 'eye-off' : 'eye'} size={20} color={DESIGN.colors.muted} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>New Password</Text>
+          <View style={styles.passwordInput}>
+            <TextInput
+              style={styles.passwordField}
+              value={newPassword}
+              onChangeText={setNewPassword}
+              secureTextEntry={!showNew}
+              placeholder="Enter new password"
+            />
+            <TouchableOpacity onPress={() => setShowNew(!showNew)}>
+              <Ionicons name={showNew ? 'eye-off' : 'eye'} size={20} color={DESIGN.colors.muted} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.requirementsBox}>
+          {requirements.map((req, idx) => (
+            <View key={idx} style={styles.requirementRow}>
+              <Ionicons name={req.met ? 'checkmark-circle' : 'ellipse-outline'} size={16} color={req.met ? DESIGN.colors.green : DESIGN.colors.muted} />
+              <Text style={[styles.requirementText, req.met && styles.requirementMet]}>{req.label}</Text>
+            </View>
+          ))}
+        </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>Confirm Password</Text>
+          <View style={styles.passwordInput}>
+            <TextInput
+              style={styles.passwordField}
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              secureTextEntry={!showConfirm}
+              placeholder="Confirm new password"
+            />
+            <TouchableOpacity onPress={() => setShowConfirm(!showConfirm)}>
+              <Ionicons name={showConfirm ? 'eye-off' : 'eye'} size={20} color={DESIGN.colors.muted} />
+            </TouchableOpacity>
+          </View>
+          {confirmPassword.length > 0 && (
+            <Text style={[styles.matchText, passwordsMatch ? styles.matchSuccess : styles.matchError]}>
+              {passwordsMatch ? 'Passwords match ✓' : 'Passwords do not match ✗'}
+            </Text>
+          )}
+        </View>
+
+        <TouchableOpacity
+          style={[styles.saveBtn, !canSubmit && styles.saveBtnDisabled]}
+          disabled={!canSubmit}
+          onPress={handleChangePassword}
+        >
+          <Text style={styles.saveBtnText}>Change Password</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -161,6 +163,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: DESIGN.colors.lightBg,
+  },
+  scroll: {
+    flex: 1,
     paddingHorizontal: 16,
   },
   header: {

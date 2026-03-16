@@ -80,6 +80,7 @@ export default function TableAssignmentScreen() {
   const [userData, setUserData] = useState<{branchId?: string}>({});
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [userRole, setUserRole] = useState<string>('');
+  const canManageWaiterAssignment = userRole !== 'BRANCH_MANAGER';
   const { profileImage } = useUserData();
 
   const [showProfileMenu, setShowProfileMenu] = useState(false);
@@ -165,7 +166,11 @@ export default function TableAssignmentScreen() {
   const loadData = async () => {
     try {
       setLoading(true);
-      await Promise.all([loadTables(), loadWaiters(), loadBranches()]);
+      await Promise.all([
+        loadTables(),
+        canManageWaiterAssignment ? loadWaiters() : Promise.resolve(),
+        loadBranches(),
+      ]);
     } finally {
       setLoading(false);
     }
@@ -279,7 +284,7 @@ export default function TableAssignmentScreen() {
     console.log('[TABLE_CREATE] Table numbers:', tableNumbers);
     console.log('[TABLE_CREATE] Capacity:', capacity);
     console.log('[TABLE_CREATE] BranchId:', branchId);
-    console.log('[TABLE_CREATE] Selected waiter:', selectedWaiterForNewTable);
+    console.log('[TABLE_CREATE] Selected waiter:', canManageWaiterAssignment ? selectedWaiterForNewTable : 'disabled');
     
     try {
       for (const tableNum of tableNumbers) {
@@ -296,11 +301,23 @@ export default function TableAssignmentScreen() {
           console.log('[TABLE_CREATE] API response:', JSON.stringify(response));
 
           if (response.success && response.data) {
-            const newTable = response.data.table || response.data;
-            console.log('[TABLE_CREATE] New table created:', newTable);
+            const rawNewTable = response.data.table || response.data;
+            console.log('[TABLE_CREATE] New table created:', rawNewTable);
+
+            const newTable: Table = {
+              _id: String(rawNewTable._id || rawNewTable.id).trim(),
+              number: rawNewTable.tableNumber ?? rawNewTable.number ?? tableNum,
+              capacity: rawNewTable.seatingCapacity ?? rawNewTable.capacity ?? capacity,
+              status: rawNewTable.status || 'AVAILABLE',
+              branchId: rawNewTable.branch?._id || rawNewTable.branch || branchId,
+              assignedWaiterId: rawNewTable.currentWaiter?._id
+                ? String(rawNewTable.currentWaiter._id).trim()
+                : rawNewTable.assignedWaiterId,
+              assignedWaiterName: rawNewTable.currentWaiter?.displayName || rawNewTable.currentWaiter?.name || rawNewTable.currentWaiter?.email || rawNewTable.assignedWaiterName,
+            };
             
             // If a waiter was selected, assign them to the new table
-            if (selectedWaiterForNewTable) {
+            if (canManageWaiterAssignment && selectedWaiterForNewTable) {
               const selectedWaiter = waiters.find(w => w._id === selectedWaiterForNewTable);
               console.log('[TABLE_CREATE] Selected waiter object:', selectedWaiter);
               if (selectedWaiter) {
@@ -365,6 +382,7 @@ export default function TableAssignmentScreen() {
   };
 
   const handleAssignWaiter = (table: Table) => {
+    if (!canManageWaiterAssignment) return;
     setSelectedTable(table);
     setSearchWaiterQuery('');
     setShowAssignModal(true);
@@ -561,47 +579,6 @@ export default function TableAssignmentScreen() {
             <Ionicons name="people-outline" size={16} color={COLORS.muted} />
             <Text style={styles.tableInfoText}>Capacity: {item.capacity} persons</Text>
           </View>
-          
-          {item.assignedWaiterName ? (
-            <View style={styles.assignedWaiter}>
-              <Ionicons name="person" size={16} color={COLORS.primary} />
-              <Text style={styles.assignedWaiterText}>{item.assignedWaiterName}</Text>
-            </View>
-          ) : (
-            <View style={styles.unassignedWaiter}>
-              <Ionicons name="person-outline" size={16} color={COLORS.muted} />
-              <Text style={styles.unassignedWaiterText}>No waiter assigned</Text>
-            </View>
-          )}
-        </View>
-        
-        <View style={styles.tableActions}>
-          {item.assignedWaiterId ? (
-            <>
-              <TouchableOpacity 
-                style={[styles.actionBtn, styles.reassignBtn]}
-                onPress={() => handleAssignWaiter(item)}
-              >
-                <Ionicons name="swap-horizontal" size={16} color={COLORS.primary} />
-                <Text style={styles.reassignBtnText}>Reassign</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.actionBtn, styles.unassignBtn]}
-                onPress={() => handleUnassignWaiter(item)}
-              >
-                <Ionicons name="close-circle-outline" size={16} color={COLORS.danger} />
-                <Text style={styles.unassignBtnText}>Remove</Text>
-              </TouchableOpacity>
-            </>
-          ) : (
-            <TouchableOpacity 
-              style={[styles.actionBtn, styles.assignBtn]}
-              onPress={() => handleAssignWaiter(item)}
-            >
-              <Ionicons name="person-add" size={16} color={COLORS.white} />
-              <Text style={styles.assignBtnText}>Assign Waiter</Text>
-            </TouchableOpacity>
-          )}
         </View>
       </View>
     );
@@ -704,14 +681,18 @@ export default function TableAssignmentScreen() {
           <Text style={styles.statCardValue}>{tables.length}</Text>
           <Text style={styles.statCardLabel}>Total</Text>
         </View>
-        <View style={[styles.statCard, styles.greenCard]}>
-          <Text style={styles.statCardValue}>{tables.filter(t => t.assignedWaiterId).length}</Text>
-          <Text style={styles.statCardLabel}>Assigned</Text>
-        </View>
-        <View style={[styles.statCard, styles.blueCard]}>
-          <Text style={styles.statCardValue}>{tables.filter(t => !t.assignedWaiterId).length}</Text>
-          <Text style={styles.statCardLabel}>Unassigned</Text>
-        </View>
+        {canManageWaiterAssignment ? (
+          <>
+            <View style={[styles.statCard, styles.greenCard]}>
+              <Text style={styles.statCardValue}>{tables.filter(t => t.assignedWaiterId).length}</Text>
+              <Text style={styles.statCardLabel}>Assigned</Text>
+            </View>
+            <View style={[styles.statCard, styles.blueCard]}>
+              <Text style={styles.statCardValue}>{tables.filter(t => !t.assignedWaiterId).length}</Text>
+              <Text style={styles.statCardLabel}>Unassigned</Text>
+            </View>
+          </>
+        ) : null}
       </View>
 
       {/* Add Table Button */}
@@ -806,60 +787,6 @@ export default function TableAssignmentScreen() {
                   />
                 </View>
 
-                {/* Waiter Selection */}
-                <Text style={styles.inputLabel}>Assign Waiter (Optional)</Text>
-                <View style={styles.waiterDropdown}>
-                  <TouchableOpacity
-                    style={styles.waiterDropdownButton}
-                    onPress={() => {
-                      if (waiters.length === 0) {
-                        Alert.alert('No Waiters', 'No waiters available. Please add waiters first.');
-                      }
-                    }}
-                  >
-                    <Ionicons name="person-outline" size={18} color={COLORS.muted} />
-                    <Text style={styles.waiterDropdownText}>
-                      {selectedWaiterForNewTable 
-                        ? waiters.find(w => w._id === selectedWaiterForNewTable)?.display_name || 'Select Waiter'
-                        : 'Select a waiter (optional)'}
-                    </Text>
-                    <Ionicons name="chevron-down" size={16} color={COLORS.muted} />
-                  </TouchableOpacity>
-                  
-                  {/* Waiter List - Using ScrollView instead of FlatList to avoid VirtualizedLists error */}
-                  {waiters.length > 0 && (
-                    <View style={styles.waiterListContainer}>
-                      <ScrollView style={styles.waiterOptionList}>
-                        {waiters.map((item) => (
-                          <TouchableOpacity
-                            key={item._id}
-                            style={[
-                              styles.waiterOption,
-                              selectedWaiterForNewTable === item._id && styles.waiterOptionSelected
-                            ]}
-                            onPress={() => setSelectedWaiterForNewTable(
-                              selectedWaiterForNewTable === item._id ? '' : item._id
-                            )}
-                          >
-                            <View style={styles.waiterOptionAvatar}>
-                              <Text style={styles.waiterOptionAvatarText}>
-                                {item.display_name ? item.display_name.split(' ').map(n => n[0]).join('').toUpperCase() : '?'}
-                              </Text>
-                            </View>
-                            <View style={styles.waiterOptionInfo}>
-                              <Text style={styles.waiterOptionName}>{item.display_name}</Text>
-                              <Text style={styles.waiterOptionEmail}>{item.email}</Text>
-                            </View>
-                            {selectedWaiterForNewTable === item._id && (
-                              <Ionicons name="checkmark-circle" size={20} color={COLORS.primary} />
-                            )}
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
-                    </View>
-                  )}
-                </View>
-
                 {/* Add Table Button */}
                 <TouchableOpacity
                   style={[styles.submitButton, addingTable && styles.submitButtonDisabled]}
@@ -882,134 +809,108 @@ export default function TableAssignmentScreen() {
       </Modal>
 
       {/* Assign Waiter Modal */}
-      <Modal
-        visible={showAssignModal}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => {
-          setShowAssignModal(false);
-          setAssignByEmail(false);
-          setEmailInput('');
-        }}
-      >
-        <KeyboardAvoidingView 
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.keyboardAvoidingView}
+      {canManageWaiterAssignment ? (
+        <Modal
+          visible={showAssignModal}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => {
+            setShowAssignModal(false);
+            setAssignByEmail(false);
+            setEmailInput('');
+          }}
         >
-          <ScrollView 
-            style={styles.modalScrollView}
-            contentContainerStyle={styles.modalScrollContent}
-            keyboardShouldPersistTaps="handled"
+          <KeyboardAvoidingView 
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.keyboardAvoidingView}
           >
-            <View style={styles.modalContent}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>
-                  Assign Waiter to Table {selectedTable?.number}
-                </Text>
-                <TouchableOpacity onPress={() => {
-                  setShowAssignModal(false);
-                  setAssignByEmail(false);
-                  setEmailInput('');
-                  Keyboard.dismiss();
-                }}>
-                  <Ionicons name="close" size={24} color={COLORS.muted} />
-                </TouchableOpacity>
-              </View>
-
-              {/* Toggle between list and email */}
-              <View style={styles.toggleContainer}>
-                <TouchableOpacity
-                  style={[styles.toggleButton, !assignByEmail && styles.toggleButtonActive]}
-                  onPress={() => setAssignByEmail(false)}
-                >
-                  <Text style={[styles.toggleButtonText, !assignByEmail && styles.toggleButtonTextActive]}>
-                    From List
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalContent}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>
+                    Assign Waiter to Table {selectedTable?.number}
                   </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.toggleButton, assignByEmail && styles.toggleButtonActive]}
-                  onPress={() => setAssignByEmail(true)}
-                >
-                  <Text style={[styles.toggleButtonText, assignByEmail && styles.toggleButtonTextActive]}>
-                    By Email
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {assignByEmail ? (
-                /* Email Input Mode */
-                <View style={styles.emailSection}>
-                  <Text style={styles.emailLabel}>Enter Waiter Email:</Text>
-                  <View style={styles.emailInputContainer}>
-                    <Ionicons name="mail-outline" size={18} color={COLORS.muted} />
-                    <TextInput
-                      style={styles.emailInput}
-                      placeholder="waiter@example.com"
-                      value={emailInput}
-                      onChangeText={setEmailInput}
-                      keyboardType="email-address"
-                      autoCapitalize="none"
-                    />
-                  </View>
-                  <TouchableOpacity
-                    style={styles.assignEmailButton}
-                    onPress={assignWaiterByEmail}
-                  >
-                    <Ionicons name="person-add" size={18} color={COLORS.white} />
-                    <Text style={styles.assignEmailButtonText}>Assign Waiter</Text>
+                  <TouchableOpacity onPress={() => {
+                    setShowAssignModal(false);
+                    setAssignByEmail(false);
+                    setEmailInput('');
+                    Keyboard.dismiss();
+                  }}>
+                    <Ionicons name="close" size={24} color={COLORS.muted} />
                   </TouchableOpacity>
                 </View>
-              ) : (
-                /* List Selection Mode */
-                <>
-                  {/* Search Waiter */}
-                  <View style={styles.searchContainer}>
-                    <Ionicons name="search" size={18} color={COLORS.muted} />
-                    <TextInput
-                      style={styles.searchInput}
-                      placeholder="Search waiters..."
-                      value={searchWaiterQuery}
-                      onChangeText={setSearchWaiterQuery}
-                    />
-                  </View>
+                {assignByEmail ? (
+                  <>
+                    <View style={styles.emailInputContainer}>
+                      <Ionicons name="mail-outline" size={18} color={COLORS.muted} />
+                      <TextInput
+                        style={styles.emailInput}
+                        placeholder="waiter@example.com"
+                        value={emailInput}
+                        onChangeText={setEmailInput}
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                      />
+                    </View>
+                    <TouchableOpacity
+                      style={styles.assignEmailButton}
+                      onPress={assignWaiterByEmail}
+                    >
+                      <Ionicons name="person-add" size={18} color={COLORS.white} />
+                      <Text style={styles.assignEmailButtonText}>Assign Waiter</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <>
+                    {/* Search Waiter */}
+                    <View style={styles.searchContainer}>
+                      <Ionicons name="search" size={18} color={COLORS.muted} />
+                      <TextInput
+                        style={styles.searchInput}
+                        placeholder="Search waiters..."
+                        value={searchWaiterQuery}
+                        onChangeText={setSearchWaiterQuery}
+                      />
+                    </View>
 
-                  {/* Waiters List */}
-                  <ScrollView style={styles.waitersList} nestedScrollEnabled={true}>
-                    {filteredWaiters.length === 0 ? (
-                      <View style={styles.emptyWaiterContainer}>
-                        <Ionicons name="person-outline" size={32} color={COLORS.muted} />
-                        <Text style={styles.emptyWaiterText}>No waiters found</Text>
-                      </View>
-                    ) : (
-                      filteredWaiters.map((item) => (
-                        <TouchableOpacity 
-                          key={item._id}
-                          style={styles.waiterItem}
-                          onPress={() => confirmAssignWaiter(item)}
-                        >
-                          <View style={styles.waiterAvatar}>
-                            <Text style={styles.waiterAvatarText}>
-                              {item.display_name ? item.display_name.split(' ').map(n => n[0]).join('').toUpperCase() : '?'}
-                            </Text>
-                          </View>
-                          <View style={styles.waiterInfo}>
-                            <Text style={styles.waiterName}>{item.display_name}</Text>
-                            <Text style={styles.waiterEmail}>{item.email}</Text>
-                            <Text style={styles.waiterTables}>
-                              {item.assignedTablesCount || 0} tables assigned
-                            </Text>
-                          </View>
-                          <Ionicons name="chevron-forward" size={20} color={COLORS.muted} />
-                        </TouchableOpacity>
-                      ))
-                    )}
-                  </ScrollView>
-                </>
-              )}
+                    {/* Waiters List */}
+                    <ScrollView style={styles.waitersList} nestedScrollEnabled={true}>
+                      {filteredWaiters.length === 0 ? (
+                        <View style={styles.emptyWaiterContainer}>
+                          <Ionicons name="person-outline" size={32} color={COLORS.muted} />
+                          <Text style={styles.emptyWaiterText}>No waiters found</Text>
+                        </View>
+                      ) : (
+                        filteredWaiters.map((item) => (
+                          <TouchableOpacity 
+                            key={item._id}
+                            style={styles.waiterItem}
+                            onPress={() => confirmAssignWaiter(item)}
+                          >
+                            <View style={styles.waiterAvatar}>
+                              <Text style={styles.waiterAvatarText}>
+                                {item.display_name ? item.display_name.split(' ').map(n => n[0]).join('').toUpperCase() : '?'}
+                              </Text>
+                            </View>
+                            <View style={styles.waiterInfo}>
+                              <Text style={styles.waiterName}>{item.display_name}</Text>
+                              <Text style={styles.waiterEmail}>{item.email}</Text>
+                              <Text style={styles.waiterTables}>
+                                {item.assignedTablesCount || 0} tables assigned
+                              </Text>
+                            </View>
+                            <Ionicons name="chevron-forward" size={20} color={COLORS.muted} />
+                          </TouchableOpacity>
+                        ))
+                      )}
+                    </ScrollView>
+                  </>
+                )}
+              </View>
             </View>
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </Modal>
+          </KeyboardAvoidingView>
+        </Modal>
+      ) : null}
 
       {/* More Menu Modal */}
       <Modal

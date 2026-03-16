@@ -40,6 +40,8 @@ interface RiderHomeHeaderProps {
   onNotificationPress?: () => void;
   onSettingsPress?: () => void;
   notificationCount?: number;
+  onPressInProgress?: () => void;
+  onPressEarnings?: () => void;
 }
 
 const StatCard: React.FC<{
@@ -47,14 +49,20 @@ const StatCard: React.FC<{
   value: string | number;
   label: string;
   backgroundColor: string;
-}> = ({ icon, value, label, backgroundColor }) => (
-  <View style={[styles.statCard, { backgroundColor, shadowColor: backgroundColor }]}>
+  onPress?: () => void;
+}> = ({ icon, value, label, backgroundColor, onPress }) => (
+  <TouchableOpacity
+    style={[styles.statCard, { backgroundColor, shadowColor: backgroundColor }]}
+    onPress={onPress}
+    activeOpacity={0.85}
+    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+  >
     <Ionicons name={icon as any} size={28} color={COLORS.white} />
     <View style={styles.statTextContainer}>
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
     </View>
-  </View>
+  </TouchableOpacity>
 );
 
 const RiderHomeHeader: React.FC<RiderHomeHeaderProps> = ({
@@ -66,6 +74,8 @@ const RiderHomeHeader: React.FC<RiderHomeHeaderProps> = ({
   onNotificationPress,
   onSettingsPress,
   notificationCount = 0,
+  onPressInProgress,
+  onPressEarnings,
 }) => {
   return (
     <View style={styles.container}>
@@ -83,7 +93,9 @@ const RiderHomeHeader: React.FC<RiderHomeHeaderProps> = ({
           )}
           <View style={styles.nameContainer}>
             <Text style={styles.riderName}>{riderName}</Text>
-            <Text style={styles.dutyStatus}>● On Duty Now</Text>
+            <Text style={[styles.dutyStatus, { color: isOnDuty ? COLORS.success : COLORS.gray }]}>
+              ● {isOnDuty ? 'On Duty Now' : 'Off Duty Now'}
+            </Text>
           </View>
         </View>
 
@@ -127,30 +139,22 @@ const RiderHomeHeader: React.FC<RiderHomeHeaderProps> = ({
       </View>
 
       {/* Stats Cards */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.statsContainer}
-      >
+      <View style={styles.statsRow}>
         <StatCard
           icon="location"
           value={stats.inProgress}
           label="In Progress"
           backgroundColor={COLORS.primary}
+          onPress={onPressInProgress}
         />
         <StatCard
           icon="cash-outline"
           value={`$${Number(stats.earnings || 0).toFixed(2)}`}
           label="Earnings"
           backgroundColor={COLORS.success}
+          onPress={onPressEarnings}
         />
-        <StatCard
-          icon="trending-up"
-          value={`$${Number(stats.last7Days || 0).toFixed(2)}`}
-          label="Last 7 Days"
-          backgroundColor={COLORS.info}
-        />
-      </ScrollView>
+      </View>
     </View>
   );
 };
@@ -263,34 +267,41 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: COLORS.white,
   },
-  statsContainer: {
+  statsRow: {
+    flexDirection: 'row',
     paddingHorizontal: isSmallScreen ? 12 : 16,
     paddingVertical: 12,
     gap: 12,
   },
   statCard: {
+    flex: 1,
     borderRadius: 16,
     padding: 16,
-    minWidth: 150,
-    justifyContent: 'space-between',
+    minHeight: 88,
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 5,
   },
   statTextContainer: {
-    marginTop: 12,
+    marginTop: 10,
+    alignItems: 'center',
   },
   statValue: {
     fontSize: 24,
     fontWeight: 'bold',
     color: COLORS.white,
     marginBottom: 4,
+    textAlign: 'center',
   },
   statLabel: {
     fontSize: 12,
     color: COLORS.white,
     opacity: 0.9,
+    textAlign: 'center',
   },
 });
 

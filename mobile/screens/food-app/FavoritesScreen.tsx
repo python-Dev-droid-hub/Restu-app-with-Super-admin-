@@ -18,49 +18,51 @@ import { colors, typography, spacing, borderRadius, shadows } from '../../theme'
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../../components/api/client';
 
-interface FavoriteItem {
+interface FavoriteProduct {
   id: string;
-  branchId: string;
-  branchName: string;
-  address?: string;
-  city?: string;
-  phone?: string;
-  image?: string;
+  product: {
+    id: string;
+    name: string;
+    price: number;
+    originalPrice?: number;
+    imageUrl?: string;
+  };
 }
 
 export default function FavoritesScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
+  const [favorites, setFavorites] = useState<FavoriteProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const loadFavorites = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await api.get('/favorites');
-      console.log('[FavoritesScreen] API response:', response);
+      console.log('[FavoritesScreen] Loading favorites...');
+      const response = await api.get('/customer/favorites');
+      console.log('[FavoritesScreen] Full API response:', JSON.stringify(response, null, 2));
       if (response.success && response.data) {
-        setFavorites(response.data.favorites || []);
+        const favs = response.data.favorites || [];
+        console.log('[FavoritesScreen] Parsed favorites:', favs.length, favs);
+        setFavorites(favs);
       } else {
-        // Handle case where API returns error but not 500
         console.error('[FavoritesScreen] API returned error:', response.message);
         setFavorites([]);
       }
     } catch (error: any) {
       console.error('[FavoritesScreen] Error loading favorites:', error);
-      // If 500 error or any error, show empty state
       setFavorites([]);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  const removeFavorite = async (branchId: string) => {
+  const removeFavorite = async (favoriteId: string) => {
     try {
-      const response = await api.delete(`/favorites/${branchId}`);
+      const response = await api.delete(`/customer/favorites/${favoriteId}`);
       if (response.success) {
-        setFavorites((prev) => prev.filter((f) => f.branchId !== branchId));
+        setFavorites((prev) => prev.filter((f) => f.id !== favoriteId));
       }
     } catch (error) {
       console.error('[FavoritesScreen] Error removing favorite:', error);
@@ -80,27 +82,37 @@ export default function FavoritesScreen() {
     setRefreshing(false);
   }, [loadFavorites]);
 
-  const renderFavorite = ({ item }: { item: FavoriteItem }) => (
-    <TouchableOpacity style={styles.card} activeOpacity={0.9}>
-      <Image 
-        source={{ uri: item.image || 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=400&h=300&fit=crop' }} 
-        style={styles.image} 
-      />
-      <TouchableOpacity 
-        style={styles.heartButton}
-        onPress={() => removeFavorite(item.branchId)}
-      >
-        <Ionicons name="heart" size={20} color={colors.danger} />
+  const getImageUrl = (imageUrl?: string): string => {
+    if (!imageUrl) return 'https://images.unsplash.com/photo-1546069901-ba9592793667?w=400&h=300&fit=crop';
+    if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) return imageUrl;
+    const base = 'http://192.168.0.140:3000';
+    return imageUrl.startsWith('/') ? `${base}${imageUrl}` : `${base}/${imageUrl}`;
+  };
+
+  const renderFavorite = ({ item }: { item: FavoriteProduct }) => (
+    <View style={styles.cardContainer}>
+      <TouchableOpacity style={styles.card} activeOpacity={0.9}>
+        <Image 
+          source={{ uri: getImageUrl(item.product?.imageUrl) }} 
+          style={styles.image} 
+        />
+        <TouchableOpacity 
+          style={styles.heartButton}
+          onPress={() => removeFavorite(item.id)}
+        >
+          <Ionicons name="heart" size={18} color={colors.danger} />
+        </TouchableOpacity>
+        <View style={styles.info}>
+          <Text style={styles.name} numberOfLines={2}>{item.product?.name || 'Unknown Product'}</Text>
+          <View style={styles.priceRow}>
+            <Text style={styles.price}>${(item.product?.price || 0).toFixed(0)}</Text>
+            {item.product?.originalPrice && item.product.originalPrice > item.product.price && (
+              <Text style={styles.originalPrice}>${item.product.originalPrice.toFixed(0)}</Text>
+            )}
+          </View>
+        </View>
       </TouchableOpacity>
-      <View style={styles.info}>
-        <Text style={styles.name}>{item.branchName}</Text>
-        <Text style={styles.restaurant}>{item.address || item.city || 'Nearby location'}</Text>
-        <Text style={styles.phone}>{item.phone || ''}</Text>
-      </View>
-      <TouchableOpacity style={styles.orderButton} activeOpacity={0.8}>
-        <Text style={styles.orderText}>ORDER NOW</Text>
-      </TouchableOpacity>
-    </TouchableOpacity>
+    </View>
   );
 
   if (loading) {
@@ -139,17 +151,20 @@ export default function FavoritesScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
+    <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}> 
       <StatusBar barStyle="dark-content" backgroundColor={colors.white} />
       <View style={styles.header}>
         <Text style={styles.title}>My Favorites</Text>
         <Text style={styles.subtitle}>{favorites.length} saved items</Text>
       </View>
       <FlatList
+        key="favorites-grid-2"
         data={favorites}
         renderItem={renderFavorite}
         keyExtractor={(item) => item.id}
+        numColumns={2}
         contentContainerStyle={styles.list}
+        columnWrapperStyle={styles.row}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       />
@@ -162,16 +177,17 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: spacing.horizontal, paddingTop: spacing.lg, paddingBottom: spacing.sm },
   title: { fontSize: typography.sizes.h2, fontWeight: typography.weights.bold, color: colors.text_dark },
   subtitle: { fontSize: typography.sizes.body, color: colors.text_medium, marginTop: spacing.xs },
-  list: { padding: spacing.horizontal, paddingBottom: 100 },
-  card: { backgroundColor: colors.white, borderRadius: borderRadius.lg, marginBottom: spacing.md, overflow: 'hidden', ...shadows.medium },
-  image: { width: '100%', height: 150 },
-  heartButton: { position: 'absolute', top: spacing.md, right: spacing.md, backgroundColor: colors.white, borderRadius: borderRadius.round, padding: spacing.xs },
-  info: { padding: spacing.md },
-  name: { fontSize: typography.sizes.h4, fontWeight: typography.weights.bold, color: colors.text_dark },
-  restaurant: { fontSize: typography.sizes.small, color: colors.text_medium, marginTop: 2 },
-  phone: { fontSize: typography.sizes.small, color: colors.gray_500, marginTop: 2 },
-  orderButton: { backgroundColor: colors.primary, marginHorizontal: spacing.md, marginBottom: spacing.md, paddingVertical: spacing.sm, borderRadius: borderRadius.md, alignItems: 'center' },
-  orderText: { color: colors.white, fontSize: typography.sizes.body, fontWeight: typography.weights.bold },
+  list: { padding: spacing.sm, paddingBottom: 100 },
+  row: { justifyContent: 'space-between' },
+  cardContainer: { width: '50%', padding: spacing.xs },
+  card: { backgroundColor: colors.white, borderRadius: borderRadius.md, overflow: 'hidden', ...shadows.light, flex: 1 },
+  image: { width: '100%', height: 100, resizeMode: 'cover' },
+  heartButton: { position: 'absolute', top: spacing.xs, right: spacing.xs, backgroundColor: 'rgba(255,255,255,0.9)', borderRadius: borderRadius.round, padding: 4 },
+  info: { padding: spacing.sm },
+  name: { fontSize: typography.sizes.small, fontWeight: typography.weights.bold, color: colors.text_dark, minHeight: 32 },
+  priceRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2, gap: 4 },
+  price: { fontSize: typography.sizes.small, fontWeight: typography.weights.bold, color: colors.primary },
+  originalPrice: { fontSize: 10, color: colors.gray_500, textDecorationLine: 'line-through' },
   emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.xxl },
   emptyTitle: { fontSize: typography.sizes.h3, fontWeight: typography.weights.bold, color: colors.text_dark, marginTop: spacing.lg },
   emptySubtitle: { fontSize: typography.sizes.body, color: colors.text_medium, marginTop: spacing.xs },

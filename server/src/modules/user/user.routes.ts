@@ -21,6 +21,15 @@ const changePasswordSchema = Joi.object({
   newPassword: Joi.string().min(6).required(),
 });
 
+const updateLocationSchema = Joi.object({
+  longitude: Joi.number().required(),
+  latitude: Joi.number().required(),
+});
+
+const updateDutySchema = Joi.object({
+  onDuty: Joi.boolean().required(),
+});
+
 // Public routes (none for user module)
 
 // Protected routes
@@ -29,6 +38,11 @@ router.put('/profile', authenticate, validate(updateProfileSchema), userControll
 router.patch('/profile', authenticate, validate(updateProfileSchema), userController.updateProfile);
 router.patch('/profile/image', authenticate, userController.updateProfileImage);
 router.put('/change-password', authenticate, validate(changePasswordSchema), userController.changePassword);
+
+// Rider routes
+router.put('/rider/location', authenticate, authorize('RIDER', 'SUPER_ADMIN'), validate(updateLocationSchema), userController.updateRiderLocation);
+router.put('/rider/duty', authenticate, authorize('RIDER', 'SUPER_ADMIN'), validate(updateDutySchema), userController.updateRiderDutyStatus);
+router.get('/rider/status', authenticate, authorize('RIDER', 'SUPER_ADMIN'), userController.getRiderStatus);
 
 // Admin only routes
 router.get('/', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), userController.getAllUsers);

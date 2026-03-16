@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { OrderRepository } from './order.repository';
 import { MenuRepository } from '../menu/menu.repository';
 import { RestaurantRepository } from '../restaurant/restaurant.repository';
+import { UserRepository } from '../user/user.repository';
 import { NotificationService } from '../notification/notification.service';
 import NotificationServiceGlobal from '@/services/notificationService';
 import { SystemSettings } from '@/models/SystemSettings';
@@ -15,12 +16,14 @@ export class OrderController {
   private orderRepository: OrderRepository;
   private menuRepository: MenuRepository;
   private restaurantRepository: RestaurantRepository;
+  private userRepository: UserRepository;
   private notificationService: NotificationService;
 
   constructor() {
     this.orderRepository = new OrderRepository();
     this.menuRepository = new MenuRepository();
     this.restaurantRepository = new RestaurantRepository();
+    this.userRepository = new UserRepository();
     this.notificationService = new NotificationService();
   }
 
@@ -51,6 +54,7 @@ export class OrderController {
     const {
       items,
       restaurantId,
+      customerName,
       phoneNumber,
       alternatePhoneNumber,
       deliveryAddress,
@@ -279,6 +283,7 @@ export class OrderController {
 
     const orderData: any = {
       customer: userId, // The waiter is both customer and waiter for dine-in orders
+      customerName,
       branch: restaurantId,
       orderNumber,
       items: validatedItems,
@@ -287,7 +292,9 @@ export class OrderController {
       deliveryFee,
       taxAmount: tax,
       finalAmount,
-      deliveryAddress,
+      // NOTE: Order model does not persist a deliveryAddress object.
+      // Store text in addressLine and coords in deliveryLocation instead.
+      addressLine: deliveryAddress?.street || deliveryAddress?.address || '',
       deliveryInstructions,
       specialInstructions: req.body.specialInstructions || deliveryInstructions,
       estimatedDeliveryTime,
@@ -298,6 +305,18 @@ export class OrderController {
       status: 'PENDING',
       paymentStatus: 'PENDING',
     };
+
+    if (normalizedOrderType === 'DELIVERY') {
+      const coords = deliveryAddress?.coordinates;
+      const lat = coords?.lat;
+      const lng = coords?.lng;
+      if (typeof lat === 'number' && typeof lng === 'number') {
+        orderData.deliveryLocation = {
+          type: 'Point',
+          coordinates: [lng, lat],
+        };
+      }
+    }
 
     if (normalizedOrderType === 'DINE_IN') {
       orderData.waiter = userId;
@@ -637,7 +656,16 @@ export class OrderController {
     const isDriver = order.rider && order.rider._id.toString() === userId.toString();
     const isAdmin = userRole === 'ADMIN';
 
-    if (!isCustomer && !isRestaurantOwner && !isDriver && !isAdmin) {
+     // Riders should be able to view delivery orders that are available/ready (unassigned)
+     // so they can inspect details before accepting.
+     const isRider = userRole === 'RIDER' || userRole === 'SUPER_ADMIN';
+     const isAvailableDeliveryForRider =
+       isRider &&
+       String(order?.orderType || '').toUpperCase() === 'DELIVERY' &&
+       ['READY', 'RIDER_ASSIGNED'].includes(String(order?.status || '').toUpperCase()) &&
+       (!order.rider || String(order.rider?._id || order.rider) === String(userId));
+
+    if (!isCustomer && !isRestaurantOwner && !isDriver && !isAdmin && !isAvailableDeliveryForRider) {
       throw createError('Not authorized to view this order', 403);
     }
 
@@ -731,6 +759,72 @@ export class OrderController {
       });
       Object.assign(updateData, itemUpdates);
       updateData.readyAt = new Date();
+      
+      // AUTO-ASSIGNMENT: For delivery orders without a rider, find nearest on-duty rider
+      if (order.orderType === 'DELIVERY' && !order.rider) {
+        try {
+          // Get branch location for finding nearby riders
+          const branchLocation = order.branch?.location;
+          if (branchLocation) {
+            // Extract coordinates - handle both GeoJSON and plain lat/lng formats
+            let longitude: number | undefined;
+            let latitude: number | undefined;
+            
+            if (branchLocation.coordinates && Array.isArray(branchLocation.coordinates)) {
+              // GeoJSON format: [longitude, latitude]
+              longitude = branchLocation.coordinates[0];
+              latitude = branchLocation.coordinates[1];
+            } else if (branchLocation.longitude !== undefined && branchLocation.latitude !== undefined) {
+              longitude = branchLocation.longitude;
+              latitude = branchLocation.latitude;
+            } else if (branchLocation.lng !== undefined && branchLocation.lat !== undefined) {
+              longitude = branchLocation.lng;
+              latitude = branchLocation.lat;
+            }
+            
+            if (longitude !== undefined && latitude !== undefined) {
+              console.log(`[AUTO-ASSIGN] Looking for riders near branch at [${longitude}, ${latitude}]`);
+              
+              const nearbyRiders = await this.userRepository.findNearbyOnDutyRiders(longitude, latitude, 10);
+              
+              if (nearbyRiders.length > 0) {
+                const nearestRider = nearbyRiders[0];
+                console.log(`[AUTO-ASSIGN] Found ${nearbyRiders.length} riders, assigning to nearest: ${nearestRider.displayName} (${nearestRider._id})`);
+                
+                // Assign rider to order
+                updateData.rider = nearestRider._id;
+                updateData.status = 'RIDER_ASSIGNED';
+                
+                // Notify the assigned rider
+                try {
+                  await this.notificationService.sendPushNotification(
+                    nearestRider._id.toString(),
+                    'New Delivery Assignment',
+                    `Order #${order.orderNumber} has been auto-assigned to you. Pick up from ${order.branch?.branchName || 'restaurant'}.`,
+                    {
+                      type: 'ORDER_ASSIGNED',
+                      orderId: order._id.toString(),
+                      orderNumber: order.orderNumber,
+                    }
+                  );
+                  console.log(`[AUTO-ASSIGN] Notification sent to rider ${nearestRider._id}`);
+                } catch (notifError) {
+                  console.error('[AUTO-ASSIGN] Failed to notify rider:', notifError);
+                }
+              } else {
+                console.log('[AUTO-ASSIGN] No on-duty riders found within 10km');
+              }
+            } else {
+              console.log('[AUTO-ASSIGN] Branch location coordinates not available');
+            }
+          } else {
+            console.log('[AUTO-ASSIGN] No branch location found for order');
+          }
+        } catch (assignError) {
+          console.error('[AUTO-ASSIGN] Failed to auto-assign rider:', assignError);
+          // Don't fail the order update if auto-assignment fails
+        }
+      }
     }
     
     // Generate invoice when order is picked up
@@ -927,12 +1021,25 @@ export class OrderController {
     const limit = parseInt(req.query.limit as string) || 10;
     const status = req.query.status as string;
 
-    const { orders, total } = await this.orderRepository.findByRiderId(userId, page, limit, status);
+    // Get orders assigned to this rider
+    const assignedResult = await this.orderRepository.findByRiderId(userId, page, limit, status);
+
+    // Also get available delivery orders (READY with no rider) that could be picked up
+    const availableResult = await this.orderRepository.getAvailableOrdersForRiders(page, limit);
+
+    // Combine both, removing duplicates (in case rider has orders that are also "available")
+    const assignedIds = new Set(assignedResult.orders.map(o => o._id.toString()));
+    const availableOrders = availableResult.orders.filter(o => !assignedIds.has(o._id.toString()));
+
+    const allOrders = [...assignedResult.orders, ...availableOrders];
+    const total = assignedResult.total + availableOrders.length;
 
     const totalPages = Math.ceil(total / limit);
 
+    console.log(`[getDriverOrders] Rider ${userId}: ${assignedResult.orders.length} assigned, ${availableOrders.length} available`);
+
     sendSuccess(res, {
-      orders,
+      orders: allOrders,
       pagination: {
         page,
         limit,
@@ -992,7 +1099,7 @@ export class OrderController {
 
   addReview = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
     const { id } = req.params;
-    const { rating, review } = req.body;
+    const { foodRating, deliveryRating } = req.body;
     const userId = req.user!._id;
 
     const order = await this.orderRepository.findById(id);
@@ -1004,20 +1111,15 @@ export class OrderController {
       throw createError('Not authorized to review this order', 403);
     }
 
-    if (order.status !== 'delivered') {
+    if (order.status !== 'DELIVERED') {
       throw createError('Order must be delivered to be reviewed', 400);
     }
 
-    if (order.rating) {
+    if (order.foodRating || order.deliveryRating) {
       throw createError('Order has already been reviewed', 400);
     }
 
-    const updatedOrder = await this.orderRepository.addReview(id, rating, review);
-
-    // Update restaurant rating
-    if (updatedOrder && order.restaurant) {
-      await this.restaurantRepository.updateRating(order.restaurant._id, rating);
-    }
+    const updatedOrder = await this.orderRepository.addReview(id, foodRating, undefined, deliveryRating);
 
     sendSuccess(res, updatedOrder, 'Review added successfully');
   });

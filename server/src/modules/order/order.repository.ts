@@ -14,7 +14,7 @@ export class OrderRepository {
   async findById(id: string | Types.ObjectId): Promise<any | null> {
     return await Order.findById(id)
       .populate('customer', 'displayName email phoneNumber')
-      .populate('branch', 'branchName branchCode addressLine')
+      .populate('branch', 'branchName branchCode addressLine location lat lng')
       .populate('rider', 'displayName phoneNumber')
       .populate('waiter', 'displayName')
       .populate('chef', 'displayName')
@@ -33,7 +33,7 @@ export class OrderRepository {
       { new: true, runValidators: true }
     )
       .populate('customer', 'displayName email phoneNumber')
-      .populate('branch', 'branchName branchCode addressLine')
+      .populate('branch', 'branchName branchCode addressLine location lat lng')
       .populate('rider', 'displayName phoneNumber')
       .populate('waiter', 'displayName')
       .populate('chef', 'displayName')
@@ -135,7 +135,7 @@ export class OrderRepository {
     const [orders, total] = await Promise.all([
       Order.find(filter)
         .populate('customer', 'displayName phoneNumber')
-        .populate('branch', 'branchName branchCode addressLine')
+        .populate('branch', 'branchName branchCode addressLine location lat lng')
         .populate('items.product', 'name imageUrl')
         .sort('-createdAt')
         .skip(skip)
@@ -187,17 +187,32 @@ export class OrderRepository {
       status: { $in: ['OUT_FOR_DELIVERY'] },
     })
       .populate('customer', 'displayName phoneNumber')
-      .populate('branch', 'branchName branchCode addressLine')
+      .populate('branch', 'branchName branchCode addressLine location lat lng')
       .populate('items.product', 'name imageUrl')
       .sort('createdAt');
   }
 
   async getAvailableOrdersForRiders(page: number = 1, limit: number = 10): Promise<{ orders: any[]; total: number }> {
-    return await this.findAll(page, limit, {
-      status: 'READY',
+    const skip = (page - 1) * limit;
+
+    const filter: any = {
+      status: { $in: ['READY', 'PREPARING'] },
       orderType: 'DELIVERY',
       rider: { $exists: false },
-    });
+    };
+
+    const [orders, total] = await Promise.all([
+      Order.find(filter)
+        .populate('customer', 'displayName phoneNumber')
+        .populate('branch', 'branchName branchCode addressLine location lat lng')
+        .populate('items.product', 'name imageUrl')
+        .sort('-createdAt')
+        .skip(skip)
+        .limit(limit),
+      Order.countDocuments(filter)
+    ]);
+
+    return { orders, total };
   }
 
   async assignRider(orderId: string | Types.ObjectId, riderId: string | Types.ObjectId): Promise<any | null> {

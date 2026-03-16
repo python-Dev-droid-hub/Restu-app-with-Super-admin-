@@ -447,20 +447,50 @@ export class DashboardService {
 
   // Rider Dashboard Stats
   async getRiderStats(riderId: string) {
-    const assignedDeliveries = await Order.countDocuments({ 
-      assignedRider: riderId,
-      status: { $in: ['ASSIGNED', 'OUT_FOR_DELIVERY'] }
+    const assignedDeliveries = await Order.countDocuments({
+      rider: riderId,
+      status: { $in: ['RIDER_ASSIGNED', 'PICKED_UP', 'OUT_FOR_DELIVERY', 'IN_DELIVERY'] },
     });
     const completedDeliveries = await Order.countDocuments({
-      assignedRider: riderId,
-      status: 'DELIVERED'
+      rider: riderId,
+      status: { $in: ['DELIVERED', 'COMPLETED'] },
     });
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const weekStart = new Date();
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+    weekStart.setHours(0, 0, 0, 0);
+
+    const [todayEarnings, thisWeekEarnings] = await Promise.all([
+      Order.aggregate([
+        {
+          $match: {
+            rider: (typeof riderId === 'string' ? (new (require('mongoose').Types.ObjectId)(riderId)) : riderId) as any,
+            status: { $in: ['DELIVERED', 'COMPLETED'] },
+            updatedAt: { $gte: todayStart },
+          },
+        },
+        { $group: { _id: null, total: { $sum: { $ifNull: ['$deliveryFee', 0] } } } },
+      ]).then((r) => r[0]?.total || 0),
+      Order.aggregate([
+        {
+          $match: {
+            rider: (typeof riderId === 'string' ? (new (require('mongoose').Types.ObjectId)(riderId)) : riderId) as any,
+            status: { $in: ['DELIVERED', 'COMPLETED'] },
+            updatedAt: { $gte: weekStart },
+          },
+        },
+        { $group: { _id: null, total: { $sum: { $ifNull: ['$deliveryFee', 0] } } } },
+      ]).then((r) => r[0]?.total || 0),
+    ]);
 
     return {
       assignedDeliveries,
       completedDeliveries,
-      todayEarnings: 0,
-      weeklyEarnings: 0
+      todayEarnings,
+      thisWeekEarnings,
     };
   }
 
@@ -477,72 +507,44 @@ export class DashboardService {
       };
     }
 
-    // Calculate total earnings from completed deliveries
-    const totalEarnings = await Payment.aggregate([
-      {
-        $lookup: {
-          from: 'orders',
-          localField: 'order',
-          foreignField: '_id',
-          as: 'order'
-        }
-      },
-      { $unwind: '$order' },
-      { $match: { 'order.assignedRider': rider._id, 'order.status': 'DELIVERED', status: 'COMPLETED' } },
-      { $group: { _id: null, total: { $sum: '$riderEarnings' } } }
-    ]).then(result => result[0]?.total || 0);
+    // NOTE: This codebase does not persist rider earnings in Payment documents.
+    // Calculate earnings from delivered/completed rider orders using deliveryFee.
+    const totalEarnings = await Order.aggregate([
+      { $match: { rider: rider._id, status: { $in: ['DELIVERED', 'COMPLETED'] } } },
+      { $group: { _id: null, total: { $sum: { $ifNull: ['$deliveryFee', 0] } } } },
+    ]).then((result) => result[0]?.total || 0);
 
     // Calculate this week's earnings
     const weekStart = new Date();
     weekStart.setDate(weekStart.getDate() - weekStart.getDay());
     weekStart.setHours(0, 0, 0, 0);
 
-    const thisWeekEarnings = await Payment.aggregate([
-      {
-        $lookup: {
-          from: 'orders',
-          localField: 'order',
-          foreignField: '_id',
-          as: 'order'
-        }
-      },
-      { $unwind: '$order' },
+    const thisWeekEarnings = await Order.aggregate([
       {
         $match: {
-          'order.assignedRider': rider._id,
-          'order.status': 'DELIVERED',
-          status: 'COMPLETED',
-          createdAt: { $gte: weekStart }
-        }
+          rider: rider._id,
+          status: { $in: ['DELIVERED', 'COMPLETED'] },
+          updatedAt: { $gte: weekStart },
+        },
       },
-      { $group: { _id: null, total: { $sum: '$riderEarnings' } } }
-    ]).then(result => result[0]?.total || 0);
+      { $group: { _id: null, total: { $sum: { $ifNull: ['$deliveryFee', 0] } } } },
+    ]).then((result) => result[0]?.total || 0);
 
     // Calculate this month's earnings
     const monthStart = new Date();
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
 
-    const thisMonthEarnings = await Payment.aggregate([
-      {
-        $lookup: {
-          from: 'orders',
-          localField: 'order',
-          foreignField: '_id',
-          as: 'order'
-        }
-      },
-      { $unwind: '$order' },
+    const thisMonthEarnings = await Order.aggregate([
       {
         $match: {
-          'order.assignedRider': rider._id,
-          'order.status': 'DELIVERED',
-          status: 'COMPLETED',
-          createdAt: { $gte: monthStart }
-        }
+          rider: rider._id,
+          status: { $in: ['DELIVERED', 'COMPLETED'] },
+          updatedAt: { $gte: monthStart },
+        },
       },
-      { $group: { _id: null, total: { $sum: '$riderEarnings' } } }
-    ]).then(result => result[0]?.total || 0);
+      { $group: { _id: null, total: { $sum: { $ifNull: ['$deliveryFee', 0] } } } },
+    ]).then((result) => result[0]?.total || 0);
 
     // Calculate last month's earnings
     const lastMonthStart = new Date(monthStart);
@@ -550,26 +552,16 @@ export class DashboardService {
     const lastMonthEnd = new Date(monthStart);
     lastMonthEnd.setDate(0); // Last day of previous month
 
-    const lastMonthEarnings = await Payment.aggregate([
-      {
-        $lookup: {
-          from: 'orders',
-          localField: 'order',
-          foreignField: '_id',
-          as: 'order'
-        }
-      },
-      { $unwind: '$order' },
+    const lastMonthEarnings = await Order.aggregate([
       {
         $match: {
-          'order.assignedRider': rider._id,
-          'order.status': 'DELIVERED',
-          status: 'COMPLETED',
-          createdAt: { $gte: lastMonthStart, $lt: lastMonthEnd }
-        }
+          rider: rider._id,
+          status: { $in: ['DELIVERED', 'COMPLETED'] },
+          updatedAt: { $gte: lastMonthStart, $lt: lastMonthEnd },
+        },
       },
-      { $group: { _id: null, total: { $sum: '$riderEarnings' } } }
-    ]).then(result => result[0]?.total || 0);
+      { $group: { _id: null, total: { $sum: { $ifNull: ['$deliveryFee', 0] } } } },
+    ]).then((result) => result[0]?.total || 0);
 
     return {
       totalEarnings,

@@ -22,6 +22,12 @@ export interface IUser extends BaseDocument {
   // For Riders
   vehicleNumber?: string;
   vehicleType?: string;
+  onDuty?: boolean;
+  currentLocation?: {
+    type: 'Point';
+    coordinates: [number, number]; // [longitude, latitude]
+  };
+  lastLocationUpdate?: Date;
   // For Chefs
   specialization?: string;
   // For Waiters

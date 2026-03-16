@@ -129,7 +129,11 @@ export default function AdminDealCampaignsScreen() {
       setLoading(true);
       const response = await api.get('/deals/campaigns');
       if (response.success && response.data?.campaigns) {
-        setCampaigns(response.data.campaigns);
+        const normalized = (response.data.campaigns || []).map((c: any) => ({
+          ...c,
+          deals: Array.isArray(c?.deals) ? c.deals : [],
+        }));
+        setCampaigns(normalized);
       }
     } catch (error) {
       console.error('Error loading campaigns:', error);
@@ -186,9 +190,31 @@ export default function AdminDealCampaignsScreen() {
     );
   };
 
-  const viewCampaignDeals = (campaign: Campaign) => {
-    setSelectedCampaign(campaign);
-    setShowDealsModal(true);
+  const viewCampaignDeals = async (campaign: Campaign) => {
+    try {
+      // Always fetch full campaign details so deals are present
+      const response = await api.get(`/deals/campaigns/${campaign._id}`);
+      if (response.success && response.data?.campaign) {
+        const c: any = response.data.campaign;
+        setSelectedCampaign({
+          ...c,
+          deals: Array.isArray(c?.deals) ? c.deals : [],
+        });
+      } else {
+        setSelectedCampaign({
+          ...campaign,
+          deals: Array.isArray(campaign?.deals) ? campaign.deals : [],
+        });
+      }
+      setShowDealsModal(true);
+    } catch (error) {
+      console.error('Error loading campaign deals:', error);
+      setSelectedCampaign({
+        ...campaign,
+        deals: Array.isArray(campaign?.deals) ? campaign.deals : [],
+      });
+      setShowDealsModal(true);
+    }
   };
 
   const toggleDealItemStatus = async (dealId: string, currentStatus: boolean) => {
@@ -331,11 +357,17 @@ export default function AdminDealCampaignsScreen() {
 
   const renderDealItem = ({ item }: { item: DealItem }) => (
     <View style={styles.dealItemCard}>
-      <Image
-        source={{ uri: getFullImageUrl(item.imageUrl) }}
-        style={styles.dealItemImage}
-        resizeMode="cover"
-      />
+      {item.imageUrl ? (
+        <Image
+          source={{ uri: getFullImageUrl(item.imageUrl) }}
+          style={styles.dealItemImage}
+          resizeMode="cover"
+        />
+      ) : (
+        <View style={styles.dealItemImagePlaceholder}>
+          <Ionicons name="image-outline" size={22} color="#bbb" />
+        </View>
+      )}
 
       <View style={styles.dealItemContent}>
         <View style={styles.dealItemHeader}>
@@ -567,6 +599,7 @@ export default function AdminDealCampaignsScreen() {
               renderItem={renderDealItem}
               keyExtractor={(item) => item._id}
               style={styles.dealsList}
+              contentContainerStyle={{ paddingBottom: 20 }}
               ListEmptyComponent={
                 <View style={styles.emptyContainer}>
                   <Text style={styles.emptyText}>No deals in this campaign</Text>
@@ -802,6 +835,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 20,
+    flex: 1,
     maxHeight: '85%',
   },
   addDealBtn: {
@@ -834,6 +868,13 @@ const styles = StyleSheet.create({
   dealItemImage: {
     width: 80,
     height: 80,
+  },
+  dealItemImagePlaceholder: {
+    width: 80,
+    height: 80,
+    backgroundColor: '#f0f0f0',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   dealItemContent: {
     flex: 1,

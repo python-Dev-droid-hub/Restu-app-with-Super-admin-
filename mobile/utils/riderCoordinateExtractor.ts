@@ -85,6 +85,8 @@ export const extractDeliveryCoordinates = (order: any): ExtractedCoordinates => 
   
   // TRY MULTIPLE POSSIBLE LOCATIONS FOR PICKUP COORDINATES
   const pickupCoords =
+    // Location 0: mapped/normalized field already on object
+    normalizeCoordinates(order.pickupCoords) ||
     // Location 1: pickupLocation.location
     normalizeCoordinates(order.pickupLocation?.location) ||
     // Location 2: pickupLocation.coordinates
@@ -94,10 +96,16 @@ export const extractDeliveryCoordinates = (order: any): ExtractedCoordinates => 
     // Location 4: branch.location (fallback)
     normalizeCoordinates(order.branch?.location) ||
     // Location 5: branch.coordinates
-    normalizeCoordinates(order.branch?.coordinates);
+    normalizeCoordinates(order.branch?.coordinates) ||
+    // Location 6: branch root (lat/lng)
+    normalizeCoordinates(order.branch);
   
   // TRY MULTIPLE POSSIBLE LOCATIONS FOR DELIVERY COORDINATES
   const deliveryCoords =
+    // Location 0: mapped/normalized field already on object
+    normalizeCoordinates(order.deliveryCoords) ||
+    // Location 0b: Order model deliveryLocation GeoJSON
+    normalizeCoordinates(order.deliveryLocation) ||
     // Location 1: deliveryAddress.location
     normalizeCoordinates(order.deliveryAddress?.location) ||
     // Location 2: deliveryAddress.coordinates

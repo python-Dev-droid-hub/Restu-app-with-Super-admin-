@@ -35,10 +35,12 @@ const SPACING = {
 
 interface RiderOrdersTabProps {
   orders: any[];
+  onCallCustomer?: (phone: string) => void;
+  onStartRide?: (orderId: string) => void;
 }
 
-export default function RiderOrdersTab({ orders }: RiderOrdersTabProps) {
-  const [activeFilter, setActiveFilter] = useState<'Completed' | 'Undelivered'>('Completed');
+export default function RiderOrdersTab({ orders, onCallCustomer, onStartRide }: RiderOrdersTabProps) {
+  const [activeFilter, setActiveFilter] = useState<'Completed' | 'Undelivered'>('Undelivered');
 
   const filteredOrders = orders.filter((order) => {
     const status = String(order?.status || '').toLowerCase();
@@ -90,6 +92,12 @@ export default function RiderOrdersTab({ orders }: RiderOrdersTabProps) {
       <ScrollView showsVerticalScrollIndicator={false}>
         {filteredOrders.length > 0 ? (
           filteredOrders.map((order, index) => (
+            (() => {
+              const status = String(order?.status || '').toLowerCase();
+              const isCompleted = status === 'delivered' || status === 'completed';
+              const showActions = activeFilter !== 'Completed' && !isCompleted;
+
+              return (
             <View
               key={order.id || index}
               style={[
@@ -122,11 +130,28 @@ export default function RiderOrdersTab({ orders }: RiderOrdersTabProps) {
                 </View>
               </View>
 
-              <TouchableOpacity style={styles.callButton}>
-                <Ionicons name="call" size={14} color={COLORS.white} />
-                <Text style={styles.callButtonText}>Call Customer</Text>
-              </TouchableOpacity>
+              {showActions && (
+                <View style={styles.actionsRow}>
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.callButton]}
+                    onPress={() => onCallCustomer?.(String(order?.customerPhone || ''))}
+                  >
+                    <Ionicons name="call" size={14} color={COLORS.white} />
+                    <Text style={styles.actionButtonText}>Call</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.startRideButton]}
+                    onPress={() => onStartRide?.(String(order?._id || order?.id || ''))}
+                  >
+                    <Ionicons name="navigate" size={14} color={COLORS.white} />
+                    <Text style={styles.actionButtonText}>Start Ride</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
+              );
+            })()
           ))
         ) : (
           <View style={styles.emptyContainer}>
@@ -237,8 +262,12 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontWeight: '600',
   },
-  callButton: {
-    backgroundColor: COLORS.info,
+  actionsRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  actionButton: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -246,7 +275,13 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     gap: 6,
   },
-  callButtonText: {
+  callButton: {
+    backgroundColor: COLORS.info,
+  },
+  startRideButton: {
+    backgroundColor: COLORS.primary,
+  },
+  actionButtonText: {
     fontSize: FONTS.small.fontSize,
     color: COLORS.white,
     fontWeight: '600',

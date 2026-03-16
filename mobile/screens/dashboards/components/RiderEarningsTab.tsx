@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -48,89 +48,86 @@ export default function RiderEarningsTab({
   earnings,
   formatPrice,
 }: RiderEarningsTabProps) {
+  const total = Number(earnings?.totalEarnings ?? todayEarnings ?? 0);
+  const week = Number(earnings?.thisWeekEarnings ?? weekEarnings ?? 0);
+  const month = Number(earnings?.thisMonthEarnings ?? 0);
+  const lastMonth = Number(earnings?.lastMonthEarnings ?? 0);
+  const breakdown: Array<any> = Array.isArray(earnings?.weeklyBreakdown) ? earnings.weeklyBreakdown : [];
+
+  const [range, setRange] = useState<'daily' | 'weekly' | 'monthly'>('daily');
+
+  const { mainLabel, mainValue } = useMemo(() => {
+    if (range === 'weekly') return { mainLabel: 'This Week', mainValue: week };
+    if (range === 'monthly') return { mainLabel: 'This Month', mainValue: month };
+    return { mainLabel: 'Today', mainValue: Number(todayEarnings || 0) };
+  }, [month, range, todayEarnings, week]);
+
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       {/* Total Earnings Card */}
       <View style={styles.earningsCard}>
-        <Text style={styles.earningsLabel}>Total Earnings</Text>
-        <Text style={styles.earningsAmount}>${Number(todayEarnings || 0).toFixed(2)}</Text>
-        <Text style={styles.earningsPeriod}>Last 7 Days: ${Number(weekEarnings || 0).toFixed(2)}</Text>
+        <Text style={styles.earningsLabel}>{mainLabel} Earnings</Text>
+        <Text style={styles.earningsAmount}>{formatPrice(mainValue)}</Text>
+
+        <View style={styles.rangeRow}>
+          {([
+            { key: 'daily', label: 'Daily' },
+            { key: 'weekly', label: 'Weekly' },
+            { key: 'monthly', label: 'Monthly' },
+          ] as const).map((item) => (
+            <TouchableOpacity
+              key={item.key}
+              style={[styles.rangeButton, range === item.key && styles.rangeButtonActive]}
+              onPress={() => setRange(item.key)}
+              activeOpacity={0.85}
+            >
+              <Text style={[styles.rangeButtonText, range === item.key && styles.rangeButtonTextActive]}>
+                {item.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <Text style={styles.earningsPeriod}>Total: {formatPrice(total)}</Text>
         
-        {/* Chart Placeholder */}
+        {/* Weekly Breakdown (if available) */}
         <View style={styles.chartPlaceholder}>
-          <View style={styles.chartBars}>
-            {[40, 65, 45, 80, 55, 70, 60].map((height, index) => (
-              <View key={index} style={styles.barContainer}>
-                <View style={[styles.bar, { height: height }]} />
-              </View>
-            ))}
-          </View>
-        </View>
-      </View>
-
-      {/* Performance Metrics */}
-      <View style={styles.metricsCard}>
-        <View style={styles.metricRow}>
-          <Text style={styles.metricLabel}>On-time</Text>
-          <Text style={styles.metricValue}>92%</Text>
-        </View>
-        <View style={styles.metricRow}>
-          <Text style={styles.metricLabel}>Acceptance</Text>
-          <Text style={styles.metricValue}>87%</Text>
-        </View>
-        <View style={styles.metricRow}>
-          <Text style={styles.metricLabel}>Completion</Text>
-          <Text style={styles.metricValue}>100%</Text>
-        </View>
-      </View>
-
-      {/* Earnings Breakdown */}
-      <View style={styles.breakdownCard}>
-        <View style={styles.breakdownRow}>
-          <Text style={styles.breakdownLabel}>Cash</Text>
-          <Text style={styles.breakdownValue}>${Number((todayEarnings || 0) * 0.4).toFixed(2)}</Text>
-        </View>
-        <View style={styles.divider} />
-        <View style={styles.breakdownRow}>
-          <Text style={styles.breakdownLabel}>Online</Text>
-          <Text style={styles.breakdownValue}>${Number((todayEarnings || 0) * 0.5).toFixed(2)}</Text>
-        </View>
-        <View style={styles.divider} />
-        <View style={styles.breakdownRow}>
-          <Text style={styles.breakdownLabel}>Tips</Text>
-          <Text style={styles.breakdownValue}>${Number((todayEarnings || 0) * 0.1).toFixed(2)}</Text>
-        </View>
-      </View>
-
-      {/* Payment Method */}
-      <View style={styles.paymentCard}>
-        <Text style={styles.paymentTitle}>Connected Payment Method</Text>
-        <Text style={styles.paymentMethod}>Bank Account: XXXXXX1234</Text>
-        <Text style={styles.lastPayout}>Last Payout: Feb 21, 2024</Text>
-        <TouchableOpacity style={styles.changeMethodButton}>
-          <Text style={styles.changeMethodText}>Change Method</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Payout History */}
-      <View style={styles.payoutCard}>
-        <Text style={styles.payoutTitle}>Payout History</Text>
-        {[
-          { date: 'Feb 21, 2024', amount: 200 },
-          { date: 'Feb 14, 2024', amount: 195.5 },
-          { date: 'Feb 7, 2024', amount: 187.75 },
-        ].map((payout, index) => (
-          <View key={index} style={styles.payoutRow}>
-            <Text style={styles.payoutDate}>{payout.date}</Text>
-            <View style={styles.payoutRight}>
-              <Text style={styles.payoutAmount}>${Number(payout.amount || 0).toFixed(2)}</Text>
-              <Ionicons name="checkmark-circle" size={16} color={COLORS.success} />
+          {breakdown.length > 0 ? (
+            <View style={styles.chartBars}>
+              {breakdown.slice(0, 7).map((d, index) => {
+                const value = Number(d?.earnings || d?.total || d?.amount || 0);
+                const max = Math.max(...breakdown.slice(0, 7).map((x: any) => Number(x?.earnings || x?.total || x?.amount || 0)), 1);
+                const height = Math.max(6, Math.round((value / max) * 50));
+                return (
+                  <View key={index} style={styles.barContainer}>
+                    <View style={[styles.bar, { height }]} />
+                  </View>
+                );
+              })}
             </View>
-          </View>
-        ))}
-        <TouchableOpacity style={styles.viewAllButton}>
-          <Text style={styles.viewAllText}>View All</Text>
-        </TouchableOpacity>
+          ) : (
+            <View style={styles.noChart}>
+              <Text style={styles.noChartText}>No breakdown available</Text>
+            </View>
+          )}
+        </View>
+      </View>
+
+      <View style={styles.summaryCard}>
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryLabel}>This Month</Text>
+          <Text style={styles.summaryValue}>{formatPrice(month)}</Text>
+        </View>
+        <View style={styles.divider} />
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryLabel}>Last Month</Text>
+          <Text style={styles.summaryValue}>{formatPrice(lastMonth)}</Text>
+        </View>
+        <View style={styles.divider} />
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryLabel}>Completed Deliveries</Text>
+          <Text style={styles.summaryValue}>{Number(totalDeliveries || 0)}</Text>
+        </View>
       </View>
 
       <View style={{ height: 100 }} />
@@ -169,9 +166,32 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   earningsPeriod: {
-    fontSize: FONTS.body.fontSize,
+    fontSize: FONTS.small.fontSize,
+    color: COLORS.gray,
+    marginBottom: 8,
+  },
+  rangeRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+    marginBottom: 10,
+  },
+  rangeButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: COLORS.lightBg,
+  },
+  rangeButtonActive: {
+    backgroundColor: COLORS.primary,
+  },
+  rangeButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
     color: COLORS.darkText,
-    marginBottom: 16,
+  },
+  rangeButtonTextActive: {
+    color: COLORS.white,
   },
   chartPlaceholder: {
     width: '100%',
@@ -196,99 +216,20 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
     borderRadius: 4,
   },
-  metricsCard: {
-    backgroundColor: COLORS.lightBg,
-    borderRadius: 12,
-    padding: SPACING.horizontal,
-    marginHorizontal: SPACING.horizontal,
-    marginBottom: SPACING.verticalGap,
-  },
-  metricRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 8,
-  },
-  metricLabel: {
-    fontSize: FONTS.body.fontSize,
-    color: COLORS.darkText,
-  },
-  metricValue: {
-    fontSize: FONTS.sectionTitle.fontSize,
-    fontWeight: '700',
-    color: COLORS.primary,
-  },
-  breakdownCard: {
-    backgroundColor: COLORS.white,
-    borderRadius: 12,
-    marginHorizontal: SPACING.horizontal,
-    marginBottom: SPACING.verticalGap,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  breakdownRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 12,
-  },
   divider: {
     height: 1,
     backgroundColor: COLORS.lightGray,
-    marginHorizontal: 12,
   },
-  breakdownLabel: {
-    fontSize: FONTS.body.fontSize,
-    color: COLORS.darkText,
+  noChart: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  breakdownValue: {
-    fontSize: FONTS.body.fontSize,
-    fontWeight: '700',
-    color: COLORS.primary,
-  },
-  paymentCard: {
-    backgroundColor: COLORS.white,
-    borderRadius: 12,
-    padding: SPACING.horizontal,
-    marginHorizontal: SPACING.horizontal,
-    marginBottom: SPACING.verticalGap,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  paymentTitle: {
-    fontSize: FONTS.sectionTitle.fontSize,
-    fontWeight: '700',
-    color: COLORS.darkText,
-    marginBottom: 8,
-  },
-  paymentMethod: {
-    fontSize: FONTS.body.fontSize,
-    color: COLORS.gray,
-    marginBottom: 4,
-  },
-  lastPayout: {
+  noChartText: {
     fontSize: FONTS.small.fontSize,
     color: COLORS.gray,
-    marginBottom: 16,
   },
-  changeMethodButton: {
-    backgroundColor: COLORS.info,
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  changeMethodText: {
-    fontSize: FONTS.body.fontSize,
-    fontWeight: '600',
-    color: COLORS.white,
-  },
-  payoutCard: {
+  summaryCard: {
     backgroundColor: COLORS.white,
     borderRadius: 12,
     padding: SPACING.horizontal,
@@ -300,39 +241,16 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  payoutTitle: {
-    fontSize: FONTS.sectionTitle.fontSize,
-    fontWeight: '700',
-    color: COLORS.darkText,
-    marginBottom: 12,
-  },
-  payoutRow: {
+  summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.lightGray,
+    paddingVertical: 12,
   },
-  payoutDate: {
+  summaryLabel: {
     fontSize: FONTS.body.fontSize,
     color: COLORS.darkText,
   },
-  payoutRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  payoutAmount: {
-    fontSize: FONTS.body.fontSize,
-    fontWeight: '700',
-    color: COLORS.darkText,
-  },
-  viewAllButton: {
-    marginTop: 12,
-    alignItems: 'center',
-  },
-  viewAllText: {
+  summaryValue: {
     fontSize: FONTS.body.fontSize,
     fontWeight: '600',
     color: COLORS.primary,

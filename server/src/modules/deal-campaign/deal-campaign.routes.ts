@@ -50,6 +50,7 @@ const dealItemSchema = Joi.object({
   items: Joi.array()
     .items(
       Joi.object({
+        _id: Joi.string().optional().allow('', null),
         productId: Joi.string().optional().allow(null),
         productName: Joi.string().optional().allow('', null),
         quantity: Joi.number().min(1).optional(),
@@ -71,6 +72,7 @@ const updateDealItemSchema = Joi.object({
   items: Joi.array()
     .items(
       Joi.object({
+        _id: Joi.string().optional().allow('', null),
         productId: Joi.string().optional().allow(null),
         productName: Joi.string().optional().allow('', null),
         quantity: Joi.number().min(1).optional(),

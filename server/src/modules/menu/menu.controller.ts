@@ -5,6 +5,7 @@ import { IAuthRequest, sendSuccess, sendError, asyncHandler } from '@/utils';
 import { createError } from '@/middleware/errorHandler';
 import { logger } from '@/utils/logger';
 import { ProductSize } from '@/models/ProductSize';
+import { Product } from '@/models/Product';
 
 console.log('✅ MenuController file LOADED');
 
@@ -16,6 +17,36 @@ export class MenuController {
     this.menuRepository = new MenuRepository();
     this.restaurantRepository = new RestaurantRepository();
   }
+
+  private syncProductBasePriceFromSizes = async (productId: any): Promise<void> => {
+    const sizes = await ProductSize.find({
+      product: productId,
+      deletedAt: null,
+      isAvailable: true,
+    })
+      .select('price isDefault')
+      .lean();
+
+    if (!sizes || sizes.length === 0) return;
+
+    let computed: number | undefined;
+    for (const s of sizes as any[]) {
+      const price = typeof s.price === 'number' && !Number.isNaN(s.price) ? s.price : 0;
+      if (s.isDefault) {
+        computed = price;
+        break;
+      }
+      if (computed === undefined) computed = price;
+      else computed = Math.min(computed, price);
+    }
+
+    if (computed === undefined) return;
+
+    await Product.updateOne(
+      { _id: productId },
+      { $set: { price: computed, hasSizes: true } }
+    );
+  };
 
   private syncProductSizes = async (
     productId: any,
@@ -68,6 +99,8 @@ export class MenuController {
       productId: String(productId),
       activeSizeIds
     });
+
+    await this.syncProductBasePriceFromSizes(productId);
   };
 
   // Category methods

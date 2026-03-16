@@ -98,6 +98,7 @@ export default function CustomerMenuScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [deals, setDeals] = useState<DealItem[]>([]);
+  const [dealCampaigns, setDealCampaigns] = useState<DealCampaign[]>([]);
   const [dealsLoading, setDealsLoading] = useState(false);
 
   useEffect(() => {
@@ -162,6 +163,7 @@ export default function CustomerMenuScreen() {
         // Extract all active deals from all active campaigns
         const activeCampaigns = response.data.campaigns.filter((c: DealCampaign) => c.status === 'ACTIVE');
         console.log('🔥 [DEALS] Active campaigns:', activeCampaigns.length);
+        setDealCampaigns(activeCampaigns);
         const allDeals: DealItem[] = [];
         activeCampaigns.forEach((campaign: DealCampaign) => {
           console.log('🔥 [DEALS] Campaign:', campaign.name, 'Deals:', campaign.deals?.length || 0);
@@ -184,12 +186,19 @@ export default function CustomerMenuScreen() {
         setDeals(allDeals);
       } else {
         console.log('🔥 [DEALS] No campaigns in response or success=false');
+        setDealCampaigns([]);
       }
     } catch (error) {
       console.error('🔥 [DEALS] Error loading deals:', error);
+      setDealCampaigns([]);
     } finally {
       setDealsLoading(false);
     }
+  };
+
+  const getDealsForCategoryOrAll = () => {
+    const byCategory = getDealsForCategory();
+    return byCategory.length > 0 ? byCategory : deals;
   };
 
   const onRefresh = async () => {
@@ -352,15 +361,18 @@ export default function CustomerMenuScreen() {
           )}
         </View>
 
-        {/* Deals Section - Show after products on every category tab */}
-        {getDealsForCategory().length > 0 && (
+        {/* Deals Section - Campaign image then deal cards */}
+        {getDealsForCategoryOrAll().length > 0 && (
           <View style={styles.dealsSection}>
-            <View style={styles.dealsHeader}>
-              <Ionicons name="pricetag" size={20} color="#E87E35" />
-              <Text style={styles.dealsTitle}>Special Deals</Text>
-            </View>
+            {dealCampaigns
+              .filter((c) => c?.heroBanner?.imageUrl)
+              .slice(0, 1)
+              .map((c) => {
+                const hero = getFullImageUrl(c.heroBanner?.imageUrl);
+                return hero ? <Image key={c._id} source={{ uri: hero }} style={styles.campaignHeroImage} /> : null;
+              })}
             <View style={styles.dealsContainer}>
-              {getDealsForCategory().map(renderDealCard)}
+              {getDealsForCategoryOrAll().map(renderDealCard)}
             </View>
           </View>
         )}
@@ -566,13 +578,18 @@ const styles = StyleSheet.create({
   dealsSection: {
     paddingHorizontal: 20,
     paddingTop: 10,
-    paddingBottom: 20,
+    paddingBottom: 0,
+  },
+  campaignHeroImage: {
+    width: '100%',
+    height: 140,
+    borderRadius: 16,
+    marginBottom: 12,
   },
   dealsHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
-    gap: 8,
+    marginBottom: 12,
   },
   dealsTitle: {
     fontSize: 18,

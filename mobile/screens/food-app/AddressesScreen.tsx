@@ -9,10 +9,15 @@ import {
   TextInput,
   FlatList,
   StyleSheet,
+  SafeAreaView,
+  StatusBar,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { colors, typography, spacing, borderRadius, shadows } from '../../theme';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface Address {
   id: string;
@@ -26,6 +31,7 @@ interface Address {
 
 export default function AddressesScreen() {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
 
   const [addresses, setAddresses] = useState<Address[]>([
     {
@@ -100,7 +106,8 @@ export default function AddressesScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar barStyle="dark-content" backgroundColor={colors.white} />
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
@@ -163,8 +170,8 @@ export default function AddressesScreen() {
 
       {/* Modal */}
       <Modal visible={showModal} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, justifyContent: 'flex-end' }}>
+          <View style={[styles.modalContent, { paddingBottom: insets.bottom + 20 }]}>
             <View style={styles.modalHeader}>
               <TouchableOpacity onPress={() => setShowModal(false)}>
                 <Ionicons name="close" size={24} color={colors.text_dark} />
@@ -227,9 +234,9 @@ export default function AddressesScreen() {
               <Text style={styles.saveButtonText}>SAVE ADDRESS</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -270,7 +277,6 @@ const styles = StyleSheet.create({
   defaultText: { fontSize: typography.sizes.xs, color: colors.success, fontWeight: typography.weights.bold },
   addressText: { fontSize: typography.sizes.body, color: colors.text_dark, marginBottom: spacing.xs },
   phoneText: { fontSize: typography.sizes.small, color: colors.text_medium },
-  editButton: { padding: spacing.xs },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',

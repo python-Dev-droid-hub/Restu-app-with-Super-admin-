@@ -25,25 +25,25 @@ const COLORS = {
   lightGray: '#ECEFF1',
 };
 
-interface FavoriteRestaurant {
-  _id: string;
-  name: string;
-  cuisine?: string;
-  rating?: number;
-  image?: string;
-  address?: string;
-  deliveryTime?: string;
-  minOrder?: number;
+interface FavoriteProduct {
+  id: string;
+  product: {
+    id: string;
+    name: string;
+    price: number;
+    originalPrice?: number;
+    imageUrl?: string;
+  };
 }
 
 export default function CustomerFavoritesTab() {
-  const [favorites, setFavorites] = useState<FavoriteRestaurant[]>([]);
+  const [favorites, setFavorites] = useState<FavoriteProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchFavorites = useCallback(async () => {
     try {
-      const response = await api.get('/favorites');
+      const response = await api.get('/customer/favorites');
       if (response.success && response.data) {
         setFavorites(response.data.favorites || []);
       }
@@ -66,50 +66,37 @@ export default function CustomerFavoritesTab() {
 
   const removeFavorite = async (id: string) => {
     try {
-      const response = await api.delete(`/favorites/${id}`);
+      const response = await api.delete(`/customer/favorites/${id}`);
       if (response.success) {
-        setFavorites((prev) => prev.filter((f) => f._id !== id));
+        setFavorites((prev) => prev.filter((f) => f.id !== id));
       }
     } catch (error) {
       console.error('Error removing favorite:', error);
     }
   };
 
-  const renderFavoriteItem = ({ item }: { item: FavoriteRestaurant }) => (
+  const renderFavoriteItem = ({ item }: { item: FavoriteProduct }) => (
     <TouchableOpacity style={styles.restaurantCard}>
       <Image
         source={{
-          uri: item.image || 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=400&h=300&fit=crop',
+          uri: item.product?.imageUrl || 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=400&h=300&fit=crop',
         }}
         style={styles.restaurantImage}
       />
       <TouchableOpacity
         style={styles.heartButton}
-        onPress={() => removeFavorite(item._id)}
+        onPress={() => removeFavorite(item.id)}
       >
         <Ionicons name="heart" size={20} color={COLORS.danger} />
       </TouchableOpacity>
       
       <View style={styles.restaurantInfo}>
-        <Text style={styles.restaurantName}>{item.name}</Text>
-        <Text style={styles.cuisineText}>{item.cuisine || 'Various Cuisine'}</Text>
-        
-        <View style={styles.detailsRow}>
-          <View style={styles.ratingContainer}>
-            <Ionicons name="star" size={14} color={COLORS.warning} />
-            <Text style={styles.ratingText}>{item.rating || '4.5'}</Text>
-          </View>
-          <View style={styles.dot} />
-          <Text style={styles.deliveryTime}>{item.deliveryTime || '30-45 min'}</Text>
-        </View>
-        
-        <Text style={styles.addressText} numberOfLines={1}>
-          {item.address || 'Nearby location'}
-        </Text>
+        <Text style={styles.restaurantName}>{item.product?.name || 'Product'}</Text>
+        <Text style={styles.cuisineText}>${Number(item.product?.price || 0).toFixed(0)}</Text>
       </View>
       
       <TouchableOpacity style={styles.orderButton}>
-        <Text style={styles.orderButtonText}>Order Now</Text>
+        <Text style={styles.orderButtonText}>Add to Cart</Text>
       </TouchableOpacity>
     </TouchableOpacity>
   );
@@ -127,13 +114,13 @@ export default function CustomerFavoritesTab() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>My Favorites</Text>
-        <Text style={styles.headerSubtitle}>{favorites.length} saved restaurants</Text>
+        <Text style={styles.headerSubtitle}>{favorites.length} saved items</Text>
       </View>
 
       <FlatList
         data={favorites}
         renderItem={renderFavoriteItem}
-        keyExtractor={(item) => item._id}
+        keyExtractor={(item) => item.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>

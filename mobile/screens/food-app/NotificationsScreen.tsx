@@ -10,10 +10,13 @@ import {
   ScrollView,
   ActivityIndicator,
   RefreshControl,
+  SafeAreaView,
+  StatusBar,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { colors, typography, spacing, borderRadius } from '../../theme';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getNotifications, markNotificationAsRead, deleteNotification, clearAllNotifications, Notification } from '../../services/notificationService';
 
 interface NotificationSetting {
@@ -25,25 +28,10 @@ interface NotificationSetting {
 
 export default function NotificationsScreen() {
   const navigation = useNavigation();
-  const [activeTab, setActiveTab] = useState<'recent' | 'settings'>('recent');
+  const insets = useSafeAreaInsets();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-
-  const [settings, setSettings] = useState<NotificationSetting[]>([
-    { id: '1', title: 'Order Updates', description: 'Get notified when your order status changes', enabled: true },
-    { id: '2', title: 'Promotions & Offers', description: 'Receive notifications about deals and discounts', enabled: true },
-    { id: '3', title: 'Delivery Updates', description: 'Track your order delivery in real-time', enabled: true },
-    { id: '4', title: 'App Updates', description: 'Get notified about new features and updates', enabled: false },
-  ]);
-
-  const toggleSetting = (id: string) => {
-    setSettings(prev =>
-      prev.map(setting =>
-        setting.id === id ? { ...setting, enabled: !setting.enabled } : setting
-      )
-    );
-  };
 
   const loadNotifications = useCallback(async () => {
     try {
@@ -70,15 +58,6 @@ export default function NotificationsScreen() {
     await loadNotifications();
     setRefreshing(false);
   }, [loadNotifications]);
-
-  const handleMarkRead = async (id: string) => {
-    try {
-      await markNotificationAsRead(id);
-      setNotifications(prev => prev.map(n => n._id === id ? { ...n, read: true } : n));
-    } catch (error) {
-      console.error('[NotificationsScreen] Error marking as read:', error);
-    }
-  };
 
   const handleDelete = async (id: string) => {
     try {
@@ -140,123 +119,53 @@ export default function NotificationsScreen() {
     return date.toLocaleDateString();
   };
 
-  const renderSetting = ({ item }: { item: NotificationSetting }) => (
-    <View style={styles.settingRow}>
-      <View style={styles.settingInfo}>
-        <Text style={styles.settingTitle}>{item.title}</Text>
-        <Text style={styles.settingDescription}>{item.description}</Text>
-      </View>
-      <Switch
-        value={item.enabled}
-        onValueChange={() => toggleSetting(item.id)}
-        trackColor={{ false: colors.gray_300, true: colors.primary }}
-        thumbColor={item.enabled ? colors.white : colors.gray_100}
-      />
-    </View>
-  );
-
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar barStyle="dark-content" backgroundColor={colors.white} />
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={24} color={colors.text_dark} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Notifications</Text>
-        {activeTab === 'recent' && notifications.length > 0 && (
+        {notifications.length > 0 && (
           <TouchableOpacity onPress={handleClearAll}>
             <Text style={styles.clearText}>Clear</Text>
           </TouchableOpacity>
         )}
-        {activeTab !== 'recent' && <View style={{ width: 24 }} />}
+        {notifications.length === 0 && <View style={{ width: 24 }} />}
       </View>
 
-      {/* Tabs */}
-      <View style={styles.tabContainer}>
-        <TouchableOpacity 
-          onPress={() => setActiveTab('recent')} 
-          style={[styles.tab, activeTab === 'recent' && styles.tabActive]}
-        >
-          <Text style={[styles.tabText, activeTab === 'recent' && styles.tabTextActive]}>Recent</Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          onPress={() => setActiveTab('settings')} 
-          style={[styles.tab, activeTab === 'settings' && styles.tabActive]}
-        >
-          <Text style={[styles.tabText, activeTab === 'settings' && styles.tabTextActive]}>Settings</Text>
-        </TouchableOpacity>
-      </View>
-
-      {activeTab === 'recent' ? (
-        <FlatList
-          data={notifications}
-          renderItem={({ item }) => (
-            <View style={[styles.notificationItem, { backgroundColor: item.read ? colors.white : colors.gray_50 }]}>
-              <View style={[styles.iconContainer, { backgroundColor: getIconColor(item.priority) + '20' }]}>
-                <Ionicons name={getIconName(item.type)} size={24} color={getIconColor(item.priority)} />
-              </View>
-              <View style={styles.notificationContent}>
-                <Text style={styles.notificationTitle}>{item.title}</Text>
-                <Text style={styles.notificationMessage}>{item.body || item.message || ''}</Text>
-                <Text style={styles.notificationTime}>{formatTime(item.createdAt)}</Text>
-              </View>
-              <View style={styles.notificationActions}>
-                {!item.read && (
-                  <TouchableOpacity onPress={() => handleMarkRead(item._id)} style={styles.actionButton}>
-                    <Ionicons name="checkmark" size={16} color={colors.primary} />
-                  </TouchableOpacity>
-                )}
-                <TouchableOpacity onPress={() => handleDelete(item._id)} style={styles.actionButton}>
-                  <Ionicons name="close" size={16} color={colors.danger} />
-                </TouchableOpacity>
-              </View>
+      {/* Notifications List */}
+      <FlatList
+        data={notifications}
+        renderItem={({ item }) => (
+          <View style={[styles.notificationItem, { backgroundColor: item.read ? colors.white : colors.gray_50 }]}>
+            <View style={[styles.iconContainer, { backgroundColor: getIconColor(item.priority) + '20' }]}>
+              <Ionicons name={getIconName(item.type)} size={24} color={getIconColor(item.priority)} />
             </View>
-          )}
-          keyExtractor={item => item._id}
-          contentContainerStyle={{ paddingBottom: 100 }}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Ionicons name="notifications-off-outline" size={80} color={colors.gray_300} />
-              <Text style={styles.emptyTitle}>No notifications</Text>
-              <Text style={styles.emptySubtitle}>You're all caught up!</Text>
+            <View style={styles.notificationContent}>
+              <Text style={styles.notificationTitle}>{item.title}</Text>
+              <Text style={styles.notificationMessage}>{item.body || item.message || ''}</Text>
+              <Text style={styles.notificationTime}>{formatTime(item.createdAt)}</Text>
             </View>
-          }
-        />
-      ) : (
-        <ScrollView>
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Push Notifications</Text>
-            <FlatList
-              data={settings}
-              renderItem={({ item }) => (
-                <View style={styles.settingRow}>
-                  <View style={styles.settingInfo}>
-                    <Text style={styles.settingTitle}>{item.title}</Text>
-                    <Text style={styles.settingDescription}>{item.description}</Text>
-                  </View>
-                  <Switch
-                    value={item.enabled}
-                    onValueChange={() => toggleSetting(item.id)}
-                    trackColor={{ false: colors.gray_300, true: colors.primary }}
-                    thumbColor={item.enabled ? colors.white : colors.gray_100}
-                  />
-                </View>
-              )}
-              keyExtractor={(item) => item.id}
-              scrollEnabled={false}
-            />
-          </View>
-
-          <View style={styles.section}>
-            <TouchableOpacity style={styles.testButton}>
-              <Ionicons name="notifications" size={20} color={colors.primary} />
-              <Text style={styles.testButtonText}>Send Test Notification</Text>
+            <TouchableOpacity onPress={() => handleDelete(item._id)} style={styles.actionButton}>
+              <Ionicons name="close" size={18} color={colors.danger} />
             </TouchableOpacity>
           </View>
-        </ScrollView>
-      )}
-    </View>
+        )}
+        keyExtractor={item => item._id}
+        contentContainerStyle={{ paddingBottom: 100 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Ionicons name="notifications-off-outline" size={80} color={colors.gray_300} />
+            <Text style={styles.emptyTitle}>No notifications</Text>
+            <Text style={styles.emptySubtitle}>You're all caught up!</Text>
+          </View>
+        }
+      />
+    </SafeAreaView>
   );
 }
 

@@ -40,45 +40,21 @@ interface RiderSettingsTabProps {
     avatar: string | null;
     rating: number;
   };
+  onViewAnalytics: () => void;
+  onChangeName: () => void;
+  onChangePassword: () => void;
+  onChangeProfileImage: () => void;
   onLogout: () => void;
-  onEditProfile: () => void;
 }
 
-export default function RiderSettingsTab({ riderData, onLogout, onEditProfile }: RiderSettingsTabProps) {
-  const menuSections = [
-    {
-      title: 'Account Management',
-      items: [
-        { icon: 'settings', label: 'Settings', color: COLORS.gray, hasToggle: true },
-        { icon: 'moon', label: 'Enable Night Mode', color: COLORS.info, hasToggle: true },
-        { icon: 'mail', label: 'Email Management', color: COLORS.warning, hasToggle: true },
-      ],
-    },
-    {
-      title: 'Financial',
-      items: [
-        { icon: 'card', label: 'Payment Methods', color: COLORS.success, hasArrow: true },
-        { icon: 'business', label: 'Bank Information', color: COLORS.info, hasArrow: true },
-        { icon: 'phone-portrait', label: 'Mobile: Start', color: COLORS.primary, hasToggle: true },
-      ],
-    },
-    {
-      title: 'Performance',
-      items: [
-        { icon: 'star', label: 'Ratings: 100.0%', color: COLORS.warning, hasToggle: true },
-        { icon: 'stats-chart', label: 'View Statistics', color: COLORS.info, hasArrow: true },
-      ],
-    },
-    {
-      title: 'Help & Support',
-      items: [
-        { icon: 'help-circle', label: 'Help & Support', color: COLORS.success, hasArrow: true },
-        { icon: 'document', label: 'Document Upload', color: COLORS.info, hasArrow: true },
-        { icon: 'clipboard', label: 'Terms & Conditions', color: COLORS.gray, hasArrow: true },
-      ],
-    },
-  ];
-
+export default function RiderSettingsTab({
+  riderData,
+  onViewAnalytics,
+  onChangeName,
+  onChangePassword,
+  onChangeProfileImage,
+  onLogout,
+}: RiderSettingsTabProps) {
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       {/* Profile Card */}
@@ -92,46 +68,53 @@ export default function RiderSettingsTab({ riderData, onLogout, onEditProfile }:
             </View>
           )}
         </View>
-        <Text style={styles.riderName}>Earning Rider</Text>
+        <Text style={styles.riderName}>{riderData.name || 'Rider'}</Text>
         <View style={styles.ratingRow}>
           <Text style={styles.ratingText}>{Number(riderData.rating || 0).toFixed(1)} ⭐</Text>
-          <Text style={styles.emergencyText}>| Emergency Button</Text>
         </View>
-        <TouchableOpacity style={styles.editButton} onPress={onEditProfile}>
-          <Text style={styles.editButtonText}>Edit Profile</Text>
-        </TouchableOpacity>
       </View>
 
-      {/* Menu Sections */}
-      {menuSections.map((section, sectionIndex) => (
-        <View key={sectionIndex} style={styles.section}>
-          <Text style={styles.sectionTitle}>{section.title}</Text>
-          <View style={styles.sectionCard}>
-            {section.items.map((item, itemIndex) => (
-              <TouchableOpacity
-                key={itemIndex}
-                style={[
-                  styles.menuItem,
-                  itemIndex === 0 && styles.menuItemFirst,
-                  itemIndex === section.items.length - 1 && styles.menuItemLast,
-                ]}
-              >
-                <View style={[styles.menuIcon, { backgroundColor: `${item.color}20` }]}>
-                  <Ionicons name={item.icon as any} size={20} color={item.color} />
-                </View>
-                <Text style={styles.menuLabel}>{item.label}</Text>
-                {item.hasToggle ? (
-                  <View style={styles.toggle}>
-                    <View style={styles.toggleActive} />
-                  </View>
-                ) : (
-                  <Ionicons name="chevron-forward" size={20} color={COLORS.gray} />
-                )}
-              </TouchableOpacity>
-            ))}
-          </View>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Account</Text>
+        <View style={styles.sectionCard}>
+          <TouchableOpacity style={[styles.menuItem, styles.menuItemFirst]} onPress={onChangeProfileImage}>
+            <View style={[styles.menuIcon, { backgroundColor: `${COLORS.info}20` }]}>
+              <Ionicons name="image-outline" size={20} color={COLORS.info} />
+            </View>
+            <Text style={styles.menuLabel}>Change Profile Image</Text>
+            <Ionicons name="chevron-forward" size={20} color={COLORS.gray} />
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.menuItem} onPress={onChangeName}>
+            <View style={[styles.menuIcon, { backgroundColor: `${COLORS.primary}20` }]}>
+              <Ionicons name="person-outline" size={20} color={COLORS.primary} />
+            </View>
+            <Text style={styles.menuLabel}>Change Name</Text>
+            <Ionicons name="chevron-forward" size={20} color={COLORS.gray} />
+          </TouchableOpacity>
+
+          <TouchableOpacity style={[styles.menuItem, styles.menuItemLast]} onPress={onChangePassword}>
+            <View style={[styles.menuIcon, { backgroundColor: `${COLORS.warning}20` }]}>
+              <Ionicons name="lock-closed-outline" size={20} color={COLORS.warning} />
+            </View>
+            <Text style={styles.menuLabel}>Change Password</Text>
+            <Ionicons name="chevron-forward" size={20} color={COLORS.gray} />
+          </TouchableOpacity>
         </View>
-      ))}
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Performance</Text>
+        <View style={styles.sectionCard}>
+          <TouchableOpacity style={[styles.menuItem, styles.menuItemFirst, styles.menuItemLast]} onPress={onViewAnalytics}>
+            <View style={[styles.menuIcon, { backgroundColor: `${COLORS.success}20` }]}>
+              <Ionicons name="stats-chart" size={20} color={COLORS.success} />
+            </View>
+            <Text style={styles.menuLabel}>View Analytics</Text>
+            <Ionicons name="chevron-forward" size={20} color={COLORS.gray} />
+          </TouchableOpacity>
+        </View>
+      </View>
 
       {/* Logout Button */}
       <TouchableOpacity style={styles.logoutButton} onPress={onLogout}>
@@ -202,17 +185,6 @@ const styles = StyleSheet.create({
     fontSize: FONTS.body.fontSize,
     color: COLORS.gray,
     marginLeft: 8,
-  },
-  editButton: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: 24,
-    paddingVertical: 10,
-    borderRadius: 20,
-  },
-  editButtonText: {
-    fontSize: FONTS.body.fontSize,
-    fontWeight: '600',
-    color: COLORS.white,
   },
   section: {
     marginBottom: SPACING.verticalGap,

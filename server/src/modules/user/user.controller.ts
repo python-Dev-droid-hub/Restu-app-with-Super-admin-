@@ -238,4 +238,75 @@ export class UserController {
 
     sendSuccess(res, null, 'Password changed successfully');
   });
+
+  // Rider-specific endpoints
+  updateRiderLocation = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
+    const userId = req.user!._id;
+    const userRole = req.user!.role;
+    const { longitude, latitude } = req.body;
+
+    if (userRole !== 'RIDER' && userRole !== 'SUPER_ADMIN') {
+      throw createError('Only riders can update their location', 403);
+    }
+
+    if (longitude === undefined || latitude === undefined) {
+      throw createError('Longitude and latitude are required', 400);
+    }
+
+    const updatedUser = await this.userRepository.updateRiderLocation(userId, longitude, latitude);
+    
+    if (!updatedUser) {
+      throw createError('User not found', 404);
+    }
+
+    sendSuccess(res, { 
+      location: updatedUser.currentLocation,
+      lastLocationUpdate: updatedUser.lastLocationUpdate,
+    }, 'Location updated successfully');
+  });
+
+  updateRiderDutyStatus = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
+    const userId = req.user!._id;
+    const userRole = req.user!.role;
+    const { onDuty } = req.body;
+
+    if (userRole !== 'RIDER' && userRole !== 'SUPER_ADMIN') {
+      throw createError('Only riders can update their duty status', 403);
+    }
+
+    if (onDuty === undefined) {
+      throw createError('onDuty status is required', 400);
+    }
+
+    const updatedUser = await this.userRepository.updateRiderDutyStatus(userId, onDuty);
+    
+    if (!updatedUser) {
+      throw createError('User not found', 404);
+    }
+
+    sendSuccess(res, { 
+      onDuty: updatedUser.onDuty,
+    }, `Rider is now ${onDuty ? 'on duty' : 'off duty'}`);
+  });
+
+  getRiderStatus = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
+    const userId = req.user!._id;
+    const userRole = req.user!.role;
+
+    if (userRole !== 'RIDER' && userRole !== 'SUPER_ADMIN') {
+      throw createError('Only riders can view their status', 403);
+    }
+
+    const user = await this.userRepository.findById(userId);
+    
+    if (!user) {
+      throw createError('User not found', 404);
+    }
+
+    sendSuccess(res, {
+      onDuty: (user as any).onDuty || false,
+      currentLocation: (user as any).currentLocation || null,
+      lastLocationUpdate: (user as any).lastLocationUpdate || null,
+    }, 'Rider status retrieved successfully');
+  });
 }

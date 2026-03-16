@@ -118,4 +118,73 @@ export class UserRepository {
 
     return { users, total };
   }
+
+  /**
+   * Find nearby on-duty riders for auto-assignment
+   * @param longitude - Branch longitude
+   * @param latitude - Branch latitude
+   * @param maxDistanceKm - Maximum distance in kilometers (default 10km)
+   * @returns Array of nearby on-duty riders sorted by distance
+   */
+  async findNearbyOnDutyRiders(
+    longitude: number,
+    latitude: number,
+    maxDistanceKm: number = 10
+  ): Promise<IUser[]> {
+    const maxDistanceMeters = maxDistanceKm * 1000;
+    
+    const riders = await User.find({
+      role: 'RIDER',
+      isActive: true,
+      onDuty: true,
+      currentLocation: {
+        $near: {
+          $geometry: {
+            type: 'Point',
+            coordinates: [longitude, latitude],
+          },
+          $maxDistance: maxDistanceMeters,
+        },
+      },
+    })
+      .select('-passwordHash')
+      .limit(5); // Get top 5 nearest riders
+    
+    return riders;
+  }
+
+  /**
+   * Update rider's current location
+   */
+  async updateRiderLocation(
+    riderId: string | Types.ObjectId,
+    longitude: number,
+    latitude: number
+  ): Promise<IUser | null> {
+    return await User.findByIdAndUpdate(
+      riderId,
+      {
+        currentLocation: {
+          type: 'Point',
+          coordinates: [longitude, latitude],
+        },
+        lastLocationUpdate: new Date(),
+      },
+      { new: true, runValidators: true }
+    );
+  }
+
+  /**
+   * Update rider's on-duty status
+   */
+  async updateRiderDutyStatus(
+    riderId: string | Types.ObjectId,
+    onDuty: boolean
+  ): Promise<IUser | null> {
+    return await User.findByIdAndUpdate(
+      riderId,
+      { onDuty },
+      { new: true, runValidators: true }
+    );
+  }
 }

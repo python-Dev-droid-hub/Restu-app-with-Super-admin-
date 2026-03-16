@@ -14,17 +14,18 @@ import SearchScreen from '../screens/food-app/SearchScreen';
 import CartScreen from '../screens/food-app/CartScreen';
 import FavoritesScreen from '../screens/food-app/FavoritesScreen';
 import AccountScreen from '../screens/food-app/AccountScreen';
+import OrderHistoryScreen from '../screens/food-app/OrderHistoryScreen';
 
 // Stack Screens
 import ProductDetailScreen from '../screens/food-app/ProductDetailScreen';
 import CheckoutScreen from '../screens/food-app/CheckoutScreen';
 import OrderTrackingScreen from '../screens/food-app/OrderTrackingScreen';
-import OrderHistoryScreen from '../screens/food-app/OrderHistoryScreen';
 import AddressesScreen from '../screens/food-app/AddressesScreen';
 import PaymentMethodsScreen from '../screens/food-app/PaymentMethodsScreen';
 import NotificationsScreen from '../screens/food-app/NotificationsScreen';
 import SupportScreen from '../screens/food-app/SupportScreen';
 import SettingsScreen from '../screens/food-app/SettingsScreen';
+import CustomerChangePasswordScreen from '../screens/food-app/CustomerChangePasswordScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -68,6 +69,7 @@ function MainTabsNavigator() {
           switch (route.name) {
             case 'Home': iconName = focused ? 'home' : 'home-outline'; break;
             case 'Cart': iconName = focused ? 'cart' : 'cart-outline'; showBadge = true; break;
+            case 'Orders': iconName = focused ? 'receipt' : 'receipt-outline'; break;
             case 'Favorites': iconName = focused ? 'heart' : 'heart-outline'; break;
             case 'Account': 
               iconName = focused ? 'person' : 'person-outline'; 
@@ -96,6 +98,7 @@ function MainTabsNavigator() {
     >
       <Tab.Screen name="Home" component={HomeScreen} />
       <Tab.Screen name="Cart" component={CartScreen} />
+      <Tab.Screen name="Orders" component={OrderHistoryScreen} />
       <Tab.Screen name="Favorites" component={FavoritesScreen} />
       <Tab.Screen name="Account" component={AccountScreen} />
     </Tab.Navigator>
@@ -115,6 +118,7 @@ export default function CustomerTabsNavigator() {
       <Stack.Screen name="Notifications" component={NotificationsScreen} />
       <Stack.Screen name="Support" component={SupportScreen} />
       <Stack.Screen name="Settings" component={SettingsScreen} />
+      <Stack.Screen name="ChangePassword" component={CustomerChangePasswordScreen} />
     </Stack.Navigator>
   );
 }
