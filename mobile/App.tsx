@@ -56,8 +56,10 @@ import CreateBranchScreen from './screens/admin/CreateBranchScreen';
 import BranchAuditScreen from './screens/admin/BranchAuditScreen';
 import BannerManagementScreen from './screens/admin/BannerManagementScreen';
 import ManagerDashboard from './screens/dashboards/ManagerDashboard';
+import ManagerMenuScreen from './screens/admin/ManagerMenuScreen';
 import SuperAdminDashboard from './screens/dashboards/SuperAdminDashboard';
 import DealCampaignScreen from './screens/food-app/DealCampaignScreen';
+import RidersManagementScreen from './screens/dashboards/RidersManagementScreen';
 
 // Role-based tab navigators (centralized nav per role)
 import AdminTabsNavigator from './navigators/AdminTabsNavigator';
@@ -139,6 +141,7 @@ export default function App() {
                   <Stack.Screen name="CreateBranch" component={CreateBranchScreen} options={{ headerShown: false }} />
                   <Stack.Screen name="BranchAudit" component={BranchAuditScreen} options={{ headerShown: false }} />
                   <Stack.Screen name="BannerManagement" component={BannerManagementScreen} options={{ headerShown: false }} />
+                  <Stack.Screen name="RidersManagement" component={RidersManagementScreen} options={{ headerShown: false }} />
                   <Stack.Screen name="DealCampaign" component={DealCampaignScreen} options={{ headerShown: false }} />
                 </Stack.Navigator>
                 <Toast />

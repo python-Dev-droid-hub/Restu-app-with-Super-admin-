@@ -2,9 +2,9 @@ import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
 import SuperAdminDashboard from '../screens/dashboards/SuperAdminDashboard';
-import AdminBranchesScreen from '../screens/admin/AdminBranchesScreen';
-import AdminReportsScreen from '../screens/admin/AdminReportsScreen';
-import AdminSettingsScreen from '../screens/admin/AdminSettingsScreen';
+import AdminOrdersScreen from '../screens/admin/AdminOrdersScreen';
+import AdminProductsScreen from '../screens/admin/AdminProductsScreen';
+import AdminUsersScreen from '../screens/admin/AdminUsersScreen';
 import AdminBottomNavigation from '../components/navigation/AdminBottomNavigation';
 
 const Tab = createBottomTabNavigator();
@@ -17,10 +17,10 @@ export default function SuperAdminTabsNavigator() {
       }}
       tabBar={() => <AdminBottomNavigation />}
     >
-      <Tab.Screen name="SuperAdminDashboard" component={SuperAdminDashboard} />
-      <Tab.Screen name="AdminBranches" component={AdminBranchesScreen} />
-      <Tab.Screen name="AdminReports" component={AdminReportsScreen} />
-      <Tab.Screen name="AdminSettings" component={AdminSettingsScreen} />
+      <Tab.Screen name="Home" component={SuperAdminDashboard} />
+      <Tab.Screen name="AdminOrders" component={AdminOrdersScreen} />
+      <Tab.Screen name="AdminProducts" component={AdminProductsScreen} />
+      <Tab.Screen name="AdminUsers" component={AdminUsersScreen} />
     </Tab.Navigator>
   );
 }

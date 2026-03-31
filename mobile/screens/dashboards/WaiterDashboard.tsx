@@ -88,7 +88,7 @@ interface SqlOrderItem {
   product_name: string;
   size_name?: string | null;
   quantity: number;
-  status?: 'PENDING' | 'PREPARING' | 'READY' | 'SERVED';
+  status?: 'PENDING' | 'PREPARING' | 'READY' | 'SERVED' | 'RETURNED';
   price?: number;
   unit_price?: number;
   total_price?: number;
@@ -189,7 +189,7 @@ export default function WaiterDashboard() {
   }, []);
 
   useEffect(() => {
-    const POLL_MS = 8000;
+    const POLL_MS = 3000; // Poll every 3 seconds for near real-time updates
     const id = setInterval(() => {
       loadDashboardData({ silent: true });
     }, POLL_MS);
@@ -225,8 +225,15 @@ export default function WaiterDashboard() {
           // Server returns displayName (camelCase), also check for snake_case fallback
           setWaiterName(userDataParsed?.displayName || userDataParsed?.display_name || userDataParsed?.name || 'Waiter');
           setCurrentBranch(userDataParsed?.branch_name || userDataParsed?.assigned_branch_name || 'My Branch');
-          if (userDataParsed?.profileImage) {
-            setProfileImage(userDataParsed.profileImage);
+          if (userDataParsed?.profileImage || userDataParsed?.avatar || userDataParsed?.image) {
+            const rawImage = userDataParsed?.profileImage || userDataParsed?.avatar || userDataParsed?.image;
+            // Normalize image URL
+            let normalizedImage = rawImage;
+            if (rawImage && !rawImage.startsWith('http://') && !rawImage.startsWith('https://') && !rawImage.startsWith('data:')) {
+              const baseUrl = api.getBaseURL().replace('/api', '');
+              normalizedImage = rawImage.startsWith('/') ? baseUrl + rawImage : baseUrl + '/' + rawImage;
+            }
+            setProfileImage(normalizedImage);
           }
         }
       } catch {
@@ -619,6 +626,23 @@ export default function WaiterDashboard() {
     }
   };
 
+  // Handle item status change - for returning items
+  const handleItemStatusChange = async (orderId: string, itemId: string, status: 'PREPARING' | 'READY' | 'SERVED' | 'RETURNED', reason?: string) => {
+    try {
+      const response = await api.patch(`/orders/${orderId}/items/${itemId}/status`, { status, reason });
+      if (response.success) {
+        await loadDashboardData();
+        if (status === 'RETURNED') {
+          Alert.alert('Success', 'Item returned successfully');
+        }
+      } else {
+        Alert.alert('Error', response.message || 'Failed to update item status');
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'Failed to update item status');
+    }
+  };
+
   const StatCard = ({ color, value, label, sublabel, onPress }: { color: string; value: number; label: string; sublabel?: string; onPress?: () => void }) => (
     <TouchableOpacity activeOpacity={0.9} style={[styles.statCardNew, { backgroundColor: color }]} onPress={onPress}>
       <Text style={styles.statValueNew}>{value}</Text>
@@ -733,6 +757,7 @@ export default function WaiterDashboard() {
                       Alert.alert('Error', e?.message || 'Failed to update order');
                     }
                   }}
+                  onItemStatusChange={handleItemStatusChange}
                   role="WAITER"
                   showPayment={true}
                   showActions={o.status === 'READY'}
@@ -905,6 +930,7 @@ export default function WaiterDashboard() {
                       Alert.alert('Error', e?.message || 'Failed to update order');
                     }
                   }}
+                  onItemStatusChange={handleItemStatusChange}
                   role="WAITER"
                   showPayment={true}
                   showActions={o.status === 'READY'}

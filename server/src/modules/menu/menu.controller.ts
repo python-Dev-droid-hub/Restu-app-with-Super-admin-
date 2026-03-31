@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { MenuRepository } from './menu.repository';
+import BranchProduct from '@/models/BranchProduct';
 import { RestaurantRepository } from '../restaurant/restaurant.repository';
 import { IAuthRequest, sendSuccess, sendError, asyncHandler } from '@/utils';
 import { createError } from '@/middleware/errorHandler';
@@ -329,6 +330,7 @@ export class MenuController {
 
   getFullMenu = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { restaurantId } = req.params;
+    const { branchId, branch } = req.query as any;
 
     // If restaurantId is provided, get restaurant-specific menu
     if (restaurantId) {
@@ -350,18 +352,79 @@ export class MenuController {
       return;
     }
 
+    const branchFilter = (branchId || branch) as string | undefined;
+    console.log('🔍 [SERVER MENU DEBUG] branchId param:', branchId, 'branch param:', branch, 'resolved branchFilter:', branchFilter);
+
+    // If a branch is selected, get activated product IDs for that branch
+    let activatedProductIds: string[] | null = null;
+    if (branchFilter && branchFilter !== 'all') {
+      const activations = await BranchProduct.find({
+        branchId: branchFilter,
+        isActive: true
+      }).lean();
+      activatedProductIds = activations.map(a => String(a.productId));
+      console.log('🔍 [SERVER MENU DEBUG] Activated products for branch:', activatedProductIds.length, 'IDs:', activatedProductIds.slice(0, 5));
+      
+      // DEBUG: Show all BranchProduct records for this branch (including inactive)
+      const allActivations = await BranchProduct.find({ branchId: branchFilter }).lean();
+      console.log('🔍 [SERVER MENU DEBUG] All BranchProduct records for branch:', allActivations.length);
+      allActivations.forEach(a => {
+        console.log('🔍 [SERVER MENU DEBUG] BranchProduct:', {
+          productId: String(a.productId),
+          isActive: a.isActive,
+          _id: String(a._id)
+        });
+      });
+    } else {
+      console.log('🔍 [SERVER MENU DEBUG] No branch filter - showing ALL products');
+    }
+
     const categoriesWithProducts = await Promise.all(
       categories.map(async (category) => {
         console.log('🔍 [SERVER MENU DEBUG] Processing category:', category.name, category._id);
 
         // Get products for this category
+        // Treat missing flags as enabled (older records may not have persisted isAvailable/isActive)
+        const productFilter: any = {
+          category: category._id,
+          $and: [
+            { $or: [{ isAvailable: true }, { isAvailable: { $exists: false } }] },
+            { $or: [{ isActive: true }, { isActive: { $exists: false } }] },
+          ],
+        };
+
+        // If branch is selected, filter by activated products
+        if (activatedProductIds !== null) {
+          productFilter._id = { $in: activatedProductIds };
+        }
+
+        console.log('🔍 [SERVER MENU DEBUG] Product filter for category', category.name + ':', JSON.stringify(productFilter));
+        console.log('🔍 [SERVER MENU DEBUG] Activated IDs filter:', activatedProductIds ? `active, count: ${activatedProductIds.length}` : 'null (showing all)');
+
         const products = await this.menuRepository.findAllProducts(
-          { category: category._id, isAvailable: true },
+          productFilter,
           1,
           100 // Get up to 100 products per category
         );
 
         console.log('🔍 [SERVER MENU DEBUG] Found products for category', category.name + ':', products.length);
+
+        // Debug: If no products found but we have activated IDs, check if products exist at all
+        if (products.length === 0 && activatedProductIds && activatedProductIds.length > 0) {
+          // Check if any of the activated products exist in this category without the status filters
+          const debugFilter: any = { category: category._id, _id: { $in: activatedProductIds } };
+          const debugProducts = await this.menuRepository.findAllProducts(debugFilter, 1, 10);
+          console.log('🔍 [SERVER MENU DEBUG] Debug - products in category without status filter:', debugProducts.length);
+          if (debugProducts.length > 0) {
+            console.log('🔍 [SERVER MENU DEBUG] Sample product status:', {
+              id: debugProducts[0]._id,
+              name: debugProducts[0].name,
+              isAvailable: debugProducts[0].isAvailable,
+              isActive: debugProducts[0].isActive,
+              category: debugProducts[0].category
+            });
+          }
+        }
 
         if (products.length > 0) {
           console.log('🔍 [SERVER MENU DEBUG] Sample product:', {
@@ -408,6 +471,12 @@ export class MenuController {
     const limitNum = parseInt(limit as string, 10);
 
     const filter: any = {};
+    const userRole = req.user?.role;
+    const userBranch = req.user?.assignedBranch as any;
+    const assignedBranchId = userBranch?._id?.toString() || userBranch?.toString?.() || '';
+
+    // Global products: no branchId filter by default
+    // Branch managers see ALL products globally, but with activation status for their branch
     if (search) {
       filter.$or = [
         { name: { $regex: search, $options: 'i' } },
@@ -418,22 +487,44 @@ export class MenuController {
       filter.category = category;
     }
 
+    // Only apply branchId filter for non-manager roles if explicitly requested
     const branchFilter = (branchId || branch) as string | undefined;
-    if (branchFilter && branchFilter !== 'all') {
+    if (branchFilter && branchFilter !== 'all' && userRole !== 'BRANCH_MANAGER') {
       filter.branchId = branchFilter;
     }
 
     const products = await this.menuRepository.findAllProducts(filter, pageNum, limitNum);
     const total = await this.menuRepository.countProducts(filter);
 
+    // For branch managers, attach activation status for their branch
+    let productsWithActivation = products;
+    if (userRole === 'BRANCH_MANAGER' && assignedBranchId) {
+      const activations = await BranchProduct.find({
+        branchId: assignedBranchId,
+        productId: { $in: products.map(p => p._id) }
+      }).lean();
+
+      const activationMap = new Map(activations.map(a => [String(a.productId), a]));
+
+      productsWithActivation = products.map(product => {
+        const activation = activationMap.get(String(product._id));
+        return {
+          ...product.toObject ? product.toObject() : product,
+          isActivatedForBranch: activation?.isActive ?? false,
+          branchActivationId: activation?._id || null,
+        };
+      });
+    }
+
     const response = {
-      products,
+      products: productsWithActivation,
       pagination: {
         page: pageNum,
         limit: limitNum,
         total,
         pages: Math.ceil(total / limitNum),
       },
+      branchId: assignedBranchId || null,
     };
 
     sendSuccess(res, response, 'Products retrieved successfully');
@@ -487,6 +578,11 @@ export class MenuController {
   createAdminProduct = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
     const { sizes, ...productData } = req.body as any;
 
+    // Branch managers create global products (no branchId restriction)
+    // The product will be auto-activated for their branch
+    const userBranch = req.user?.assignedBranch as any;
+    const assignedBranchId = userBranch?._id?.toString() || userBranch?.toString?.() || '';
+
     // If sizes are provided, this product supports sizes.
     if (Array.isArray(sizes) && sizes.length > 0) {
       productData.hasSizes = true;
@@ -495,12 +591,32 @@ export class MenuController {
     const product = await this.menuRepository.createProduct(productData);
 
     await this.syncProductSizes(product?._id, sizes);
+
+    // Auto-activate product for the branch manager's branch
+    if (req.user?.role === 'BRANCH_MANAGER' && assignedBranchId && product?._id) {
+      await BranchProduct.activateProductForBranch(
+        assignedBranchId,
+        String(product._id),
+        String(req.user._id)
+      );
+    }
+
     sendSuccess(res, product, 'Product created successfully', 201);
   });
 
   updateAdminProduct = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
     const { id } = req.params;
     const { sizes, ...productData } = req.body as any;
+
+    // Enforce branch assignment for branch managers (cannot move products across branches)
+    if (req.user?.role === 'BRANCH_MANAGER') {
+      const userBranch = req.user?.assignedBranch as any;
+      const assignedBranchId = userBranch?._id?.toString() || userBranch?.toString?.() || '';
+      if (!assignedBranchId) {
+        throw createError('Access denied. No branch assigned to this user.', 403);
+      }
+      productData.branchId = assignedBranchId;
+    }
 
     // If sizes are provided, this product supports sizes.
     if (Array.isArray(sizes) && sizes.length > 0) {
@@ -537,5 +653,85 @@ export class MenuController {
     }
     
     sendSuccess(res, null, 'Product deleted successfully');
+  });
+
+  // Branch Product Activation - Activate a product for a branch
+  activateProductForBranch = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
+    const { productId } = req.params;
+    const userId = req.user?._id;
+    let branchId = req.body.branchId;
+
+    // Branch managers can only activate for their own branch
+    if (req.user?.role === 'BRANCH_MANAGER') {
+      const userBranch = req.user?.assignedBranch as any;
+      branchId = userBranch?._id?.toString() || userBranch?.toString?.() || '';
+      if (!branchId) {
+        throw createError('Access denied. No branch assigned to this user.', 403);
+      }
+    }
+
+    if (!branchId) {
+      throw createError('Branch ID is required', 400);
+    }
+
+    const activation = await BranchProduct.activateProductForBranch(branchId, productId, String(userId));
+
+    sendSuccess(res, activation, 'Product activated for branch successfully', 200);
+  });
+
+  // Branch Product Activation - Deactivate a product for a branch
+  deactivateProductForBranch = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
+    const { productId } = req.params;
+    const userId = req.user?._id;
+    let branchId = req.body.branchId;
+
+    // Branch managers can only deactivate for their own branch
+    if (req.user?.role === 'BRANCH_MANAGER') {
+      const userBranch = req.user?.assignedBranch as any;
+      branchId = userBranch?._id?.toString() || userBranch?.toString?.() || '';
+      if (!branchId) {
+        throw createError('Access denied. No branch assigned to this user.', 403);
+      }
+    }
+
+    if (!branchId) {
+      throw createError('Branch ID is required', 400);
+    }
+
+    const deactivation = await BranchProduct.deactivateProductForBranch(branchId, productId, String(userId));
+
+    sendSuccess(res, deactivation, 'Product deactivated for branch successfully', 200);
+  });
+
+  // Toggle product activation for a branch
+  toggleProductActivation = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
+    const { productId } = req.params;
+    const userId = req.user?._id;
+    let branchId = req.body.branchId;
+
+    // Branch managers can only toggle for their own branch
+    if (req.user?.role === 'BRANCH_MANAGER') {
+      const userBranch = req.user?.assignedBranch as any;
+      branchId = userBranch?._id?.toString() || userBranch?.toString?.() || '';
+      if (!branchId) {
+        throw createError('Access denied. No branch assigned to this user.', 403);
+      }
+    }
+
+    if (!branchId) {
+      throw createError('Branch ID is required', 400);
+    }
+
+    // Check current activation status
+    const currentActivation = await BranchProduct.findOne({ branchId, productId });
+
+    let result;
+    if (currentActivation?.isActive) {
+      result = await BranchProduct.deactivateProductForBranch(branchId, productId, String(userId));
+    } else {
+      result = await BranchProduct.activateProductForBranch(branchId, productId, String(userId));
+    }
+
+    sendSuccess(res, result, `Product ${currentActivation?.isActive ? 'deactivated' : 'activated'} for branch successfully`, 200);
   });
 }

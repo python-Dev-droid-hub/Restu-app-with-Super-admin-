@@ -13,6 +13,9 @@ router.get('/superadmin/revenue', authenticate, authorize('SUPER_ADMIN'), dashbo
 // Admin Dashboard - now also accessible to Branch Managers
 router.get('/admin/stats', authenticate, authorize('ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER'), dashboardController.getAdminStats);
 router.get('/admin/analytics', authenticate, authorize('ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER'), dashboardController.getAdminAnalytics);
+router.get('/admin/performance/waiters', authenticate, authorize('ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER'), dashboardController.getAdminWaitersPerformance);
+router.get('/admin/performance/riders', authenticate, authorize('ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER'), dashboardController.getAdminRidersPerformance);
+router.get('/admin/performance/branches', authenticate, authorize('ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER'), dashboardController.getAdminBranchesPerformance);
 
 // Customer Dashboard
 router.get('/customer/stats', authenticate, authorize('CUSTOMER'), dashboardController.getCustomerStats);

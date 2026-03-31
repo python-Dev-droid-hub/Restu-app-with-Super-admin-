@@ -9,6 +9,16 @@ export function Login() {
   const { login, isLoading, error } = useLogin();
   const navigate = useNavigate();
 
+  const waitForAuthToken = async (maxWaitMs: number) => {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < maxWaitMs) {
+      const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
+      if (token) return token;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    return null;
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!email || !password) return;
@@ -16,6 +26,27 @@ export function Login() {
     try {
       const result: any = await login({ email, password });
       console.log('Login result:', result);
+
+      // Persist user data for web pages that depend on it
+      const user = result?.user || result;
+      if (user && typeof user === 'object') {
+        localStorage.setItem('userData', JSON.stringify(user));
+        if (user?.role) {
+          localStorage.setItem('userRole', String(user.role));
+        }
+      }
+
+      // Fallback: if token is returned but not yet stored (should be handled by shared hook)
+      const token = result?.tokens?.accessToken || result?.accessToken || result?.token;
+      if (token && !localStorage.getItem('auth_token')) {
+        localStorage.setItem('auth_token', String(token));
+      }
+
+      const storedToken = await waitForAuthToken(1000);
+      if (!storedToken) {
+        console.error('Login succeeded but no auth token was persisted; refusing to navigate to authenticated routes');
+        return;
+      }
 
       // Extract user role from login result or wait for it to be available
       const checkUserRole = () => {
@@ -30,27 +61,11 @@ export function Login() {
           }
         }
 
-        // Fallback: determine role based on email (from seed data)
-        if (!userRole) {
-          const emailToRole: Record<string, string> = {
-            'admin@restaurant.com': 'ADMIN',
-            'chef@restaurant.com': 'CHEF',
-            'waiter@restaurant.com': 'WAITER',
-            'rider@restaurant.com': 'RIDER',
-            'customer@restaurant.com': 'CUSTOMER',
-            'demo@restaurant.com': 'CUSTOMER',
-            'manager@restaurant.com': 'BRANCH_MANAGER'
-          };
-          userRole = emailToRole[email] || 'CUSTOMER';
-          localStorage.setItem('userRole', userRole);
-          console.log('Set user role based on email:', userRole);
-        }
-
         console.log('Final user role:', userRole);
 
         // Handle role-based redirection
-        if (userRole === 'ADMIN') {
-          navigate('/dashboard');
+        if (userRole === 'ADMIN' || userRole === 'SUPER_ADMIN') {
+          navigate('/admin/dashboard');
         } else {
           // For non-admin users, show mobile app requirement
           navigate('/mobile-required');

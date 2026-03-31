@@ -9,6 +9,8 @@ import {
   TextInput,
   ActivityIndicator,
   Modal,
+  Image,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../../components/api/client';
@@ -26,6 +28,20 @@ const COLORS = {
   lightGray: '#ECEFF1',
 };
 
+interface OrderItem {
+  _id: string;
+  name: string;
+  quantity: number;
+  price?: number;
+  imageUrl?: string;
+  image?: string;
+  product?: {
+    imageUrl?: string;
+    image?: string;
+    images?: string[];
+  };
+}
+
 interface Order {
   _id: string;
   orderNumber: string;
@@ -33,7 +49,7 @@ interface Order {
   total: number;
   createdAt: string;
   branch?: { name: string };
-  items?: Array<{ name: string; quantity: number }>;
+  items?: OrderItem[];
   foodRating?: number;
   deliveryRating?: number;
 }
@@ -53,6 +69,31 @@ export default function CustomerOrdersTab({ formatPrice }: CustomerOrdersTabProp
   const [foodRating, setFoodRating] = useState<number>(0);
   const [deliveryRating, setDeliveryRating] = useState<number>(0);
   const [submittingRating, setSubmittingRating] = useState(false);
+
+  // Get full image URL with normalization
+  const getFullImageUrl = useCallback((url?: string): string => {
+    if (!url) return '';
+    const normalized = String(url).replace(/\\/g, '/');
+    if (normalized.startsWith('http://') || normalized.startsWith('https://')) return normalized;
+    const normalizedPath =
+      normalized.startsWith('uploads/') || normalized.startsWith('src/uploads/')
+        ? `/${normalized.replace(/^src\//, '')}`
+        : normalized;
+    const baseUrl = api.getBaseURL().replace(/\/?api\/?$/, '');
+    if (normalizedPath.startsWith('/')) return `${baseUrl}${normalizedPath}`;
+    return `${baseUrl}/${normalizedPath}`;
+  }, []);
+
+  const getItemImage = (item: OrderItem): string => {
+    const productImage = item.product?.imageUrl || item.product?.image;
+    const itemImage = item.imageUrl || item.image;
+    const images = item.product?.images;
+    
+    if (Array.isArray(images) && images.length > 0) {
+      return getFullImageUrl(images[0]);
+    }
+    return getFullImageUrl(productImage || itemImage);
+  };
 
   const fetchOrders = useCallback(async () => {
     try {
@@ -210,6 +251,46 @@ export default function CustomerOrdersTab({ formatPrice }: CustomerOrdersTabProp
           </Text>
         </View>
       </View>
+      
+      {/* Order Items with Images */}
+      {item.items && item.items.length > 0 && (
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          style={styles.itemsScroll}
+          contentContainerStyle={styles.itemsScrollContent}
+        >
+          {item.items.slice(0, 5).map((orderItem, index) => {
+            const imageUrl = getItemImage(orderItem);
+            return (
+              <View key={orderItem._id || index} style={styles.orderItemContainer}>
+                {imageUrl ? (
+                  <Image 
+                    source={{ uri: imageUrl }} 
+                    style={styles.orderItemImage}
+                    resizeMode="cover"
+                    onError={(e) => {
+                      console.log('[CustomerOrdersTab] image failed:', imageUrl, e?.nativeEvent?.error);
+                    }}
+                  />
+                ) : (
+                  <View style={[styles.orderItemImage, styles.imagePlaceholder]}>
+                    <Ionicons name="restaurant" size={20} color={COLORS.gray} />
+                  </View>
+                )}
+                <Text style={styles.orderItemName} numberOfLines={1}>
+                  {orderItem.quantity}x {orderItem.name}
+                </Text>
+              </View>
+            );
+          })}
+          {item.items.length > 5 && (
+            <View style={styles.moreItemsContainer}>
+              <Text style={styles.moreItemsText}>+{item.items.length - 5}</Text>
+            </View>
+          )}
+        </ScrollView>
+      )}
       
       <View style={styles.orderDetails}>
         <Text style={styles.itemCount}>
@@ -449,6 +530,48 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: COLORS.lightGray,
+    marginTop: 12,
+  },
+  itemsScroll: {
+    marginTop: 12,
+  },
+  itemsScrollContent: {
+    gap: 12,
+    paddingRight: 16,
+  },
+  orderItemContainer: {
+    alignItems: 'center',
+    width: 70,
+  },
+  orderItemImage: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+    backgroundColor: COLORS.lightGray,
+  },
+  imagePlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  orderItemName: {
+    fontSize: 11,
+    color: COLORS.gray,
+    marginTop: 4,
+    textAlign: 'center',
+    width: 70,
+  },
+  moreItemsContainer: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+    backgroundColor: COLORS.lightGray,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  moreItemsText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: COLORS.darkText,
   },
   itemCount: {
     fontSize: 14,

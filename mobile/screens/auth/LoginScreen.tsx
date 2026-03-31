@@ -73,6 +73,8 @@ export default function LoginScreen() {
 
         switch (role) {
           case 'SUPER_ADMIN':
+            dashboardName = 'SuperAdminDashboard';
+            break;
           case 'ADMIN':
             dashboardName = 'AdminDashboard';
             break;

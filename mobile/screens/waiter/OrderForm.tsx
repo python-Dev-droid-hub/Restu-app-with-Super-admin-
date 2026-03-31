@@ -149,6 +149,8 @@ export default function OrderForm() {
         const profileResponse = await api.get('/users/profile');
         if (profileResponse.success && profileResponse.data) {
           const profile = profileResponse.data;
+          console.log('🔍 [WAITER MENU] Profile response:', JSON.stringify(profile, null, 2));
+          console.log('🔍 [WAITER MENU] assignedBranch from profile:', JSON.stringify(profile.assignedBranch, null, 2));
           user = { ...user, ...profile };
         }
       } catch (profileError) {
@@ -188,11 +190,29 @@ export default function OrderForm() {
         }
       }
 
-      // Load menu/products
-      const menuResponse = await api.get('/menu');
+      // Load menu/products - filter by branch if waiter has assigned branch
+      const tableBranchId = tablesResponse?.success && tablesResponse?.data
+        ? (Array.isArray(tablesResponse.data.tables || tablesResponse.data)
+            ? (tablesResponse.data.tables || tablesResponse.data)[0]?.branch?._id || (tablesResponse.data.tables || tablesResponse.data)[0]?.branch?.id || (tablesResponse.data.tables || tablesResponse.data)[0]?.branch_id || (tablesResponse.data.tables || tablesResponse.data)[0]?.branchId
+            : undefined)
+        : undefined;
+      const assignedBranchId = user?.assigned_branch_id || user?.branch_id || user?.branchId || user?.assignedBranch?._id;
+      const branchId = assignedBranchId || tableBranchId;
+      console.log('🔍 [WAITER MENU] User data:', JSON.stringify({ assigned_branch_id: user?.assigned_branch_id, branch_id: user?.branch_id, branchId: user?.branchId, assignedBranch: user?.assignedBranch }));
+      console.log('🔍 [WAITER MENU] assignedBranchId:', assignedBranchId);
+      console.log('🔍 [WAITER MENU] Table branchId:', tableBranchId);
+      console.log('🔍 [WAITER MENU] Resolved branchId:', branchId);
+      const menuUrl = branchId ? `/menu?branchId=${branchId}` : '/menu';
+      console.log('🔍 [WAITER MENU] Menu URL:', menuUrl);
+      const menuResponse = await api.get(menuUrl);
+      console.log('🔍 [WAITER MENU] Response success:', menuResponse.success, 'categories:', menuResponse.data?.categories?.length);
       if (menuResponse.success && menuResponse.data) {
         // The /menu endpoint returns categories with products directly
         const rawCategories = menuResponse.data.categories || menuResponse.data || [];
+        console.log('🔍 [WAITER MENU] Raw categories:', rawCategories.length);
+        rawCategories.forEach((cat: any, i: number) => {
+          console.log(`🔍 [WAITER MENU] Category ${i}: ${cat.name} - products: ${cat.products?.length || 0}`);
+        });
         const formattedCategories: Category[] = rawCategories.map((cat: any) => ({
           id: String(cat._id || cat.id),
           name: cat.name,

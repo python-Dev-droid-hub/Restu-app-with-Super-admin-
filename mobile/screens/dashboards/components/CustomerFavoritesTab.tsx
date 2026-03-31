@@ -33,6 +33,8 @@ interface FavoriteProduct {
     price: number;
     originalPrice?: number;
     imageUrl?: string;
+    image?: string;
+    images?: string[];
   };
 }
 
@@ -40,6 +42,29 @@ export default function CustomerFavoritesTab() {
   const [favorites, setFavorites] = useState<FavoriteProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
+
+  // Get full image URL with normalization
+  const getFullImageUrl = useCallback((url?: string): string => {
+    if (!url) return '';
+    const normalized = String(url).replace(/\\/g, '/');
+    if (normalized.startsWith('http://') || normalized.startsWith('https://')) return normalized;
+    const normalizedPath =
+      normalized.startsWith('uploads/') || normalized.startsWith('src/uploads/')
+        ? `/${normalized.replace(/^src\//, '')}`
+        : normalized;
+    const baseUrl = api.getBaseURL().replace(/\/?api\/?$/, '');
+    if (normalizedPath.startsWith('/')) return `${baseUrl}${normalizedPath}`;
+    return `${baseUrl}/${normalizedPath}`;
+  }, []);
+
+  const getProductImage = (product: FavoriteProduct['product']): string => {
+    const image = product.imageUrl || product.image;
+    if (Array.isArray(product.images) && product.images.length > 0) {
+      return getFullImageUrl(product.images[0]);
+    }
+    return getFullImageUrl(image);
+  };
 
   const fetchFavorites = useCallback(async () => {
     try {
@@ -75,14 +100,23 @@ export default function CustomerFavoritesTab() {
     }
   };
 
-  const renderFavoriteItem = ({ item }: { item: FavoriteProduct }) => (
+  const renderFavoriteItem = ({ item }: { item: FavoriteProduct }) => {
+    const imageUrl = getProductImage(item.product);
+    const hasFailed = failedImages[item.id];
+    return (
     <TouchableOpacity style={styles.restaurantCard}>
-      <Image
-        source={{
-          uri: item.product?.imageUrl || 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=400&h=300&fit=crop',
-        }}
-        style={styles.restaurantImage}
-      />
+      {imageUrl && !hasFailed ? (
+        <Image
+          source={{ uri: imageUrl }}
+          style={styles.restaurantImage}
+          resizeMode="cover"
+          onError={() => setFailedImages((prev) => ({ ...prev, [item.id]: true }))}
+        />
+      ) : (
+        <View style={[styles.restaurantImage, styles.imagePlaceholder]}>
+          <Ionicons name="restaurant" size={40} color={COLORS.gray} />
+        </View>
+      )}
       <TouchableOpacity
         style={styles.heartButton}
         onPress={() => removeFavorite(item.id)}
@@ -100,6 +134,7 @@ export default function CustomerFavoritesTab() {
       </TouchableOpacity>
     </TouchableOpacity>
   );
+  };
 
   if (loading) {
     return (
@@ -283,5 +318,10 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontSize: 16,
     fontWeight: '600',
+  },
+  imagePlaceholder: {
+    backgroundColor: COLORS.lightGray,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

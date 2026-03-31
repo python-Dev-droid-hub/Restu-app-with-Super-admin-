@@ -47,7 +47,11 @@ export default function AdminNotificationsScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { t } = useLocalization();
+  const { profileImage } = useUserData();
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  
+  // Get parent tab navigation for bottom nav (undefined for stack screens)
+  const tabNavigation = navigation.getParent();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<'all' | 'unread'>('all');
@@ -55,7 +59,6 @@ export default function AdminNotificationsScreen() {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   const [userRole, setUserRole] = useState<string>('');
-  const { profileImage } = useUserData();
   const [assignedBranch, setAssignedBranch] = useState<{_id?: string; name?: string; code?: string}>({});
   
   // Branch filter for admin
@@ -66,10 +69,16 @@ export default function AdminNotificationsScreen() {
   // Load user role and branch on mount
   useEffect(() => {
     loadUserData();
-    loadBranches();
   }, []);
 
-  // Reload notifications when branch filter changes
+  // Load branches for admin roles when userRole is set
+  useEffect(() => {
+    if (userRole === 'SUPER_ADMIN' || userRole === 'ADMIN') {
+      loadBranches();
+    }
+  }, [userRole]);
+
+  // Reload notifications when branch filter changes (only for admin roles)
   useEffect(() => {
     loadNotifications();
   }, [selectedBranch]);
@@ -133,9 +142,11 @@ export default function AdminNotificationsScreen() {
       setLoading(true);
       const params = new URLSearchParams();
       params.append('limit', '50');
-      if (selectedBranch !== 'all') {
+      // Only apply branch filter for admin roles
+      if ((userRole === 'SUPER_ADMIN' || userRole === 'ADMIN') && selectedBranch !== 'all') {
         params.append('branchId', selectedBranch);
       }
+      // For branch managers, the backend will filter by their assigned branch
       const url = `/notifications/admin?${params.toString()}`;
       console.log('[AdminNotifications] Fetching from:', url);
       const response = await api.get(url);
@@ -278,20 +289,32 @@ export default function AdminNotificationsScreen() {
         onProfilePress={() => setShowProfileMenu(true)}
       />
 
-      {/* Branch Selector for Admin */}
-      <View style={styles.branchSelectorContainer}>
-        <TouchableOpacity 
-          style={styles.branchSelector}
-          onPress={() => setShowBranchDropdown(!showBranchDropdown)}
-        >
-          <Ionicons name="business-outline" size={18} color="#E87E35" />
-          <Text style={styles.branchSelectorText}>{getSelectedBranchName()}</Text>
-          <Ionicons name={showBranchDropdown ? "chevron-up" : "chevron-down"} size={16} color="#666" />
-        </TouchableOpacity>
-      </View>
+      {/* Branch Selector - Only for ADMIN and SUPER_ADMIN */}
+      {(userRole === 'SUPER_ADMIN' || userRole === 'ADMIN') && (
+        <View style={styles.branchSelectorContainer}>
+          <TouchableOpacity 
+            style={styles.branchSelector}
+            onPress={() => setShowBranchDropdown(!showBranchDropdown)}
+          >
+            <Ionicons name="business-outline" size={18} color="#E87E35" />
+            <Text style={styles.branchSelectorText}>{getSelectedBranchName()}</Text>
+            <Ionicons name={showBranchDropdown ? "chevron-up" : "chevron-down"} size={16} color="#666" />
+          </TouchableOpacity>
+        </View>
+      )}
 
-      {/* Branch Dropdown */}
-      {showBranchDropdown && (
+      {/* Branch Name Display for BRANCH_MANAGER */}
+      {userRole === 'BRANCH_MANAGER' && assignedBranch.name && (
+        <View style={styles.branchSelectorContainer}>
+          <View style={styles.branchLabel}>
+            <Ionicons name="business-outline" size={18} color="#E87E35" />
+            <Text style={styles.branchLabelText}>{assignedBranch.name}</Text>
+          </View>
+        </View>
+      )}
+
+      {/* Branch Dropdown - Only for ADMIN and SUPER_ADMIN */}
+      {showBranchDropdown && (userRole === 'SUPER_ADMIN' || userRole === 'ADMIN') && (
         <View style={styles.branchDropdownContainer}>
           <TouchableOpacity
             style={[styles.branchDropdownItem, selectedBranch === 'all' && styles.branchDropdownItemActive]}
@@ -351,9 +374,11 @@ export default function AdminNotificationsScreen() {
           <View style={styles.branchInfo}>
             <Ionicons name="business-outline" size={18} color="#E87E35" />
             <Text style={styles.branchInfoText}>
-              {assignedBranch.name || 'Loading Branch...'}
+              {userRole === 'BRANCH_MANAGER' 
+                ? (assignedBranch.name || 'Loading Branch...')
+                : getSelectedBranchName()}
             </Text>
-            {assignedBranch.code && (
+            {userRole === 'BRANCH_MANAGER' && assignedBranch.code && (
               <View style={styles.branchCodeBadge}>
                 <Text style={styles.branchCodeText}>{assignedBranch.code}</Text>
               </View>
@@ -397,7 +422,7 @@ export default function AdminNotificationsScreen() {
       </ScrollView>
 
       {/* Bottom Navigation */}
-      <AdminBottomNavigation onMorePress={() => setShowMoreMenu(true)} />
+      <AdminBottomNavigation onMorePress={() => setShowMoreMenu(true)} tabNavigation={tabNavigation} />
 
       {/* Profile Menu Modal */}
       <ProfileMenu
@@ -815,7 +840,21 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     color: '#333',
-    fontWeight: '500',
+    marginHorizontal: 10,
+  },
+  branchLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF3E0',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    gap: 8,
+  },
+  branchLabelText: {
+    fontSize: 14,
+    color: '#E87E35',
+    fontWeight: '600',
   },
   branchDropdownContainer: {
     backgroundColor: '#fff',

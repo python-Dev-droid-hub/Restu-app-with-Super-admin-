@@ -11,6 +11,7 @@ import { asyncHandler, sendSuccess } from '@/utils/response';
 import { createError } from '@/utils/errorHandler';
 import { IAuthRequest } from '@/types';
 import OrderNotificationService from '@/services/orderNotificationService';
+import { Types } from 'mongoose';
 
 export class OrderController {
   private orderRepository: OrderRepository;
@@ -67,6 +68,17 @@ export class OrderController {
       tableNumber,
       table_number,
     } = req.body;
+
+    const userRole = req.user?.role;
+    const resolvedCustomerName =
+      (typeof customerName === 'string' && customerName.trim().length > 0)
+        ? customerName.trim()
+        : (req.user as any)?.displayName || (req.user as any)?.name || '';
+
+    // Customer orders must include a name (either provided or from profile)
+    if (userRole === 'CUSTOMER' && !resolvedCustomerName) {
+      throw createError('Customer name is required', 400);
+    }
 
     console.log('[ORDER DEBUG] userId:', userId);
     console.log('[ORDER DEBUG] restaurantId:', restaurantId);
@@ -283,7 +295,7 @@ export class OrderController {
 
     const orderData: any = {
       customer: userId, // The waiter is both customer and waiter for dine-in orders
-      customerName,
+      customerName: resolvedCustomerName || 'Walk-in Customer',
       branch: restaurantId,
       orderNumber,
       items: validatedItems,
@@ -536,14 +548,17 @@ export class OrderController {
   });
 
   // Update item status - Chef can mark individual items as PREPARING, READY, SERVED
+  // Waiter can mark items as RETURNED
   updateItemStatus = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
     const { orderId, itemId } = req.params;
-    const { status } = req.body;
+    const { status, reason } = req.body;
     const userId = req.user!._id;
     const userRole = req.user!.role;
 
-    if (!['PREPARING', 'READY', 'SERVED'].includes(status)) {
-      throw createError('Invalid item status. Must be PREPARING, READY, or SERVED', 400);
+    // Allow RETURNED status for waiters, plus standard statuses for chef
+    const allowedStatuses = ['PREPARING', 'READY', 'SERVED', 'RETURNED'];
+    if (!allowedStatuses.includes(status)) {
+      throw createError('Invalid item status. Must be PREPARING, READY, SERVED, or RETURNED', 400);
     }
 
     const order = await this.orderRepository.findById(orderId);
@@ -551,12 +566,24 @@ export class OrderController {
       throw createError('Order not found', 404);
     }
 
-    // Only chef/kitchen staff can update item status
+    // Check authorization
     const isChef = ['CHEF', 'KITCHEN', 'COOK', 'HEAD_CHEF', 'SOUS_CHEF', 'KITCHEN_MANAGER'].includes(userRole);
-    const isAdmin = ['ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER'].includes(userRole);
+    const isWaiter = userRole === 'WAITER' || userRole === 'BRANCH_MANAGER';
+    const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(userRole);
 
-    if (!isChef && !isAdmin) {
-      throw createError('Not authorized to update item status', 403);
+    // Only chefs can update to PREPARING, READY, SERVED
+    if (['PREPARING', 'READY', 'SERVED'].includes(status) && !isChef && !isAdmin) {
+      throw createError('Not authorized to update item status to ' + status, 403);
+    }
+
+    // Only waiters/admins can mark items as RETURNED
+    if (status === 'RETURNED' && !isWaiter && !isAdmin) {
+      throw createError('Only waiters can return items', 403);
+    }
+
+    // Cannot return items after payment is completed
+    if (status === 'RETURNED' && (order.paymentStatus === 'SUCCESS' || order.paymentStatus === 'PAID' || order.status === 'COMPLETED')) {
+      throw createError('Cannot return items after payment is completed', 400);
     }
 
     // Find and update the item
@@ -578,14 +605,64 @@ export class OrderController {
       updateData[`items.${itemIndex}.readyAt`] = new Date();
     } else if (status === 'SERVED') {
       updateData[`items.${itemIndex}.servedAt`] = new Date();
+    } else if (status === 'RETURNED') {
+      updateData[`items.${itemIndex}.returnedAt`] = new Date();
+      updateData[`items.${itemIndex}.returnReason`] = reason || 'Returned by waiter';
+      // Mark item as returned and update order totals
+      updateData[`items.${itemIndex}.isReturned`] = true;
     }
 
     const updatedOrder = await this.orderRepository.updateById(orderId, updateData);
     const populatedOrder = await this.orderRepository.findById(orderId);
 
+    // Recalculate order totals if item was returned
+    if (status === 'RETURNED') {
+      const returnedItem = populatedOrder.items[itemIndex];
+      const newSubtotal = populatedOrder.items.reduce((sum: number, item: any) => {
+        if (item.status === 'RETURNED' || item.isReturned) {
+          return sum; // Don't include returned items in total
+        }
+        return sum + (item.totalPrice || item.unitPrice * item.quantity || 0);
+      }, 0);
+      
+      // Update order totals
+      const taxAmount = populatedOrder.taxAmount || 0;
+      const deliveryFee = populatedOrder.deliveryFee || 0;
+      const newTotal = newSubtotal + taxAmount + deliveryFee;
+      
+      await this.orderRepository.updateById(orderId, {
+        subtotal: newSubtotal,
+        totalAmount: newSubtotal,
+        finalAmount: newTotal,
+      });
+      
+      // Reload the order with updated totals
+      const reloadedOrder = await this.orderRepository.findById(orderId);
+      
+      // Notify chef about returned item
+      if (reloadedOrder.branch) {
+        try {
+          await this.notifyByRole(
+            'CHEF',
+            reloadedOrder.branch._id.toString(),
+            'ITEM_RETURNED',
+            'Item Returned',
+            `Item in Order #${reloadedOrder.orderNumber} was returned: ${returnedItem.productName || 'Unknown Item'}${reason ? ` (Reason: ${reason})` : ''}`,
+            { orderId: reloadedOrder._id, itemId, reason },
+            'HIGH'
+          );
+        } catch (notifError) {
+          console.error('[ITEM RETURN] Failed to notify chef:', notifError);
+        }
+      }
+      
+      sendSuccess(res, reloadedOrder, 'Item returned successfully');
+      return;
+    }
+
     // Check if all items are now READY - update order status
     const allItemsReady = populatedOrder.items.every((item: any) => 
-      item.status === 'READY' || item.status === 'SERVED'
+      item.status === 'READY' || item.status === 'SERVED' || item.status === 'RETURNED'
     );
     
     if (allItemsReady && populatedOrder.status === 'PREPARING') {
@@ -610,7 +687,9 @@ export class OrderController {
     }
 
     // Check if all items are SERVED - update order status
-    const allItemsServed = populatedOrder.items.every((item: any) => item.status === 'SERVED');
+    const allItemsServed = populatedOrder.items.every((item: any) => 
+      item.status === 'SERVED' || item.status === 'RETURNED'
+    );
     if (allItemsServed && ['READY', 'PREPARING'].includes(populatedOrder.status)) {
       await this.orderRepository.updateById(orderId, { status: 'SERVED' });
       populatedOrder.status = 'SERVED';
@@ -689,9 +768,11 @@ export class OrderController {
     const isChef = userRole === 'CHEF';
     const isAdmin = userRole === 'ADMIN';
     // Allow any waiter from the branch to pick up orders (not just assigned waiter)
+    const userBranch = (req.user as any).assignedBranch;
+    const userBranchId = userBranch?._id?.toString() || userBranch?.toString() || '';
     const isWaiter = userRole === 'WAITER' && (
       (order.waiter && order.waiter._id.toString() === userId.toString()) ||
-      (order.branch && order.branch._id.toString() === (req.user as any).assignedBranch?.toString())
+      (order.branch && order.branch._id.toString() === userBranchId)
     );
 
     // Define allowed status transitions by role
@@ -1097,6 +1178,67 @@ export class OrderController {
     sendSuccess(res, updatedOrder, 'Order accepted successfully');
   });
 
+  rejectOrder = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
+    const { id } = req.params;
+    const { reason } = req.body;
+    const userId = req.user!._id;
+
+    const order = await this.orderRepository.findById(id);
+    if (!order) {
+      throw createError('Order not found', 404);
+    }
+
+    // Check if the current rider is the one rejecting
+    const isAssignedRider = order.rider && order.rider._id.toString() === userId.toString();
+    if (!isAssignedRider) {
+      throw createError('Not authorized to reject this order', 403);
+    }
+
+    // Update order: clear rider, record rejection reason, set status back to READY
+    const updateData: any = {
+      rider: null,
+      rejectionReason: reason || 'Rider rejected the order',
+      status: 'READY',
+    };
+
+    const updatedOrder = await this.orderRepository.updateById(id, updateData);
+    const populatedOrder = await this.orderRepository.findById(id);
+
+    // Notify admin and branch manager only (not customer)
+    try {
+      const orderId = order._id.toString();
+      const branchId = order.branch?._id?.toString();
+
+      // Notify branch manager
+      if (branchId) {
+        await this.notifyByRole(
+          'BRANCH_MANAGER',
+          branchId,
+          'ORDER_REJECTED_BY_RIDER',
+          'Order Rejected by Rider',
+          `Order #${order.orderNumber} was rejected by ${order.rider?.displayName || 'rider'}${reason ? ` (Reason: ${reason})` : ''}`,
+          { orderId: order._id, rejectionReason: reason },
+          'HIGH'
+        );
+      }
+
+      // Notify admin
+      await this.notificationService.sendNotification({
+        recipient: 'ADMIN',
+        recipientRole: 'ADMIN',
+        type: 'ORDER_REJECTED_BY_RIDER',
+        title: 'Order Rejected by Rider',
+        message: `Order #${order.orderNumber} was rejected${reason ? ` (Reason: ${reason})` : ''}`,
+        data: { orderId: order._id, rejectionReason: reason },
+        priority: 'HIGH',
+      });
+    } catch (notifError) {
+      console.error('[Order Reject] Failed to send notifications:', notifError);
+    }
+
+    sendSuccess(res, populatedOrder, 'Order rejected successfully');
+  });
+
   addReview = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
     const { id } = req.params;
     const { foodRating, deliveryRating } = req.body;
@@ -1147,12 +1289,35 @@ export class OrderController {
   });
 
   getAllOrders = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
-    const { status, page = '1', limit = '10' } = req.query;
+    const { status, page = '1', limit = '10', branchId } = req.query as any;
 
     const pageNum = parseInt(page as string, 10);
     const limitNum = parseInt(limit as string, 10);
 
     const filter: any = {};
+
+    const userRole = req.user?.role;
+
+    const userBranch = req.user?.assignedBranch as any;
+    const assignedBranchId = userBranch?._id?.toString() || userBranch?.toString?.() || '';
+
+    // Branch scoping
+    // - If branchId is supplied, filter by it
+    // - If role is branch-scoped, force it to their assigned branch
+    const requestedBranchId = branchId ? String(branchId) : '';
+    const isBranchScopedRole = userRole === 'BRANCH_MANAGER' || userRole === 'WAITER' || userRole === 'CHEF';
+
+    if (isBranchScopedRole) {
+      if (!assignedBranchId) {
+        throw createError('Access denied. No branch assigned to this user.', 403);
+      }
+      const asObj = Types.ObjectId.isValid(assignedBranchId) ? new Types.ObjectId(assignedBranchId) : null;
+      filter.branch = asObj ? { $in: [asObj, assignedBranchId] } : assignedBranchId;
+    } else if (requestedBranchId) {
+      const asObj = Types.ObjectId.isValid(requestedBranchId) ? new Types.ObjectId(requestedBranchId) : null;
+      filter.branch = asObj ? { $in: [asObj, requestedBranchId] } : requestedBranchId;
+    }
+
     if (status && status !== 'all') {
       filter.status = status;
     }
@@ -1357,7 +1522,9 @@ export class OrderController {
     
     if (!targetBranchId) {
       // Get from req.user which has assignedBranch populated
-      targetBranchId = req.user!.assignedBranch?.toString() || '';
+      // assignedBranch is either an ObjectId or a populated object with _id
+      const userBranch = req.user!.assignedBranch as any;
+      targetBranchId = userBranch?._id?.toString() || userBranch?.toString() || '';
     }
 
     // Build filter - show ALL orders for the branch (not filtered by waiter)

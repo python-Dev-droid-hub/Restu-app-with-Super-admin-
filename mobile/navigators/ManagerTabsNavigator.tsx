@@ -7,7 +7,7 @@ import { useLocalization } from '../context/LocalizationContext';
 
 import ManagerDashboard from '../screens/dashboards/ManagerDashboard';
 import AdminOrdersScreen from '../screens/admin/AdminOrdersScreen';
-import AdminProductsScreen from '../screens/admin/AdminProductsScreen';
+import ManagerMenuScreen from '../screens/admin/ManagerMenuScreen';
 import AdminUsersScreen from '../screens/admin/AdminUsersScreen';
 import AdminBottomNavigation from '../components/navigation/AdminBottomNavigation';
 import BannerManagementScreen from '../screens/admin/BannerManagementScreen';
@@ -22,11 +22,15 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
   
   const currentRoute = state.routes[state.index].name;
 
+  const tabRouteNames = new Set(state.routes.map((r: any) => r.name));
+
   const menuItems = [
     { name: t('notifications.title'), icon: 'notifications-outline', screen: 'AdminNotifications' },
     { name: 'Table Assignment', icon: 'grid-outline', screen: 'TableAssignment' },
+    { name: 'Riders', icon: 'bicycle-outline', screen: 'RidersManagement' },
     { name: t('nav.categories'), icon: 'grid-outline', screen: 'AdminCategories' },
     { name: t('products.title'), icon: 'restaurant-outline', screen: 'AdminProducts' },
+    { name: 'Menu', icon: 'list-outline', screen: 'ManagerMenu' },
     { name: 'Banner Management', icon: 'image-outline', screen: 'BannerManagement' },
     { name: t('nav.coupons'), icon: 'ticket-outline', screen: 'AdminCoupons' },
     { name: 'Deals', icon: 'pricetag-outline', screen: 'AdminDeals' },
@@ -39,7 +43,8 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
     <>
       <AdminBottomNavigation 
         currentRoute={currentRoute}
-        onMorePress={() => setShowMoreMenu(true)} 
+        onMorePress={() => setShowMoreMenu(true)}
+        tabNavigation={navigation}
       />
 
       <Modal
@@ -62,8 +67,20 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
                 style={styles.menuItem}
                 onPress={() => {
                   setShowMoreMenu(false);
-                  // @ts-ignore
-                  nav.navigate(item.screen);
+                  // If screen belongs to tab navigator, navigate in tabs.
+                  // Otherwise, navigate via parent (stack) navigator.
+                  const parentNav = navigation.getParent?.();
+                  if (tabRouteNames.has(item.screen)) {
+                    // @ts-ignore
+                    navigation.navigate(item.screen);
+                  } else if (parentNav) {
+                    // @ts-ignore
+                    parentNav.navigate(item.screen);
+                  } else {
+                    // Fallback
+                    // @ts-ignore
+                    nav.navigate(item.screen);
+                  }
                 }}
               >
                 <Ionicons name={item.icon as any} size={24} color="#E87E35" />
@@ -89,7 +106,7 @@ export default function ManagerTabsNavigator() {
       <Tab.Screen name="ManagerDashboard" component={ManagerDashboard} />
       <Tab.Screen name="AdminOrders" component={AdminOrdersScreen} />
       <Tab.Screen name="AdminUsers" component={AdminUsersScreen} />
-      <Tab.Screen name="AdminProducts" component={AdminProductsScreen} />
+      <Tab.Screen name="ManagerMenu" component={ManagerMenuScreen} />
       <Tab.Screen name="BannerManagement" component={BannerManagementScreen} options={{ headerShown: false }} />
     </Tab.Navigator>
   );

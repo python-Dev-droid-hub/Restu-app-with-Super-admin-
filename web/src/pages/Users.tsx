@@ -10,6 +10,7 @@ interface User {
   isActive: boolean;
   createdAt: string;
   lastLogin?: string;
+  assignedBranch?: string;
 }
 
 interface UserResponse {
@@ -24,11 +25,27 @@ const Users: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedRole, setSelectedRole] = useState<string>('ALL');
+  const [selectedBranch, setSelectedBranch] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
+  const [branches, setBranches] = useState<any[]>([]);
+  const [showAddUserModal, setShowAddUserModal] = useState(false);
 
   useEffect(() => {
     loadUsers();
+    loadBranches();
   }, []);
+
+  const loadBranches = async () => {
+    try {
+      const response: any = await api.getAllBranches();
+      if (response?.success) {
+        const rawList = response?.data?.branches || response?.data?.data?.branches || response?.data || [];
+        setBranches(Array.isArray(rawList) ? rawList : []);
+      }
+    } catch (error) {
+      console.error('Error loading branches:', error);
+    }
+  };
 
   const loadUsers = async () => {
     try {
@@ -84,12 +101,13 @@ const Users: React.FC = () => {
 
   const filteredUsers = users.filter((user) => {
     const matchesRole = selectedRole === 'ALL' || user.role === selectedRole;
+    const matchesBranch = selectedBranch === 'ALL' || user.assignedBranch === selectedBranch;
     const matchesSearch = searchTerm === '' ||
       user.displayName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.phoneNumber?.includes(searchTerm);
 
-    return matchesRole && matchesSearch;
+    return matchesRole && matchesBranch && matchesSearch;
   });
 
   if (loading) {
@@ -109,6 +127,22 @@ const Users: React.FC = () => {
           <p className="page-subtitle">Manage all system users</p>
         </div>
         <div className="page-header-right">
+          <button 
+            className="btn btn-primary" 
+            onClick={() => setShowAddUserModal(true)}
+            style={{ 
+              marginRight: '10px',
+              background: '#FF6B35',
+              color: 'white',
+              padding: '10px 20px',
+              border: 'none',
+              borderRadius: '6px',
+              fontWeight: 'bold',
+              cursor: 'pointer'
+            }}
+          >
+            + Add User
+          </button>
           <button className="btn btn-outline" onClick={loadUsers}>
             🔄 Refresh
           </button>
@@ -226,6 +260,23 @@ const Users: React.FC = () => {
             </select>
           </div>
 
+          <div className="filter-item">
+            <label className="filter-label">Branch</label>
+            <select
+              className="form-select"
+              value={selectedBranch}
+              onChange={(e) => setSelectedBranch(e.target.value)}
+              style={{ minWidth: '150px' }}
+            >
+              <option value="ALL">All Branches</option>
+              {branches.map((b) => (
+                <option key={b._id || b.id} value={b._id || b.id}>
+                  {b.branchName || b.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="filter-item" style={{ flex: 1 }}>
             <label className="filter-label">Search</label>
             <input
@@ -236,6 +287,17 @@ const Users: React.FC = () => {
               onChange={(e) => setSearchTerm(e.target.value)}
               style={{ width: '100%', minWidth: '250px' }}
             />
+          </div>
+
+          <div className="filter-item">
+            <label className="filter-label">&nbsp;</label>
+            <button 
+              className="btn btn-primary"
+              onClick={() => setShowAddUserModal(true)}
+              style={{ whiteSpace: 'nowrap' }}
+            >
+              + Add User
+            </button>
           </div>
         </div>
 
@@ -253,7 +315,7 @@ const Users: React.FC = () => {
                 <div className="empty-state-icon">👥</div>
                 <h3 className="empty-state-title">No users found</h3>
                 <p className="empty-state-message">
-                  {searchTerm || selectedRole !== 'ALL'
+                  {searchTerm || selectedRole !== 'ALL' || selectedBranch !== 'ALL'
                     ? 'Try adjusting your filters'
                     : 'No users have been registered yet'
                   }

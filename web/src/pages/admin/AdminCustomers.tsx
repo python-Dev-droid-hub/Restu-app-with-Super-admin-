@@ -5,6 +5,11 @@ import {
   Chip,
   IconButton,
   Avatar,
+  Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
   Table,
   TableBody,
   TableCell,
@@ -28,6 +33,7 @@ import {
   Phone,
   Block,
   CheckCircle,
+  Add,
 } from '@mui/icons-material';
 import { api } from '../../services/api';
 
@@ -45,6 +51,12 @@ interface UserItem {
   totalSpent?: number;
 }
 
+interface BranchItem {
+  _id: string;
+  name?: string;
+  branchName?: string;
+}
+
 const AdminCustomers: React.FC = () => {
   const [users, setUsers] = useState<UserItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -52,9 +64,41 @@ const AdminCustomers: React.FC = () => {
   const [roleFilter, setRoleFilter] = useState('all');
   const [error, setError] = useState('');
 
+  const [branches, setBranches] = useState<BranchItem[]>([]);
+  const [addOpen, setAddOpen] = useState(false);
+  const [addLoading, setAddLoading] = useState(false);
+  const [addError, setAddError] = useState('');
+  const [addForm, setAddForm] = useState({
+    displayName: '',
+    email: '',
+    password: '',
+    phoneNumber: '',
+    role: 'CUSTOMER',
+    assignedBranchId: '',
+    vehicleNumber: '',
+    vehicleType: '',
+  });
+  const [addErrors, setAddErrors] = useState<Record<string, string>>({});
+
   useEffect(() => {
     loadUsers();
   }, [roleFilter]);
+
+  useEffect(() => {
+    loadBranches();
+  }, []);
+
+  const loadBranches = async () => {
+    try {
+      const response: any = await api.getAllBranches();
+      if (response?.success) {
+        const raw = response?.data?.branches || response?.data?.data?.branches || response?.data || [];
+        setBranches(Array.isArray(raw) ? raw : []);
+      }
+    } catch (err) {
+      console.error('Error loading branches:', err);
+    }
+  };
 
   const loadUsers = async () => {
     try {
@@ -147,13 +191,239 @@ const AdminCustomers: React.FC = () => {
     }
   };
 
+  const resetAddForm = () => {
+    setAddForm({
+      displayName: '',
+      email: '',
+      password: '',
+      phoneNumber: '',
+      role: 'CUSTOMER',
+      assignedBranchId: '',
+      vehicleNumber: '',
+      vehicleType: '',
+    });
+    setAddErrors({});
+    setAddError('');
+  };
+
+  const openAddDialog = () => {
+    resetAddForm();
+    setAddOpen(true);
+  };
+
+  const closeAddDialog = () => {
+    setAddOpen(false);
+  };
+
+  const validateAddForm = () => {
+    const errs: Record<string, string> = {};
+    if (!addForm.displayName.trim()) errs.displayName = 'Name is required';
+    if (!addForm.email.trim()) errs.email = 'Email is required';
+    if (!addForm.password) errs.password = 'Password is required';
+    if (!addForm.role) errs.role = 'Role is required';
+
+    const role = (addForm.role || '').toUpperCase();
+    const needsBranch = ['WAITER', 'CHEF', 'BRANCH_MANAGER'].includes(role);
+    if (needsBranch && !addForm.assignedBranchId) {
+      errs.assignedBranchId = 'Branch is required for this role';
+    }
+    if (role === 'RIDER') {
+      if (!addForm.vehicleNumber.trim()) errs.vehicleNumber = 'Vehicle number is required for riders';
+      if (!addForm.vehicleType.trim()) errs.vehicleType = 'Vehicle type is required for riders';
+    }
+    setAddErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
+  const handleCreateUser = async () => {
+    if (!validateAddForm()) return;
+    try {
+      setAddLoading(true);
+      setAddError('');
+
+      const payload: any = {
+        name: addForm.displayName,
+        email: addForm.email,
+        password: addForm.password,
+        role: (addForm.role || 'CUSTOMER').toUpperCase(),
+        phoneNumber: addForm.phoneNumber || undefined,
+        assignedBranchId: addForm.assignedBranchId || undefined,
+        vehicleNumber: addForm.vehicleNumber || undefined,
+        vehicleType: addForm.vehicleType || undefined,
+      };
+
+      const response: any = await api.post('/auth/register', payload);
+      if (response?.success) {
+        closeAddDialog();
+        await loadUsers();
+      } else {
+        setAddError(response?.message || response?.error || 'Failed to create user');
+      }
+    } catch (err: any) {
+      console.error('Error creating user:', err);
+      setAddError(err?.message || 'Failed to create user');
+    } finally {
+      setAddLoading(false);
+    }
+  };
+
   return (
     <Box sx={{ p: 3, bgcolor: '#f8f5ff', minHeight: '100vh' }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#333' }}>
           Users & Customers
         </Typography>
+        <Button
+          variant="contained"
+          startIcon={<Add />}
+          onClick={openAddDialog}
+          sx={{
+            textTransform: 'none',
+            borderRadius: 2,
+            bgcolor: '#FF6B35',
+            '&:hover': { bgcolor: '#e55a2b' },
+            fontWeight: 700,
+          }}
+        >
+          Add User
+        </Button>
       </Box>
+
+      <Dialog open={addOpen} onClose={closeAddDialog} fullWidth maxWidth="sm">
+        <DialogTitle>Add User</DialogTitle>
+        <DialogContent sx={{ pt: 2 }}>
+          {addError && <Alert severity="error" sx={{ mb: 2 }}>{addError}</Alert>}
+
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+            <TextField
+              label="Name"
+              value={addForm.displayName}
+              onChange={(e) => setAddForm((p) => ({ ...p, displayName: e.target.value }))}
+              error={!!addErrors.displayName}
+              helperText={addErrors.displayName || ''}
+              fullWidth
+              size="small"
+            />
+
+            <TextField
+              label="Email"
+              value={addForm.email}
+              onChange={(e) => setAddForm((p) => ({ ...p, email: e.target.value }))}
+              error={!!addErrors.email}
+              helperText={addErrors.email || ''}
+              fullWidth
+              size="small"
+            />
+
+            <TextField
+              label="Password"
+              type="password"
+              value={addForm.password}
+              onChange={(e) => setAddForm((p) => ({ ...p, password: e.target.value }))}
+              error={!!addErrors.password}
+              helperText={addErrors.password || ''}
+              fullWidth
+              size="small"
+            />
+
+            <TextField
+              label="Phone Number"
+              value={addForm.phoneNumber}
+              onChange={(e) => setAddForm((p) => ({ ...p, phoneNumber: e.target.value }))}
+              fullWidth
+              size="small"
+            />
+
+            <FormControl fullWidth size="small" error={!!addErrors.role}>
+              <Select
+                value={addForm.role}
+                onChange={(e) => {
+                  const newRole = String(e.target.value || 'CUSTOMER');
+                  setAddForm((p) => ({
+                    ...p,
+                    role: newRole,
+                    assignedBranchId: ['WAITER', 'CHEF', 'BRANCH_MANAGER'].includes(newRole) ? p.assignedBranchId : '',
+                    vehicleNumber: newRole === 'RIDER' ? p.vehicleNumber : '',
+                    vehicleType: newRole === 'RIDER' ? p.vehicleType : '',
+                  }));
+                }}
+                displayEmpty
+              >
+                <MenuItem value="CUSTOMER">Customer</MenuItem>
+                <MenuItem value="ADMIN">Admin</MenuItem>
+                <MenuItem value="SUPER_ADMIN">Super Admin</MenuItem>
+                <MenuItem value="BRANCH_MANAGER">Branch Manager</MenuItem>
+                <MenuItem value="CHEF">Chef</MenuItem>
+                <MenuItem value="WAITER">Waiter</MenuItem>
+                <MenuItem value="RIDER">Rider</MenuItem>
+              </Select>
+            </FormControl>
+            {addErrors.role && (
+              <Typography sx={{ color: '#d32f2f', fontSize: 12, mt: -1 }}>
+                {addErrors.role}
+              </Typography>
+            )}
+
+            {['WAITER', 'CHEF', 'BRANCH_MANAGER'].includes(addForm.role) && (
+              <FormControl fullWidth size="small" error={!!addErrors.assignedBranchId}>
+                <Select
+                  value={addForm.assignedBranchId}
+                  onChange={(e) => setAddForm((p) => ({ ...p, assignedBranchId: String(e.target.value) }))}
+                  displayEmpty
+                >
+                  <MenuItem value="">Select Branch</MenuItem>
+                  {branches.map((b) => (
+                    <MenuItem key={b._id} value={b._id}>
+                      {b.branchName || b.name || 'Branch'}
+                    </MenuItem>
+                  ))}
+                </Select>
+                {addErrors.assignedBranchId && (
+                  <Typography sx={{ color: '#d32f2f', fontSize: 12, mt: 0.5 }}>
+                    {addErrors.assignedBranchId}
+                  </Typography>
+                )}
+              </FormControl>
+            )}
+
+            {addForm.role === 'RIDER' && (
+              <>
+                <TextField
+                  label="Vehicle Number"
+                  value={addForm.vehicleNumber}
+                  onChange={(e) => setAddForm((p) => ({ ...p, vehicleNumber: e.target.value }))}
+                  error={!!addErrors.vehicleNumber}
+                  helperText={addErrors.vehicleNumber || ''}
+                  fullWidth
+                  size="small"
+                />
+                <TextField
+                  label="Vehicle Type"
+                  value={addForm.vehicleType}
+                  onChange={(e) => setAddForm((p) => ({ ...p, vehicleType: e.target.value }))}
+                  error={!!addErrors.vehicleType}
+                  helperText={addErrors.vehicleType || ''}
+                  fullWidth
+                  size="small"
+                />
+              </>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={closeAddDialog} disabled={addLoading} sx={{ textTransform: 'none' }}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleCreateUser}
+            disabled={addLoading}
+            variant="contained"
+            sx={{ textTransform: 'none', bgcolor: '#FF6B35', '&:hover': { bgcolor: '#e55a2b' } }}
+          >
+            {addLoading ? 'Creating...' : 'Create User'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 

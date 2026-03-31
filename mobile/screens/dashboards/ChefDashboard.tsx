@@ -349,6 +349,20 @@ export default function ChefDashboard() {
       if (userDataStr) {
         const parsed = JSON.parse(userDataStr);
         console.log('[loadUserData] User loaded:', { role: parsed?.role, id: parsed?.id || parsed?._id, email: parsed?.email });
+        
+        // Normalize profile image - check multiple possible fields
+        const rawImage = parsed?.avatar || parsed?.profileImage || parsed?.image || parsed?.profile_image;
+        if (rawImage) {
+          // Normalize image URL
+          let normalizedImage = rawImage;
+          if (!rawImage.startsWith('http://') && !rawImage.startsWith('https://') && !rawImage.startsWith('data:')) {
+            const baseUrl = api.getBaseURL().replace(/\/?api\/?$/, '');
+            normalizedImage = rawImage.startsWith('/') ? baseUrl + rawImage : baseUrl + '/' + rawImage;
+          }
+          parsed.avatar = normalizedImage;
+          parsed.profileImage = normalizedImage;
+        }
+        
         setUserData(parsed);
       } else {
         console.log('[loadUserData] No user data found in AsyncStorage');

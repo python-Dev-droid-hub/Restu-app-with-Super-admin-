@@ -73,6 +73,9 @@ export default function AdminReportsScreen() {
   const [profileImage, setProfileImage] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
 
+  // Get parent tab navigation for bottom nav (undefined for stack screens)
+  const tabNavigation = navigation.getParent();
+
   // Load user role on mount
   useEffect(() => {
     loadUserRole();
@@ -120,6 +123,7 @@ export default function AdminReportsScreen() {
   const loadReports = async () => {
     try {
       setLoading(true);
+      setError(null);
       // Get user data for branch manager filtering
       const stored = await AsyncStorage.getItem('userData');
       let branchId = '';
@@ -130,24 +134,30 @@ export default function AdminReportsScreen() {
       }
       
       // Use manager-specific endpoint for BRANCH_MANAGER role
-      const userRole = await AsyncStorage.getItem('userRole');
-      const endpoint = userRole === 'BRANCH_MANAGER' 
+      const userRoleRaw = await AsyncStorage.getItem('userRole');
+      const userRole = (userRoleRaw || '').toUpperCase();
+      const endpoint = userRole === 'BRANCH_MANAGER'
         ? `/dashboard/manager/analytics?range=${activeTab === 'today' ? '1d' : '30d'}`
         : `/dashboard/admin/analytics?range=${activeTab === 'today' ? '1d' : '30d'}`;
       
       let url = endpoint;
-      if (branchId) {
+      if (branchId && userRole !== 'BRANCH_MANAGER') {
         url += `&branchId=${branchId}`;
       }
       
+      console.log('[Reports] Fetching:', url);
       const response = await api.get(url);
+      console.log('[Reports] Response:', JSON.stringify(response, null, 2));
+      
       if (response.success && response.data) {
         setReportData(response.data);
       } else {
+        setError('Failed to load reports');
         setReportData(null);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading reports:', error);
+      setError(error.message || 'Failed to load reports');
       setReportData(null);
     } finally {
       setLoading(false);
@@ -313,9 +323,11 @@ export default function AdminReportsScreen() {
           <View style={styles.branchInfo}>
             <Ionicons name="business-outline" size={18} color="#E87E35" />
             <Text style={styles.branchInfoText}>
-              {assignedBranch.name || 'Loading Branch...'}
+              {userRole === 'ADMIN' || userRole === 'SUPER_ADMIN'
+                ? 'All Branches'
+                : (assignedBranch.name || 'Loading Branch...')}
             </Text>
-            {assignedBranch.code && (
+            {userRole !== 'ADMIN' && userRole !== 'SUPER_ADMIN' && assignedBranch.code && (
               <View style={styles.branchCodeBadge}>
                 <Text style={styles.branchCodeText}>{assignedBranch.code}</Text>
               </View>
@@ -410,7 +422,7 @@ export default function AdminReportsScreen() {
       </ScrollView>
 
       {/* Bottom Navigation */}
-      <AdminBottomNavigation onMorePress={() => setShowMoreMenu(true)} />
+      <AdminBottomNavigation onMorePress={() => setShowMoreMenu(true)} tabNavigation={tabNavigation} />
 
       {/* More Menu Modal */}
       <Modal

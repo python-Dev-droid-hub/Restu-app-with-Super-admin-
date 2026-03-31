@@ -40,7 +40,7 @@ export interface ChefOrderCardOrder {
 interface OrderCardProps {
   order: ChefOrderCardOrder;
   onStatusChange: (orderId: string, status: OrderStatus) => Promise<void> | void;
-  onItemStatusChange?: (orderId: string, itemId: string, status: 'PREPARING' | 'READY' | 'SERVED') => Promise<void> | void;
+  onItemStatusChange?: (orderId: string, itemId: string, status: 'PREPARING' | 'READY' | 'SERVED' | 'RETURNED', reason?: string) => Promise<void> | void;
   role?: 'CHEF' | 'WAITER' | 'MANAGER' | 'ADMIN' | 'SUPER_ADMIN' | 'RIDER' | string;
   showPayment?: boolean;
   showActions?: boolean;
@@ -185,7 +185,7 @@ export default function OrderCard({
   };
 
   // Handle item status change
-  const handleItemStatus = async (itemId: string, status: 'PREPARING' | 'READY' | 'SERVED') => {
+  const handleItemStatus = async (itemId: string, status: 'PREPARING' | 'READY' | 'SERVED' | 'RETURNED') => {
     if (!onItemStatusChange) return;
     try {
       setLoadingItemStatus(itemId);
@@ -204,6 +204,7 @@ export default function OrderCard({
       case 'PREPARING': return COLORS.warning;
       case 'READY': return COLORS.primary;
       case 'SERVED': return COLORS.success;
+      case 'RETURNED': return '#8E8E93'; // Gray for returned items
       default: return COLORS.secondary;
     }
   };
@@ -386,6 +387,23 @@ export default function OrderCard({
                           )}
                         </TouchableOpacity>
                       )}
+                    </View>
+                  )}
+
+                  {/* Return Item Button - only for WAITER role and if onItemStatusChange provided */}
+                  {onItemStatusChange && role === 'WAITER' && !['RETURNED', 'SERVED'].includes(item.status as string) && (
+                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                      <TouchableOpacity
+                        onPress={() => handleItemStatus(item._id || item.id || '', 'RETURNED')}
+                        style={[styles.itemActionBtn, { backgroundColor: '#8E8E93' }]}
+                        disabled={loadingItemStatus === (item._id || item.id)}
+                      >
+                        {loadingItemStatus === (item._id || item.id) ? (
+                          <ActivityIndicator size="small" color={COLORS.white} />
+                        ) : (
+                          <Text style={styles.itemActionBtnText}>Return</Text>
+                        )}
+                      </TouchableOpacity>
                     </View>
                   )}
                 </View>

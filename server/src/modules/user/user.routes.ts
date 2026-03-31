@@ -12,9 +12,11 @@ const userController = new UserController();
 const updateProfileSchema = Joi.object({
   name: Joi.string().min(2).max(50).optional(),
   phone: Joi.string().pattern(/^[\+]?[1-9][\d]{0,15}$/).optional(),
-  avatar: Joi.string().optional(),
-  image: Joi.string().optional(), // Also accept 'image' for compatibility
-});
+  avatar: Joi.string().max(500).optional().allow('', null),
+  image: Joi.string().max(500).optional().allow('', null),
+  profileImage: Joi.string().max(500).optional().allow('', null),
+  profile_image: Joi.string().max(500).optional().allow('', null),
+}).unknown(true);
 
 const changePasswordSchema = Joi.object({
   currentPassword: Joi.string().required(),

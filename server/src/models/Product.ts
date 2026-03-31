@@ -29,6 +29,12 @@ const productCustomizationSchema = new Schema({
 }, { _id: false });
 
 const productSchema = new Schema({
+  // Branch assignment for multi-branch setups
+  branchId: {
+    type: Schema.Types.ObjectId,
+    ref: 'Branch',
+    index: true,
+  },
   category: {
     type: Schema.Types.ObjectId,
     ref: 'Category',
@@ -74,6 +80,12 @@ const productSchema = new Schema({
   images: {
     type: [String],
     default: [],
+  },
+  // Product activation (used for branch-specific menu visibility)
+  isActive: {
+    type: Boolean,
+    default: true,
+    index: true,
   },
   isAvailable: {
     type: Boolean,
@@ -125,6 +137,7 @@ const productSchema = new Schema({
 });
 
 // Indexes for better performance
+productSchema.index({ branchId: 1, isActive: 1, isAvailable: 1, deletedAt: 1 });
 productSchema.index({ category: 1 });
 productSchema.index({ name: 'text', description: 'text' });
 productSchema.index({ isAvailable: 1, deletedAt: 1 });

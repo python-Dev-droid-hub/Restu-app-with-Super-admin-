@@ -47,6 +47,11 @@ export default function AdminBranchesScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { t } = useLocalization();
+  const { profileImage } = useUserData();
+
+  // Get parent tab navigation for bottom nav (undefined for stack screens)
+  const tabNavigation = navigation.getParent();
+
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -57,7 +62,6 @@ export default function AdminBranchesScreen() {
   const [filteredBranches, setFilteredBranches] = useState<Branch[]>([]);
 
   const [userRole, setUserRole] = useState<string>('');
-  const { profileImage } = useUserData();
 
   // Load user role on mount
   useEffect(() => {
@@ -168,7 +172,10 @@ export default function AdminBranchesScreen() {
         <View style={styles.actionButtons}>
           <TouchableOpacity 
             style={[styles.iconBtn, styles.editBtn]}
-            onPress={() => {/* TODO: Navigate to edit branch screen */}}
+            onPress={() => {
+              // @ts-ignore
+              navigation.navigate('AddBranch', { branchId: branch._id });
+            }}
           >
             <Ionicons name="pencil" size={18} color="#fff" />
           </TouchableOpacity>
@@ -276,7 +283,7 @@ export default function AdminBranchesScreen() {
       )}
 
       {/* Bottom Navigation */}
-      <AdminBottomNavigation onMorePress={() => setShowMoreMenu(true)} />
+      <AdminBottomNavigation onMorePress={() => setShowMoreMenu(true)} tabNavigation={tabNavigation} />
 
       {/* More Menu Modal */}
       <Modal

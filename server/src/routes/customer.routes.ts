@@ -120,11 +120,18 @@ router.get('/products', asyncHandler(async (req, res) => {
     sortBy = 'recommended',
     minPrice, 
     maxPrice,
+    branchId,
+    branch,
     page = 1,
     limit = 20
   } = req.query;
 
   let query: any = { isActive: true, isAvailable: true };
+
+  const branchFilter = (branchId || branch) as string | undefined;
+  if (branchFilter && branchFilter !== 'all') {
+    query.branchId = branchFilter;
+  }
 
   if (category && category !== 'all') {
     query.category = category;
@@ -413,7 +420,7 @@ router.get('/favorites', authenticate, authorize('CUSTOMER'), asyncHandler(async
   const userId = (req as any).user._id;
 
   const favorites = await Favorite.find({ customer: userId, type: 'PRODUCT' })
-    .populate('product', 'name price originalPrice imageUrl hasSizes')
+    .populate('product', 'name price originalPrice imageUrl images hasSizes')
     .sort({ createdAt: -1 })
     .lean();
 
@@ -459,6 +466,7 @@ router.get('/favorites', authenticate, authorize('CUSTOMER'), asyncHandler(async
         price: (f.product as any).price ?? sizePriceByProductId[String((f.product as any)._id)] ?? 0,
         originalPrice: (f.product as any).originalPrice,
         imageUrl: (f.product as any).imageUrl,
+        images: (f.product as any).images,
       } : null
     })).filter(f => f.product !== null)
   }, 'Favorites retrieved successfully');

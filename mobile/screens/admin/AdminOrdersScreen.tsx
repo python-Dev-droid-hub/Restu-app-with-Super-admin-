@@ -79,6 +79,9 @@ export default function AdminOrdersScreen() {
     navigation.getParent()?.setParams({ showMoreMenu: true });
   };
 
+  // Get parent tab navigation for bottom nav
+  const tabNavigation = navigation.getParent();
+
   const handleLogout = async () => {
     try {
       await AsyncStorage.multiRemove(['authToken', 'userRole', 'userData', 'userId']);
@@ -343,7 +346,7 @@ export default function AdminOrdersScreen() {
       />
 
       {/* Bottom Navigation */}
-      <AdminBottomNavigation currentRoute="AdminOrders" />
+      <AdminBottomNavigation currentRoute="AdminOrders" tabNavigation={tabNavigation} />
     </View>
   );
 }

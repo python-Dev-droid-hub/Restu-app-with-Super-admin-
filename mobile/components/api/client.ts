@@ -13,7 +13,7 @@ class ApiClient {
 
   constructor() {
     // Use environment variable for API URL, fallback to development defaults
-    const devApiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.0.140:3000/api';
+    const devApiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.18.179:3000/api';
     const prodApiUrl = process.env.EXPO_PUBLIC_API_URL_PRODUCTION || 'https://your-production-api.com/api';
 
     this.baseURL = __DEV__ ? devApiUrl : prodApiUrl;

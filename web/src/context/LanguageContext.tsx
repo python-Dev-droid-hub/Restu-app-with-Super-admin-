@@ -26,6 +26,8 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
 
   const saveLanguageToSettings = async (lang: LanguageCode) => {
     try {
+      const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
+      if (!token) return;
       const { api } = await import('../services/api');
       await api.updateSettings({ defaultLanguage: lang });
     } catch (error) {
@@ -37,6 +39,8 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const loadLanguageFromSettings = async () => {
       try {
+        const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
+        if (!token) return;
         const { api } = await import('../services/api');
         const response = await api.getSettings();
         if (response.success && response.data) {

@@ -149,17 +149,35 @@ export default function ManagerDashboard() {
   }, [navigation]);
 
   useEffect(() => {
-    loadDashboardData();
     loadUnreadCount();
     loadNotifications();
-    
-    // Poll for real-time updates every 5 seconds
+
+    // Poll for real-time updates every 30 seconds (reduced from 5s to avoid log spam)
     const interval = setInterval(() => {
       loadOrdersSilent();
-    }, 5000);
-    
+    }, 30000);
+
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    // Prefer authoritative branch from /auth/me (useUserData)
+    const raw = userBranch as any;
+    const id = raw?._id || raw?.id || (typeof raw === 'string' ? raw : '') || '';
+    const name = raw?.name || raw?.branchName || '';
+    const code = raw?.code || '';
+    if (id) {
+      setAssignedBranch((prev) => ({
+        _id: id,
+        name: name || prev.name,
+        code: code || prev.code,
+      }));
+      AsyncStorage.setItem('selectedBranchId', id).catch(() => undefined);
+      // Refresh settings once when branch is first determined
+      refreshSettings();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userBranch]);
 
   const loadOrdersSilent = async () => {
     try {
@@ -196,6 +214,12 @@ export default function ManagerDashboard() {
     loadUserData();
   }, []);
 
+  useEffect(() => {
+    // Load dashboard once we know the assigned branch (or fallback to unscoped if backend infers branch)
+    loadDashboardData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assignedBranch._id, activePeriod]);
+
   const loadUserData = async () => {
     try {
       const stored = await AsyncStorage.getItem('userData');
@@ -209,13 +233,20 @@ export default function ManagerDashboard() {
         });
         // Get manager's assigned branch - check both assignedBranch and branch
         const branchData = parsed.assignedBranch || parsed.branch;
-        if (branchData) {
-          const branchId = branchData._id || branchData.branchId || parsed.branchId;
-          setAssignedBranch({
+        const branchId =
+          branchData?._id ||
+          branchData?.branchId ||
+          parsed?.branchId ||
+          (typeof branchData === 'string' ? branchData : '') ||
+          '';
+
+        if (branchId) {
+          setAssignedBranch((prev) => ({
             _id: branchId,
-            name: branchData.name || branchData.branchName || 'My Branch',
-            code: branchData.code || branchData.branchCode || ''
-          });
+            name: branchData?.name || branchData?.branchName || prev.name,
+            code: branchData?.code || branchData?.branchCode || prev.code,
+          }));
+
           // Save to AsyncStorage so SettingsContext picks it up
           await AsyncStorage.setItem('selectedBranchId', branchId);
           // Refresh settings to load branch currency
@@ -226,6 +257,32 @@ export default function ManagerDashboard() {
       console.error('Error loading user data:', error);
     }
   };
+
+  useEffect(() => {
+    const ensureBranchDetails = async () => {
+      try {
+        if (!assignedBranch._id) return;
+        if (assignedBranch.name) return;
+
+        // Fallback: fetch branch info if we only have an id
+        const res: any = await api.get(`/branches/${assignedBranch._id}`);
+        const b = res?.data?.branch || res?.data;
+        const resolvedName = b?.name || b?.branchName;
+        const resolvedCode = b?.code;
+        if (resolvedName || resolvedCode) {
+          setAssignedBranch((prev) => ({
+            ...prev,
+            name: resolvedName || prev.name,
+            code: resolvedCode || prev.code,
+          }));
+        }
+      } catch (e) {
+        // Keep silent: dashboard can still function even if branch label fails
+      }
+    };
+
+    void ensureBranchDetails();
+  }, [assignedBranch._id, assignedBranch.name]);
 
   const loadDashboardData = async () => {
     try {
@@ -382,6 +439,9 @@ export default function ManagerDashboard() {
   console.log('[MANAGER MENU] menuItems count:', menuItems.length);
   console.log('[MANAGER MENU] Banner Management present:', menuItems.some(i => i.screen === 'BannerManagement'));
 
+  // Get parent tab navigation for bottom nav
+  const tabNavigation = navigation.getParent();
+
   return (
     <View style={[styles.rootContainer, { paddingBottom: insets.bottom }]}>
       <StatusBar barStyle="dark-content" backgroundColor={DESIGN.colors.white} />
@@ -430,7 +490,7 @@ export default function ManagerDashboard() {
             <View style={styles.statIconContainer}>
               <Ionicons name="cash-outline" size={24} color="#fff" />
             </View>
-            <Text style={styles.statValue}>{formatPrice(stats.totalRevenue || 0)}</Text>
+            <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.5}>{formatPrice(stats.totalRevenue || 0)}</Text>
             <Text style={styles.statLabel}>{t('dashboard.totalRevenue')}</Text>
           </TouchableOpacity>
           
@@ -441,7 +501,7 @@ export default function ManagerDashboard() {
             <View style={styles.statIconContainer}>
               <Ionicons name="receipt-outline" size={24} color="#fff" />
             </View>
-            <Text style={styles.statValue}>{(stats.totalOrders || 0).toLocaleString()}</Text>
+            <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.5}>{(stats.totalOrders || 0).toLocaleString()}</Text>
             <Text style={styles.statLabel}>{t('dashboard.totalOrders')}</Text>
           </TouchableOpacity>
           
@@ -452,7 +512,7 @@ export default function ManagerDashboard() {
             <View style={styles.statIconContainer}>
               <Ionicons name="restaurant-outline" size={24} color="#fff" />
             </View>
-            <Text style={styles.statValue}>{(stats.totalProducts || 0).toLocaleString()}</Text>
+            <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.5}>{(stats.totalProducts || 0).toLocaleString()}</Text>
             <Text style={styles.statLabel}>{t('dashboard.menuItems')}</Text>
           </TouchableOpacity>
           
@@ -467,7 +527,7 @@ export default function ManagerDashboard() {
             <View style={styles.statIconContainer}>
               <Ionicons name="people-outline" size={24} color="#fff" />
             </View>
-            <Text style={styles.statValue}>{(stats.totalUsers || 0).toLocaleString()}</Text>
+            <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.5}>{(stats.totalUsers || 0).toLocaleString()}</Text>
             <Text style={styles.statLabel}>{t('dashboard.branchUsers')}</Text>
           </TouchableOpacity>
         </View>
@@ -633,6 +693,7 @@ export default function ManagerDashboard() {
       <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 999 }}>
         <AdminBottomNavigation 
           currentRoute="ManagerDashboard"
+          tabNavigation={tabNavigation}
         />
       </View>
     </View>
@@ -867,6 +928,8 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: DESIGN.colors.white,
     marginBottom: 4,
+    flexShrink: 1,
+    width: '100%',
   },
   ordersSection: {
     paddingHorizontal: DESIGN.spacing.pagePad,

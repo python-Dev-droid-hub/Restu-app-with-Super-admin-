@@ -16,6 +16,15 @@ interface NotificationData {
   recipientBranch?: string;
 }
 
+// Helper to extract branch ID from assignedBranch (handles both ObjectId and populated object)
+const getBranchId = (branch: any): string | null => {
+  if (!branch) return null;
+  if (typeof branch === 'string') return branch;
+  if (branch._id) return branch._id.toString();
+  if (branch.toString && branch.constructor?.name !== 'Object') return branch.toString();
+  return null;
+};
+
 class NotificationService {
   /**
    * Send notification to user
@@ -178,7 +187,7 @@ class NotificationService {
           this.sendNotification({
             recipient: user._id.toString(),
             recipientRole: user.role,
-            recipientBranch: user.assignedBranch?.toString(),
+            recipientBranch: getBranchId(user.assignedBranch) || undefined,
             type,
             title,
             message,

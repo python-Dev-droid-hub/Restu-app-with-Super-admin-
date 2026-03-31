@@ -486,7 +486,7 @@ const AdminDealCampaigns: React.FC = () => {
         </Box>
 
         {/* Stats */}
-        <Grid container spacing={2} sx={{ mb: 3 }}>
+        <Grid container spacing={2} sx={{ mb: 3, width: '100%' }}>
           <Grid item xs={12} sm={4}>
             <Paper sx={{ p: 2, bgcolor: '#E87E35', color: 'white', borderRadius: 2 }}>
               <Typography variant="h3" sx={{ fontWeight: 'bold' }}>
@@ -521,9 +521,9 @@ const AdminDealCampaigns: React.FC = () => {
 
         {/* Campaigns Grid */}
         {loading ? (
-          <Grid container spacing={3}>
+          <Grid container spacing={3} sx={{ width: '100%' }}>
             {[1, 2, 3, 4].map((i) => (
-              <Grid item xs={12} sm={6} md={4} key={i}>
+              <Grid item xs={12} sm={6} md={6} lg={4} xl={3} key={i}>
                 <Skeleton variant="rectangular" height={280} sx={{ borderRadius: 2 }} />
               </Grid>
             ))}
@@ -547,9 +547,9 @@ const AdminDealCampaigns: React.FC = () => {
             </Button>
           </Paper>
         ) : (
-          <Grid container spacing={3}>
+          <Grid container spacing={3} sx={{ width: '100%' }}>
             {campaigns.map((campaign) => (
-              <Grid item xs={12} sm={6} md={4} key={campaign._id}>
+              <Grid item xs={12} sm={6} md={6} lg={4} xl={3} key={campaign._id}>
                 <Card
                   sx={{
                     borderRadius: 2,
@@ -934,7 +934,7 @@ const AdminDealCampaigns: React.FC = () => {
       ) : (
         <Grid container spacing={3}>
           {selectedCampaign?.deals?.map((deal) => (
-            <Grid item xs={12} sm={6} md={4} lg={3} key={deal._id}>
+            <Grid item xs={12} sm={6} md={6} lg={4} xl={3} key={deal._id}>
               <Card
                 sx={{
                   borderRadius: 2,

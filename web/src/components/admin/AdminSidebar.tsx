@@ -24,6 +24,7 @@ import {
   BarChart,
   Settings,
   Logout,
+  TwoWheeler,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 
@@ -45,6 +46,7 @@ const AdminSidebar: React.FC = () => {
     { label: 'Dashboard', icon: <Dashboard sx={{ fontSize: 20 }} />, path: '/admin/dashboard', key: 'dashboard' },
     { label: 'Orders', icon: <ShoppingCart sx={{ fontSize: 20 }} />, path: '/admin/orders', key: 'orders' },
     { label: 'Users', icon: <People sx={{ fontSize: 20 }} />, path: '/admin/customers', key: 'users' },
+    { label: 'Riders', icon: <TwoWheeler sx={{ fontSize: 20 }} />, path: '/admin/riders', key: 'riders' },
     { label: 'Notifications', icon: <Notifications sx={{ fontSize: 20 }} />, path: '/admin/notifications', key: 'notifications' },
     { label: 'Table Assignment', icon: <Apps sx={{ fontSize: 20 }} />, path: '/admin/table-assignment', key: 'table-assignment' },
     { label: 'Categories', icon: <Category sx={{ fontSize: 20 }} />, path: '/admin/categories', key: 'categories' },

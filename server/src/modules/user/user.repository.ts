@@ -9,7 +9,7 @@ export class UserRepository {
   }
 
   async findById(id: string | Types.ObjectId): Promise<IUser | null> {
-    return await User.findById(id).populate('assignedBranch', 'branchName branchCode');
+    return await User.findById(id).populate('assignedBranch', '_id name branchName branchCode code');
   }
 
   async findByIdWithPassword(id: string | Types.ObjectId): Promise<IUser | null> {
@@ -23,7 +23,7 @@ export class UserRepository {
   async findByEmailWithPassword(email: string): Promise<IUser | null> {
     return await User.findOne({ email })
       .select('+passwordHash')
-      .populate('assignedBranch', 'branchName branchCode');
+      .populate('assignedBranch', '_id name branchName branchCode code');
   }
 
   async updateById(id: string | Types.ObjectId, updateData: Partial<IUser>): Promise<IUser | null> {

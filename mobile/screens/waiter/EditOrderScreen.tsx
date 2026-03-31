@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '../../components/api/client';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -128,7 +129,21 @@ export default function EditOrderScreen() {
 
   const loadProducts = async () => {
     try {
-      const response = await api.get('/menu');
+      // Get branch ID from AsyncStorage
+      let branchId: string | null = null;
+      try {
+        const userDataRaw = await AsyncStorage.getItem('userData');
+        if (userDataRaw) {
+          const user = JSON.parse(userDataRaw);
+          branchId = user?.assigned_branch_id || user?.branch_id || user?.branchId || user?.assignedBranch?._id;
+        }
+        if (!branchId) {
+          branchId = await AsyncStorage.getItem('selectedBranchId');
+        }
+      } catch {}
+      
+      const menuUrl = branchId ? `/menu?branchId=${branchId}` : '/menu';
+      const response = await api.get(menuUrl);
       if (response.success && response.data) {
         const rawCategories = response.data.categories || response.data || [];
         const allProducts: Product[] = [];

@@ -55,6 +55,9 @@ interface MenuItem {
     };
   }>;
   preparationTime?: number;
+  // Branch activation fields
+  isActivatedForBranch?: boolean;
+  branchActivationId?: string | null;
 }
 
 const getDisplayPrice = (item: MenuItem): number => {
@@ -84,6 +87,27 @@ export default function AdminProductsScreen() {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [assignedBranch, setAssignedBranch] = useState<{_id?: string; name?: string}>({});
+
+  // Load assigned branch for branch managers
+  useEffect(() => {
+    const loadBranch = async () => {
+      if (userRole === 'BRANCH_MANAGER') {
+        const stored = await AsyncStorage.getItem('userData');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          const branchData = parsed.assignedBranch || parsed.branch;
+          if (branchData) {
+            setAssignedBranch({
+              _id: branchData._id || branchData.branchId || parsed.branchId,
+              name: branchData.name || branchData.branchName || 'My Branch'
+            });
+          }
+        }
+      }
+    };
+    loadBranch();
+  }, [userRole]);
 
   const moreMenuItems = [
     { name: 'Notifications', icon: 'notifications-outline', screen: 'AdminNotifications' },
@@ -158,6 +182,30 @@ export default function AdminProductsScreen() {
     }
   };
 
+  // Toggle branch activation for branch managers
+  const toggleBranchActivation = async (productId: string, currentStatus: boolean) => {
+    if (!assignedBranch._id) {
+      Alert.alert('Error', 'No branch assigned');
+      return;
+    }
+    try {
+      console.log('🔍 [BRANCH ACTIVATION] Toggling product:', productId, 'current:', currentStatus);
+      const response = await api.post(`/menu/admin/products/${productId}/toggle-activation`, {
+        branchId: assignedBranch._id
+      });
+      console.log('🔍 [BRANCH ACTIVATION] Response:', response);
+
+      if (response.success) {
+        loadMenuItems();
+      } else {
+        Alert.alert('Error', 'Failed to update activation');
+      }
+    } catch (error) {
+      console.error('🔍 [BRANCH ACTIVATION] Error:', error);
+      Alert.alert('Error', 'Failed to update activation');
+    }
+  };
+
   const deleteMenuItem = async (itemId: string) => {
     Alert.alert(
       'Delete Menu Item',
@@ -220,6 +268,9 @@ export default function AdminProductsScreen() {
 
   const filteredItems = getFilteredItems();
 
+  // Get parent tab navigation for bottom nav
+  const tabNavigation = navigation.getParent();
+
   const getDefaultFoodImage = (name: string) => {
     // Return different food images based on item name/type
     if (name?.toLowerCase().includes('burger')) 
@@ -237,7 +288,7 @@ export default function AdminProductsScreen() {
       
       {/* Responsive Header */}
       <ResponsiveHeader
-        title={t('nav.menu')}
+        title={t('products.title')}
         notificationCount={unreadCount}
         profileImage={profileImage}
         onNotificationPress={() => {
@@ -281,15 +332,32 @@ export default function AdminProductsScreen() {
                     <Text style={styles.itemDescription} numberOfLines={1}>
                       {item.description || 'Delicious fresh made with premium ingredients'}
                     </Text>
+                    {/* Show activation badge for branch managers */}
+                    {userRole === 'BRANCH_MANAGER' && (
+                      <View style={[styles.activationBadge, item.isActivatedForBranch ? styles.activatedBadge : styles.deactivatedBadge]}>
+                        <Text style={styles.activationBadgeText}>
+                          {item.isActivatedForBranch ? '✓ Activated' : '○ Not Activated'}
+                        </Text>
+                      </View>
+                    )}
                   </View>
                   
-                  {/* Toggle Switch */}
-                  <Switch
-                    value={item.isAvailable}
-                    onValueChange={() => toggleItemAvailability(item._id, item.isAvailable)}
-                    trackColor={{ false: COLORS.border, true: COLORS.green }}
-                    thumbColor={COLORS.white}
-                  />
+                  {/* Toggle Switch - For Branch Managers: Activation, For Admins: Availability */}
+                  {userRole === 'BRANCH_MANAGER' ? (
+                    <Switch
+                      value={item.isActivatedForBranch || false}
+                      onValueChange={() => toggleBranchActivation(item._id, item.isActivatedForBranch || false)}
+                      trackColor={{ false: COLORS.border, true: COLORS.orange }}
+                      thumbColor={COLORS.white}
+                    />
+                  ) : (
+                    <Switch
+                      value={item.isAvailable}
+                      onValueChange={() => toggleItemAvailability(item._id, item.isAvailable)}
+                      trackColor={{ false: COLORS.border, true: COLORS.green }}
+                      thumbColor={COLORS.white}
+                    />
+                  )}
                 </View>
 
                 {/* Price and Edit/Delete Actions */}
@@ -386,7 +454,7 @@ export default function AdminProductsScreen() {
       />
 
       {/* Bottom Navigation */}
-      <AdminBottomNavigation onMorePress={() => setShowMoreMenu(true)} />
+      <AdminBottomNavigation onMorePress={() => setShowMoreMenu(true)} tabNavigation={tabNavigation} />
     </View>
   );
 }
@@ -462,6 +530,23 @@ const styles = StyleSheet.create({
   itemDescription: {
     fontSize: 13,
     color: COLORS.lightText,
+  },
+  activationBadge: {
+    marginTop: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+  },
+  activatedBadge: {
+    backgroundColor: '#e8f5e9',
+  },
+  deactivatedBadge: {
+    backgroundColor: '#ffebee',
+  },
+  activationBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
   },
   itemFooter: {
     flexDirection: 'row',

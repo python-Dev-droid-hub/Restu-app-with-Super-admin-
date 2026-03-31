@@ -46,6 +46,10 @@ export default function AdminDealsScreen() {
   const insets = useSafeAreaInsets();
   const { t } = useLocalization();
   const { profileImage } = useUserData();
+  
+  // Get parent tab navigation for bottom nav (undefined for stack screens)
+  const tabNavigation = navigation.getParent();
+
   const [deals, setDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -193,9 +197,11 @@ export default function AdminDealsScreen() {
           <View style={styles.branchInfo}>
             <Ionicons name="business-outline" size={18} color="#E87E35" />
             <Text style={styles.branchInfoText}>
-              {assignedBranch.name || 'Loading Branch...'}
+              {userRole === 'ADMIN' || userRole === 'SUPER_ADMIN'
+                ? 'All Branches'
+                : (assignedBranch.name || 'Loading Branch...')}
             </Text>
-            {assignedBranch.code && (
+            {userRole !== 'ADMIN' && userRole !== 'SUPER_ADMIN' && assignedBranch.code && (
               <View style={styles.branchCodeBadge}>
                 <Text style={styles.branchCodeText}>{assignedBranch.code}</Text>
               </View>
@@ -283,7 +289,7 @@ export default function AdminDealsScreen() {
       </TouchableOpacity>
 
       {/* Bottom Navigation */}
-      <AdminBottomNavigation onMorePress={() => setShowMoreMenu(true)} />
+      <AdminBottomNavigation onMorePress={() => setShowMoreMenu(true)} tabNavigation={tabNavigation} />
 
       {/* More Menu Modal */}
       <Modal

@@ -12,58 +12,40 @@ export class RestaurantController {
 
   createRestaurant = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
     const userId = req.user!._id;
-    
-    // Transform frontend field names to match Restaurant model
-    const transformedData: any = {
-      name: req.body.branchName,
-      description: req.body.description || `${req.body.branchName} branch`,
-      owner: userId,
-      branchManager: userId,
-      branchCode: req.body.branchCode,
-      address: {
-        street: req.body.addressLine || '',
-        city: req.body.city || '',
-        state: req.body.state || '',
-        zipCode: req.body.postalCode || '',
-        country: req.body.country || 'Pakistan',
-        coordinates: {
-          lat: req.body.lat || 0,
-          lng: req.body.lng || 0,
-        },
-      },
-      phone: req.body.phoneNumber || '',
-      email: req.body.email || '',
-      cuisine: req.body.cuisine || ['Other'],
-      priceRange: req.body.priceRange || '$$',
-      deliveryTime: req.body.deliveryTime || 30,
-      deliveryFee: req.body.deliveryFee || 0,
-      minOrderAmount: req.body.minOrderAmount || 0,
-      isActive: req.body.isActive !== false,
-      acceptsDelivery: req.body.acceptsDelivery !== false,
-      acceptsDineIn: req.body.acceptsDineIn !== false,
-      acceptsTakeaway: req.body.acceptsTakeaway !== false,
-      currency: req.body.currency || 'PKR',
-      deliveryRadius: req.body.deliveryRadius || 5000,
-      operatingHours: req.body.operatingHours || {
-        monday: { open: '09:00', close: '22:00', isOpen: true },
-        tuesday: { open: '09:00', close: '22:00', isOpen: true },
-        wednesday: { open: '09:00', close: '22:00', isOpen: true },
-        thursday: { open: '09:00', close: '22:00', isOpen: true },
-        friday: { open: '09:00', close: '22:00', isOpen: true },
-        saturday: { open: '09:00', close: '22:00', isOpen: true },
-        sunday: { open: '09:00', close: '22:00', isOpen: true },
-      },
-    };
 
-    // Check if user already has a restaurant
-    const existingRestaurants = await this.restaurantRepository.findByOwnerId(userId);
-    if (existingRestaurants.length > 0 && req.user!.role !== 'ADMIN' && req.user!.role !== 'SUPER_ADMIN') {
-      throw createError('You can only own one restaurant', 400);
+    // NOTE: The Restaurant model is an alias of the new Branch model.
+    // Persist Branch fields directly (branchName/addressLine/city/etc).
+    const data: any = { ...req.body };
+
+    // Backward-compat mappings (in case some clients still send legacy fields)
+    if (!data.branchName && data.name) data.branchName = data.name;
+    if (!data.addressLine && data.address?.street) data.addressLine = data.address.street;
+    if (!data.city && data.address?.city) data.city = data.address.city;
+    if (!data.state && data.address?.state) data.state = data.address.state;
+    if (!data.postalCode && data.address?.zipCode) data.postalCode = data.address.zipCode;
+    if (!data.country && data.address?.country) data.country = data.address.country;
+    if (!data.phoneNumber && data.phone) data.phoneNumber = data.phone;
+
+    // If lat/lng provided, create GeoJSON location used by $near queries
+    if (data.lat !== undefined && data.lat !== null && data.lng !== undefined && data.lng !== null) {
+      const lat = Number(data.lat);
+      const lng = Number(data.lng);
+      if (!Number.isNaN(lat) && !Number.isNaN(lng)) {
+        data.location = {
+          type: 'Point',
+          coordinates: [lng, lat],
+        };
+      }
     }
 
-    const restaurant = await this.restaurantRepository.create(transformedData);
+    // Default branch manager to creator when creator is a branch manager
+    if (!data.branchManager && req.user?.role === 'BRANCH_MANAGER') {
+      data.branchManager = userId;
+    }
 
-    sendSuccess(res, restaurant, 'Restaurant created successfully', 201);
+    const branch = await this.restaurantRepository.create(data);
+
+    sendSuccess(res, branch, 'Branch created successfully', 201);
   });
 
   getMyRestaurants = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
@@ -102,7 +84,9 @@ export class RestaurantController {
     // Check ownership or admin privileges
     // BRANCH_MANAGER can only update their assigned branch, SUPER_ADMIN can update any
     const isBranchManagerOwner = restaurant.branchManager?.toString() === userId.toString();
-    const isBranchManagerAssigned = req.user?.assignedBranch?.toString() === id.toString();
+    const userBranch = req.user?.assignedBranch as any;
+    const userBranchId = userBranch?._id?.toString() || userBranch?.toString() || '';
+    const isBranchManagerAssigned = userBranchId === id.toString();
     const isBranchManager = userRole === 'BRANCH_MANAGER' && (isBranchManagerOwner || isBranchManagerAssigned);
     const isSuperAdmin = userRole === 'SUPER_ADMIN';
     const isAdmin = userRole === 'ADMIN';

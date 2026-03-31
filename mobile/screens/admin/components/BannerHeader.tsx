@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppColors, useAppSpacing } from '../../../theme';
 
 interface BannerHeaderProps {
@@ -11,6 +12,7 @@ interface BannerHeaderProps {
 const BannerHeader = ({ navigation, onAddBanner, onBack }: BannerHeaderProps) => {
   const colors = useAppColors();
   const spacing = useAppSpacing();
+  const insets = useSafeAreaInsets();
 
   const handleBack = () => {
     if (onBack) return onBack();
@@ -20,6 +22,7 @@ const BannerHeader = ({ navigation, onAddBanner, onBack }: BannerHeaderProps) =>
   return (
     <View
       style={{
+        paddingTop: insets.top,
         paddingHorizontal: spacing.horizontal,
         paddingVertical: spacing.card,
         backgroundColor: colors.white,

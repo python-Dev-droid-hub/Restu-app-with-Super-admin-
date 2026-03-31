@@ -18,11 +18,6 @@ import { formatDate } from '../../utils/formatHelpers';
 import { useSettings } from '../../context/SettingsContext';
 import api from '../../services/api';
 
-// Get API base URL for images
-const API_BASE_URL = __DEV__
-  ? 'http://192.168.0.140:3000'
-  : 'https://your-production-api.com';
-
 interface Order {
   _id: string;
   orderNumber: string;
@@ -64,18 +59,23 @@ const getStatusLabel = (status: string) => {
 // Helper to get full image URL
 const getImageUrl = (imagePath?: string): string | undefined => {
   if (!imagePath) return undefined;
-  
-  // If it's already a full URL, return it
-  if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
-    return imagePath;
+
+  const raw = String(imagePath).replace(/\\/g, '/');
+  if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+
+  const base = String(api?.defaults?.baseURL || '').replace(/\/?api\/?$/, '');
+  const normalizedPath =
+    raw.startsWith('uploads/') || raw.startsWith('src/uploads/')
+      ? `/${raw.replace(/^src\//, '')}`
+      : raw;
+
+  if (!base) {
+    // fallback: if we cannot determine base, at least return the normalized path
+    return normalizedPath;
   }
-  
-  // If it's a relative path, prepend the API base URL
-  if (imagePath.startsWith('/')) {
-    return `${API_BASE_URL}${imagePath}`;
-  }
-  
-  return imagePath;
+
+  if (normalizedPath.startsWith('/')) return `${base}${normalizedPath}`;
+  return `${base}/${normalizedPath}`;
 };
 
 // Order Item Image Component with fallback

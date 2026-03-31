@@ -173,7 +173,7 @@ const AdminOrders: React.FC = () => {
               o?._doc?.customerName ||
               o?.customerName ||
               (customerId ? `Customer ${customerId.slice(-6)}` : 'Guest Order');
-            const customerAvatar = customerData?.avatar || customerData?.image;
+            const customerAvatar = customerData?.avatar || customerData?.image || customerData?.profileImage || customerData?.photo;
             
             // Fix order ID - ensure we have a valid ID (Mongoose doc has _id at top level)
             const orderId = o?._id || o?.id || o?._doc?._id || '';
@@ -272,6 +272,26 @@ const AdminOrders: React.FC = () => {
 
     if (statusFilter !== 'all') {
       filtered = filtered.filter(o => o.status === statusFilter.toLowerCase());
+    }
+
+    // Date filter
+    if (dateFilter !== 'all') {
+      const now = new Date();
+      filtered = filtered.filter(o => {
+        const orderDate = new Date(o.createdAt);
+        switch (dateFilter) {
+          case 'today':
+            return orderDate.toDateString() === now.toDateString();
+          case 'week':
+            const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+            return orderDate >= weekAgo;
+          case 'month':
+            const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+            return orderDate >= monthAgo;
+          default:
+            return true;
+        }
+      });
     }
 
     if (searchQuery.trim()) {

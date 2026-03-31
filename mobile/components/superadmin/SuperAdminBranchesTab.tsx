@@ -52,10 +52,12 @@ export default function SuperAdminBranchesTab({
       if (filterStatus === 'inactive') return !branch.isActive;
       return true;
     })
-    .filter((branch) =>
-      branch.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      branch.location.toLowerCase().includes(searchQuery.toLowerCase())
-    )
+    .filter((branch) => {
+      const name = String(branch.name || '').toLowerCase();
+      const location = String((branch as any).location || '').toLowerCase();
+      const q = searchQuery.toLowerCase();
+      return name.includes(q) || location.includes(q);
+    })
     .sort((a, b) => {
       switch (sortBy) {
         case 'revenue':

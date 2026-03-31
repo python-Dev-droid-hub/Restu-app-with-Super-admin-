@@ -5,7 +5,7 @@ import { setAuthToken } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
 
 interface UseLoginReturn {
-  login: (credentials: LoginCredentials) => Promise<void>;
+  login: (credentials: LoginCredentials) => Promise<any>;
   isLoading: boolean;
   error: string | null;
 }
@@ -40,6 +40,8 @@ export function useLogin(): UseLoginReturn {
       console.log('useLogin: Refreshing user...');
       await refreshUser();
       console.log('useLogin: Login complete');
+
+      return response.data;
     } catch (err) {
       console.error('useLogin: Login error:', err);
       const message = err instanceof Error ? err.message : 'Login failed';

@@ -26,7 +26,9 @@ export const authenticate = async (
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as IJWTPayload;
     console.log('🔐 [AUTH] Token decoded, userId:', decoded.userId);
     
-    const user = await User.findById(decoded.userId).select('-passwordHash');
+    const user = await User.findById(decoded.userId)
+      .select('-passwordHash')
+      .populate('assignedBranch', '_id name branchName branchCode code');
     if (!user) {
       console.log('🔐 [AUTH] User not found in DB');
       throw createError('Invalid token. User not found.', 401);
@@ -70,7 +72,9 @@ export const optionalAuth = async (
 
     if (token) {
       const decoded = jwt.verify(token, process.env.JWT_SECRET!) as IJWTPayload;
-      const user = await User.findById(decoded.userId).select('-passwordHash');
+      const user = await User.findById(decoded.userId)
+      .select('-passwordHash')
+      .populate('assignedBranch', '_id name branchName branchCode code');
       
       if (user && user.isActive) {
         req.user = user;

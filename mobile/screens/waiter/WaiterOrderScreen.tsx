@@ -193,8 +193,10 @@ export default function WaiterOrderScreen() {
         setTables(formattedTables);
       }
 
-      // Load menu
-      const menuResponse = await api.get('/menu');
+      // Load menu - filter by branch if waiter has assigned branch
+      const branchId = user?.assigned_branch_id || user?.branch_id || user?.branchId || user?.assignedBranch?._id;
+      const menuUrl = branchId ? `/menu?branchId=${branchId}` : '/menu';
+      const menuResponse = await api.get(menuUrl);
       if (menuResponse.success && menuResponse.data) {
         const rawCategories = menuResponse.data.categories || menuResponse.data || [];
         const allProducts: Product[] = [];

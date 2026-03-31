@@ -386,7 +386,7 @@ export default function AdminDashboard() {
             <View style={styles.statIconContainer}>
               <Ionicons name="cash-outline" size={24} color="#fff" />
             </View>
-            <Text style={styles.statValue}>{formatPrice(stats.totalRevenue || 0)}</Text>
+            <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.5}>{formatPrice(stats.totalRevenue || 0)}</Text>
             <Text style={styles.statLabel}>Total Revenue</Text>
           </TouchableOpacity>
           
@@ -397,7 +397,7 @@ export default function AdminDashboard() {
             <View style={styles.statIconContainer}>
               <Ionicons name="receipt-outline" size={24} color="#fff" />
             </View>
-            <Text style={styles.statValue}>{(stats.totalOrders || 0).toLocaleString()}</Text>
+            <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.5}>{(stats.totalOrders || 0).toLocaleString()}</Text>
             <Text style={styles.statLabel}>Total Orders</Text>
           </TouchableOpacity>
           
@@ -408,19 +408,16 @@ export default function AdminDashboard() {
             <View style={styles.statIconContainer}>
               <Ionicons name="restaurant-outline" size={24} color="#fff" />
             </View>
-            <Text style={styles.statValue}>{(stats.totalProducts || 0).toLocaleString()}</Text>
+            <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.5}>{(stats.totalProducts || 0).toLocaleString()}</Text>
             <Text style={styles.statLabel}>Menu Items</Text>
           </TouchableOpacity>
           
-          <TouchableOpacity style={[styles.statCard, styles.branchesCard]} onPress={() => {
-            // @ts-ignore
-            navigation.navigate('AdminBranches')
-          }}>
+          <TouchableOpacity style={[styles.statCard, styles.branchesCard]}>
             <View style={styles.statIconContainer}>
-              <Ionicons name="business-outline" size={24} color="#fff" />
+              <Ionicons name="people-outline" size={24} color="#fff" />
             </View>
-            <Text style={styles.statValue}>{branches.length}</Text>
-            <Text style={styles.statLabel}>Branches</Text>
+            <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.5}>{(stats.totalUsers || 0).toLocaleString()}</Text>
+            <Text style={styles.statLabel}>Total Users</Text>
           </TouchableOpacity>
         </View>
 
@@ -761,6 +758,8 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#fff',
     marginBottom: 8,
+    flexShrink: 1,
+    width: '100%',
   },
   ordersSection: {
     paddingHorizontal: 20,

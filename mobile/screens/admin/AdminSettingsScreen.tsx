@@ -79,6 +79,9 @@ export default function AdminSettingsScreen() {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
+  // Get parent tab navigation for bottom nav (undefined for stack screens)
+  const tabNavigation = navigation.getParent();
+
   // Get userData first to determine menu items
   const getMenuItems = () => {
     return [
@@ -241,8 +244,17 @@ export default function AdminSettingsScreen() {
             await AsyncStorage.setItem('userData', JSON.stringify(next));
           }
 
+          // Clear cached settings to force fresh load
+          await AsyncStorage.removeItem('appSettings');
+          
           await loadBranchSettings(branchData._id);
+          
+          // Force refresh settings context
           await refreshSettings();
+          
+          // Also update local state to reflect immediately
+          setSettingsState(prev => ({ ...prev, defaultCurrency: currencyCode }));
+          
           Alert.alert('Success', 'Branch currency updated successfully');
         } else {
           Alert.alert('Error', response.message || 'Failed to update currency');
@@ -431,16 +443,27 @@ export default function AdminSettingsScreen() {
       // Backend expects 'avatar' field, not 'image'
       const response = await api.put('/users/profile', { avatar: imageUrl });
       if (response.success) {
-        const updatedUserData = { ...userData, image: imageUrl };
+        // Store with profileImage field to match backend response format
+        const updatedUserData = { 
+          ...userData, 
+          image: imageUrl,
+          profileImage: imageUrl,
+          avatar: imageUrl 
+        };
         setUserData(updatedUserData);
         await AsyncStorage.setItem('userData', JSON.stringify(updatedUserData));
+        
+        // Also refresh useUserData hook
+        await loadUserData();
+        
         Alert.alert('Success', 'Profile image updated successfully');
         setShowChangeImageModal(false);
       } else {
         Alert.alert('Error', response.message || 'Failed to update image');
       }
-    } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to update image');
+    } catch (error) {
+      console.error('[Settings] Error updating image:', error);
+      Alert.alert('Error', 'Failed to update image');
     } finally {
       setLoading(false);
     }
@@ -703,9 +726,11 @@ export default function AdminSettingsScreen() {
           <View style={styles.branchInfo}>
             <Ionicons name="business-outline" size={18} color="#E87E35" />
             <Text style={styles.branchInfoText}>
-              {branchData?.branchName || userData.branch?.name || 'Loading Branch...'}
+              {userData.role === 'ADMIN' || userData.role === 'SUPER_ADMIN'
+                ? 'All Branches'
+                : (branchData?.branchName || userData.branch?.name || 'Loading Branch...')}
             </Text>
-            {userData.branch?.code && (
+            {userData.role !== 'ADMIN' && userData.role !== 'SUPER_ADMIN' && userData.branch?.code && (
               <View style={styles.branchCodeBadge}>
                 <Text style={styles.branchCodeText}>{userData.branch.code}</Text>
               </View>
@@ -925,7 +950,7 @@ export default function AdminSettingsScreen() {
       </ScrollView>
 
       {/* Bottom Navigation */}
-      <AdminBottomNavigation onMorePress={() => setShowMoreMenu(true)} />
+      <AdminBottomNavigation onMorePress={() => setShowMoreMenu(true)} tabNavigation={tabNavigation} />
 
       {/* Profile Menu Modal */}
       <Modal

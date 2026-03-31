@@ -37,10 +37,15 @@ interface RiderOrdersTabProps {
   orders: any[];
   onCallCustomer?: (phone: string) => void;
   onStartRide?: (orderId: string) => void;
+  onRejectOrder?: (orderId: string) => void;
+  formatPrice?: (amount: number) => string;
 }
 
-export default function RiderOrdersTab({ orders, onCallCustomer, onStartRide }: RiderOrdersTabProps) {
+export default function RiderOrdersTab({ orders, onCallCustomer, onStartRide, onRejectOrder, formatPrice }: RiderOrdersTabProps) {
   const [activeFilter, setActiveFilter] = useState<'Completed' | 'Undelivered'>('Undelivered');
+
+  // Use branch currency format or fallback to ₹
+  const fmtPrice = formatPrice ?? ((amount: number) => `₹${amount.toFixed(0)}`);
 
   const filteredOrders = orders.filter((order) => {
     const status = String(order?.status || '').toLowerCase();
@@ -118,7 +123,7 @@ export default function RiderOrdersTab({ orders, onCallCustomer, onStartRide }: 
 
               <View style={styles.orderFooter}>
                 <Text style={styles.orderDetails}>
-                  {order.distance} | ${order.totalAmount} | {order.status}
+                  {order.distance} | {fmtPrice(order.totalAmount || 0)} | {order.status}
                 </Text>
                 <View
                   style={[
@@ -146,6 +151,14 @@ export default function RiderOrdersTab({ orders, onCallCustomer, onStartRide }: 
                   >
                     <Ionicons name="navigate" size={14} color={COLORS.white} />
                     <Text style={styles.actionButtonText}>Start Ride</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.rejectButton]}
+                    onPress={() => onRejectOrder?.(String(order?._id || order?.id || ''))}
+                  >
+                    <Ionicons name="close-circle" size={14} color={COLORS.white} />
+                    <Text style={styles.actionButtonText}>Reject</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -280,6 +293,9 @@ const styles = StyleSheet.create({
   },
   startRideButton: {
     backgroundColor: COLORS.primary,
+  },
+  rejectButton: {
+    backgroundColor: COLORS.danger,
   },
   actionButtonText: {
     fontSize: FONTS.small.fontSize,

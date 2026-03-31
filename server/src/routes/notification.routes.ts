@@ -322,4 +322,80 @@ router.post('/notify-role', authenticate, async (req: IAuthRequest, res: Respons
   }
 });
 
+/**
+ * Delete notification (admin can delete any notification)
+ */
+router.delete('/admin/:notificationId', authenticate, async (req: IAuthRequest, res: Response) => {
+  try {
+    // Check if user is admin
+    if (!['ADMIN', 'SUPER_ADMIN'].includes(req.user?.role || '')) {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required',
+      });
+    }
+
+    const { notificationId } = req.params;
+    const deleted = await Notification.findByIdAndDelete(notificationId);
+
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        message: 'Notification not found',
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Notification deleted',
+    });
+  } catch (error: any) {
+    console.error('[API] Admin delete notification error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
+/**
+ * Mark notification as read (admin can mark any notification as read)
+ */
+router.put('/admin/:notificationId/read', authenticate, async (req: IAuthRequest, res: Response) => {
+  try {
+    // Check if user is admin
+    if (!['ADMIN', 'SUPER_ADMIN'].includes(req.user?.role || '')) {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required',
+      });
+    }
+
+    const { notificationId } = req.params;
+    const notification = await Notification.findByIdAndUpdate(
+      notificationId,
+      { read: true },
+      { new: true }
+    );
+
+    if (!notification) {
+      return res.status(404).json({
+        success: false,
+        message: 'Notification not found',
+      });
+    }
+
+    res.json({
+      success: true,
+      notification,
+    });
+  } catch (error: any) {
+    console.error('[API] Admin mark read error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
 export default router;

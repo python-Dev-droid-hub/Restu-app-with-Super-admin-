@@ -309,68 +309,19 @@ export default function CustomerOverviewTab({
         </View>
       )}
 
-      {/* Deals Section */}
+      {/* Campaign Banner - Just Image, No Text */}
       <View style={styles.section}>
         {dealCampaigns
           .filter((c) => c?.heroBanner?.imageUrl)
           .slice(0, 1)
           .map((c) => {
             const hero = getFullImageUrl(c.heroBanner?.imageUrl);
-            return hero ? <Image key={c._id} source={{ uri: hero }} style={styles.campaignHeroImage} /> : null;
+            return hero ? (
+              <TouchableOpacity key={c._id} activeOpacity={0.9}>
+                <Image source={{ uri: hero }} style={[styles.campaignHeroImage, { width: '100%', height: 180, borderRadius: 12 }]} resizeMode="cover" />
+              </TouchableOpacity>
+            ) : null;
           })}
-
-        {deals.length > 0 ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.dealsScrollContent}
-          >
-            {deals.map((deal) => {
-              const discountPercent =
-                deal.discount ||
-                (deal.originalPrice && deal.originalPrice > deal.price
-                  ? Math.round(((deal.originalPrice - deal.price) / deal.originalPrice) * 100)
-                  : 0);
-              return (
-                <TouchableOpacity key={deal._id} style={styles.dealCard}>
-                  <View style={styles.dealImageContainer}>
-                    {deal.imageUrl ? (
-                      <Image
-                        source={{ uri: getFullImageUrl(deal.imageUrl) }}
-                        style={styles.dealImage}
-                      />
-                    ) : (
-                      <View style={styles.dealImagePlaceholder}>
-                        <Ionicons name="pricetag" size={32} color={COLORS.primary} />
-                      </View>
-                    )}
-                    {discountPercent > 0 && (
-                      <View style={styles.discountBadge}>
-                        <Text style={styles.discountText}>{discountPercent}% OFF</Text>
-                      </View>
-                    )}
-                  </View>
-                  <View style={styles.dealInfo}>
-                    <Text style={styles.dealTitle} numberOfLines={2}>
-                      {deal.title}
-                    </Text>
-                    {deal.description && (
-                      <Text style={styles.dealDescription} numberOfLines={2}>
-                        {deal.description}
-                      </Text>
-                    )}
-                    <View style={styles.dealPriceRow}>
-                      <Text style={styles.dealPrice}>{formatPrice(deal.price)}</Text>
-                      {deal.originalPrice && deal.originalPrice > deal.price && (
-                        <Text style={styles.dealOriginalPrice}>{formatPrice(deal.originalPrice)}</Text>
-                      )}
-                    </View>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        ) : null}
       </View>
 
       {/* Promo Banner */}
@@ -776,5 +727,11 @@ const styles = StyleSheet.create({
     color: COLORS.gray,
     textAlign: 'center',
     paddingVertical: 20,
+  },
+  campaignHeroImage: {
+    width: '100%',
+    height: 180,
+    borderRadius: 12,
+    marginBottom: 16,
   },
 });

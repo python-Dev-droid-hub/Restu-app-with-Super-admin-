@@ -25,7 +25,6 @@ interface Branch {
 export default function DashboardTab() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [rawResponse, setRawResponse] = useState<any>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [selectedBranch, setSelectedBranch] = useState<string>('all');
   const [showBranchDropdown, setShowBranchDropdown] = useState(false);
@@ -46,7 +45,6 @@ export default function DashboardTab() {
       }
       const response = await api.get(url);
       console.log('Dashboard API response:', JSON.stringify(response, null, 2));
-      setRawResponse(response);
       if (response.success && response.data) {
         console.log('Setting stats:', response.data);
         setStats(response.data);
@@ -159,19 +157,6 @@ export default function DashboardTab() {
                 </Text>
               </TouchableOpacity>
             ))}
-          </View>
-        )}
-
-        {/* Debug Section - Shows raw API response */}
-        {rawResponse && (
-          <View style={[styles.section, { backgroundColor: '#FFE4E1' }]}>
-            <Text style={styles.sectionTitle}>DEBUG - Raw API Data:</Text>
-            <Text style={{ fontSize: 10, color: COLORS.darkText }}>
-              totalBranches: {JSON.stringify(rawResponse.data?.totalBranches)}
-            </Text>
-            <Text style={{ fontSize: 10, color: COLORS.darkText }}>
-              Response: {JSON.stringify(rawResponse.data, null, 2).substring(0, 500)}
-            </Text>
           </View>
         )}
 

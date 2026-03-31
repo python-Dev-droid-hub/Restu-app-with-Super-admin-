@@ -76,13 +76,19 @@ export class DashboardController {
 
   // Admin Dashboard Stats
   getAdminStats = asyncHandler(async (req: Request, res: Response) => {
+    const { period, branchId } = req.query as { period?: string; branchId?: string };
     logger.info('📊 [ADMIN STATS] Request received', {
       user: req.user?.email,
       role: req.user?.role,
-      userId: req.user?._id
+      userId: req.user?._id,
+      period,
+      branchId,
     });
 
-    const stats = await this.dashboardService.getAdminStats();
+    const stats = await this.dashboardService.getAdminStats({
+      period,
+      branchId,
+    });
 
     logger.info('📊 [ADMIN STATS] Stats retrieved successfully', {
       totalOrdersToday: stats.totalOrdersToday,
@@ -92,6 +98,38 @@ export class DashboardController {
     });
 
     sendSuccess(res, stats, 'Admin stats retrieved successfully');
+  });
+
+  getAdminWaitersPerformance = asyncHandler(async (req: Request, res: Response) => {
+    const { period, branchId } = req.query as { period?: string; branchId?: string };
+
+    const data = await this.dashboardService.getAdminWaitersPerformance({
+      period,
+      branchId,
+    });
+
+    sendSuccess(res, data, 'Admin waiters performance retrieved successfully');
+  });
+
+  getAdminRidersPerformance = asyncHandler(async (req: Request, res: Response) => {
+    const { period, branchId } = req.query as { period?: string; branchId?: string };
+
+    const data = await this.dashboardService.getAdminRidersPerformance({
+      period,
+      branchId,
+    });
+
+    sendSuccess(res, data, 'Admin riders performance retrieved successfully');
+  });
+
+  getAdminBranchesPerformance = asyncHandler(async (req: Request, res: Response) => {
+    const { period } = req.query as { period?: string };
+
+    const data = await this.dashboardService.getAdminBranchesPerformance({
+      period,
+    });
+
+    sendSuccess(res, data, 'Admin branches performance retrieved successfully');
   });
 
   // Admin Analytics with time range filtering
@@ -204,7 +242,8 @@ export class DashboardController {
       if (!branchId) {
         const User = await import('@/models/User').then(m => m.User);
         const chef = await User.findById(chefId).select('assignedBranch');
-        branchId = chef?.assignedBranch?.toString();
+        const chefBranch = chef?.assignedBranch as any;
+        branchId = chefBranch?._id?.toString() || chefBranch?.toString() || '';
         console.log('Branch from chef profile:', branchId);
       }
 

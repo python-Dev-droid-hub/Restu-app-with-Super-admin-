@@ -71,7 +71,7 @@ const userSchema = new Schema({
     type: {
       type: String,
       enum: ['Point'],
-      default: 'Point',
+      required: false,
     },
     coordinates: {
       type: [Number], // [longitude, latitude]
@@ -121,6 +121,15 @@ const userSchema = new Schema({
 
 // Hash password before saving
 userSchema.pre('save', async function(this: any, next: any) {
+  // Ensure we never persist an invalid GeoJSON point (breaks 2dsphere index)
+  if (this.currentLocation) {
+    const coords = this.currentLocation.coordinates;
+    const isValidCoords = Array.isArray(coords) && coords.length === 2 && coords.every((n: any) => typeof n === 'number');
+    if (!isValidCoords) {
+      this.currentLocation = undefined;
+    }
+  }
+
   if (!this.isModified('passwordHash')) return next();
   
   try {

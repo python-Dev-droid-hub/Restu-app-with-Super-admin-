@@ -467,7 +467,7 @@ export default function BranchAuditScreen() {
             style={[styles.actionButton, styles.editButton]}
             onPress={() => {
               // @ts-ignore
-              navigation.navigate('EditBranch', { branchId });
+              navigation.navigate('AddBranch', { branchId });
             }}
           >
             <Ionicons name="create" size={20} color={theme.white} />

@@ -126,12 +126,15 @@ export default function RiderDashboard() {
 
   const normalizeMediaUrl = useCallback((uri: string | null | undefined): string | null => {
     if (!uri) return null;
-    const value = String(uri);
+    const value = String(uri).trim();
+    // Already a full URL or data URI
     if (value.startsWith('http://') || value.startsWith('https://') || value.startsWith('data:')) return value;
-    if (!value.startsWith('/')) return value;
+    // Relative path - prepend the host
     const base = api.getBaseURL();
     const host = base.endsWith('/api') ? base.slice(0, -4) : base;
-    return `${host}${value}`;
+    // Ensure value starts with /
+    const path = value.startsWith('/') ? value : `/${value}`;
+    return `${host}${path}`;
   }, []);
 
   // Data states
@@ -569,6 +572,27 @@ export default function RiderDashboard() {
     setNewOrderAlert(null);
   };
 
+  // Cancel auto-assigned order
+  const handleCancelOrder = async (orderId: string, reason?: string) => {
+    try {
+      const response = await api.patch(`/orders/${orderId}/status`, { 
+        status: 'CANCELLED',
+        reason: reason || 'Rider cancelled assignment'
+      });
+      if (response.success) {
+        setActiveOrder(null);
+        fetchStats();
+        fetchOrders();
+        Alert.alert('Success', 'Order cancelled successfully. Manager will be notified to reassign.');
+      } else {
+        Alert.alert('Error', response.message || 'Failed to cancel order');
+      }
+    } catch (error: any) {
+      console.error('Error cancelling order:', error);
+      Alert.alert('Error', error?.message || 'Failed to cancel order');
+    }
+  };
+
   // Mark delivered
   const handleMarkDelivered = async (orderId: string) => {
     try {
@@ -598,6 +622,35 @@ export default function RiderDashboard() {
       console.error('Error starting ride:', error);
       Alert.alert('Error', 'Failed to start ride');
     }
+  };
+
+  const handleRejectOrder = async (orderId: string) => {
+    Alert.alert(
+      'Reject Order',
+      'Are you sure you want to reject this order? This will notify the manager and you will not be able to accept it again.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reject',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const response = await api.put(`/orders/${orderId}/reject`, { reason: 'Rider rejected the order' });
+              if (response.success) {
+                fetchStats();
+                fetchOrders();
+                Alert.alert('Success', 'Order rejected successfully. Manager will be notified to reassign.');
+              } else {
+                Alert.alert('Error', response.message || 'Failed to reject order');
+              }
+            } catch (error: any) {
+              console.error('Error rejecting order:', error);
+              Alert.alert('Error', error?.message || 'Failed to reject order');
+            }
+          },
+        },
+      ]
+    );
   };
 
   const openInMaps = async (opts?: { coords?: { latitude: number; longitude: number }; address?: string }) => {
@@ -708,6 +761,24 @@ export default function RiderDashboard() {
             {
               text: 'Start Ride',
               onPress: () => handleStartRide(String(presentOrder?._id || presentOrder?.id || oid)),
+            },
+            {
+              text: 'Cancel Order',
+              style: 'destructive',
+              onPress: () => {
+                Alert.alert(
+                  'Cancel Order',
+                  'Are you sure you want to cancel this auto-assigned order? This will notify the manager to reassign.',
+                  [
+                    { text: 'No', style: 'cancel' },
+                    {
+                      text: 'Yes, Cancel',
+                      style: 'destructive',
+                      onPress: () => handleCancelOrder(String(presentOrder?._id || presentOrder?.id || oid)),
+                    },
+                  ]
+                );
+              },
             },
             {
               text: 'Close',
@@ -826,7 +897,7 @@ export default function RiderDashboard() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
+    <SafeAreaView style={[styles.container]}>
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
 
       {/* Professional Header */}
@@ -911,6 +982,8 @@ export default function RiderDashboard() {
               }
             }}
             onStartRide={(orderId: string) => handleStartRide(orderId)}
+            onRejectOrder={(orderId: string) => handleRejectOrder(orderId)}
+            formatPrice={formatPrice}
           />
         )}
 
@@ -1122,6 +1195,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.lightBg,
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
   },
   content: {
     flex: 1,

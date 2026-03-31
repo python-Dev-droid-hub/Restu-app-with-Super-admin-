@@ -89,7 +89,7 @@ const AdminNotifications: React.FC = () => {
 
   const handleMarkAsRead = async (id: string) => {
     try {
-      const response: any = await api.markNotificationAsRead(id);
+      const response: any = await api.markAdminNotificationAsRead(id);
       if (response?.success) {
         setNotifications(notifications.map(n => 
           n._id === id ? { ...n, read: true } : n
@@ -115,7 +115,7 @@ const AdminNotifications: React.FC = () => {
 
   const handleDelete = async (id: string) => {
     try {
-      const response: any = await api.deleteNotification(id);
+      const response: any = await api.deleteAdminNotification(id);
       if (response?.success) {
         const notification = notifications.find(n => n._id === id);
         if (notification && !notification.read) {
@@ -268,11 +268,11 @@ const AdminNotifications: React.FC = () => {
                       </Box>
                     }
                     secondary={
-                      <Box>
-                        <Typography variant="body2" color="textSecondary">
+                      <Box component="span" sx={{ display: 'flex', flexDirection: 'column' }}>
+                        <Typography component="span" variant="body2" color="textSecondary">
                           {notification.message}
                         </Typography>
-                        <Typography variant="caption" color="#999">
+                        <Typography component="span" variant="caption" color="#999">
                           {formatTime(notification.createdAt)}
                         </Typography>
                       </Box>

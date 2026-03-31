@@ -163,9 +163,41 @@ const AdminBranches: React.FC = () => {
   };
 
   const handleSave = async () => {
-    if (!formData.branchName.trim() || !formData.branchCode.trim()) {
+    const normalize = (v: any) => (typeof v === 'string' ? v.trim() : v);
+    const isNonEmptyString = (v: any) => typeof v === 'string' && v.trim().length > 0;
+
+    const sanitized: any = {
+      ...formData,
+      branchName: normalize(formData.branchName),
+      branchCode: normalize(formData.branchCode),
+      addressLine: normalize(formData.addressLine),
+      city: normalize(formData.city),
+      state: normalize(formData.state),
+      postalCode: normalize(formData.postalCode),
+      country: normalize(formData.country),
+      phoneNumber: normalize(formData.phoneNumber),
+      email: normalize(formData.email),
+    };
+
+    Object.keys(sanitized).forEach((k) => {
+      if (typeof sanitized[k] === 'string' && sanitized[k].trim() === '') {
+        delete sanitized[k];
+      }
+    });
+
+    if (!isNonEmptyString(formData.branchName) || !isNonEmptyString(formData.branchCode)) {
       setError('Branch name and code are required');
       return;
+    }
+    if (!/^[A-Z]{2}\d{3}$/.test(formData.branchCode.trim())) {
+      setError('Branch code must be like AB123 (2 letters + 3 digits)');
+      return;
+    }
+    if (!editingBranch) {
+      if (!isNonEmptyString(formData.addressLine) || !isNonEmptyString(formData.city)) {
+        setError('Address and city are required');
+        return;
+      }
     }
 
     try {
@@ -174,9 +206,9 @@ const AdminBranches: React.FC = () => {
       
       let response: any;
       if (editingBranch) {
-        response = await api.updateBranch(editingBranch._id, formData);
+        response = await api.updateBranch(editingBranch._id, sanitized);
       } else {
-        response = await api.createBranch(formData);
+        response = await api.createBranch(sanitized);
       }
 
       if (response?.success) {

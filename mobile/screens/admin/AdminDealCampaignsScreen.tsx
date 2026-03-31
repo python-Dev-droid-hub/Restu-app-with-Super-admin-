@@ -33,7 +33,7 @@ import AdminBottomNavigation from '../../components/navigation/AdminBottomNaviga
 
 const { width } = Dimensions.get('window');
 
-const API_BASE_URL = __DEV__ ? 'http://192.168.0.140:3000' : 'https://your-production-api.com';
+const API_BASE_URL = __DEV__ ? 'http://192.168.18.179:3000' : 'https://your-production-api.com';
 
 const getFullImageUrl = (url?: string) => {
   if (!url) return '';
@@ -463,9 +463,11 @@ export default function AdminDealCampaignsScreen() {
           <View style={styles.branchInfo}>
             <Ionicons name="business-outline" size={18} color="#E87E35" />
             <Text style={styles.branchInfoText}>
-              {assignedBranch.name || 'Loading Branch...'}
+              {userRole === 'ADMIN' || userRole === 'SUPER_ADMIN'
+                ? 'All Branches'
+                : (assignedBranch.name || 'Loading Branch...')}
             </Text>
-            {assignedBranch.code && (
+            {userRole !== 'ADMIN' && userRole !== 'SUPER_ADMIN' && assignedBranch.code && (
               <View style={styles.branchCodeBadge}>
                 <Text style={styles.branchCodeText}>{assignedBranch.code}</Text>
               </View>

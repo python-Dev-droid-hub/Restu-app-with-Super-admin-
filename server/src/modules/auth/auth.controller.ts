@@ -121,9 +121,10 @@ export class AuthController {
           // If branch not in token, fetch from DB
           if (!managerBranchId) {
             // Fetch user from DB to get assignedBranch
-            const User = require('@/models/user').default;
+            const User = require('@/models/User').User;
             const user = await User.findById(decoded.userId).select('assignedBranch');
-            managerBranchId = user?.assignedBranch?.toString();
+            const userBranch = user?.assignedBranch as any;
+            managerBranchId = userBranch?._id?.toString() || userBranch?.toString() || '';
           }
           
           const requestedBranchId = (assignedBranchId || branchId)?.toString();

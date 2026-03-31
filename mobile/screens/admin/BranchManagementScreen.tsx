@@ -178,7 +178,7 @@ export default function BranchManagementScreen() {
 
   const handleEditBranch = (branch: Branch) => {
     // @ts-ignore
-    navigation.navigate('EditBranch', { branchId: branch._id });
+    navigation.navigate('AddBranch', { branchId: branch._id });
   };
 
   const handleAuditBranch = (branch: Branch) => {

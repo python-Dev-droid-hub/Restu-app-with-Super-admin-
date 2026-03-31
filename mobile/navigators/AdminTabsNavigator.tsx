@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { Modal, Text, TouchableOpacity, View, StyleSheet } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, CommonActions } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalization } from '../context/LocalizationContext';
 
 import AdminDashboard from '../screens/dashboards/AdminDashboard';
@@ -25,6 +26,7 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
   const menuItems = [
     { name: t('notifications.title'), icon: 'notifications-outline', screen: 'AdminNotifications' },
     { name: 'Table Assignment', icon: 'grid-outline', screen: 'TableAssignment' },
+    { name: 'Riders', icon: 'bicycle-outline', screen: 'RidersManagement' },
     { name: t('nav.categories'), icon: 'grid-outline', screen: 'AdminCategories' },
     { name: t('products.title'), icon: 'restaurant-outline', screen: 'AdminProducts' },
     { name: 'Branches', icon: 'business-outline', screen: 'AdminBranches' },
@@ -35,6 +37,27 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
     { name: t('nav.reports'), icon: 'bar-chart-outline', screen: 'AdminReports' },
     { name: t('nav.settings'), icon: 'settings-outline', screen: 'AdminSettings' },
   ];
+
+  const navigateToScreen = async (screenName: string) => {
+    setShowMoreMenu(false);
+    
+    // Get user role for proper navigation
+    const role = await AsyncStorage.getItem('userRole');
+    
+    // Check if the target is a tab screen
+    const tabScreens = ['Home', 'AdminOrders', 'AdminUsers', 'AdminProducts', 'BannerManagement'];
+    const isTabScreen = tabScreens.includes(screenName);
+    
+    if (isTabScreen) {
+      // Navigate within tabs
+      // @ts-ignore
+      nav.navigate(screenName);
+    } else {
+      // Navigate to stack screen - use parent navigator
+      // @ts-ignore
+      nav.navigate(screenName);
+    }
+  };
 
   return (
     <>
@@ -61,11 +84,7 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
               <TouchableOpacity
                 key={index}
                 style={styles.menuItem}
-                onPress={() => {
-                  setShowMoreMenu(false);
-                  // @ts-ignore
-                  nav.navigate(item.screen);
-                }}
+                onPress={() => navigateToScreen(item.screen)}
               >
                 <Ionicons name={item.icon as any} size={24} color="#E87E35" />
                 <Text style={styles.menuItemText}>{item.name}</Text>
@@ -87,7 +106,7 @@ export default function AdminTabsNavigator() {
       }}
       tabBar={(props) => <CustomTabBar {...props} />}
     >
-      <Tab.Screen name="AdminDashboard" component={AdminDashboard} />
+      <Tab.Screen name="Home" component={AdminDashboard} />
       <Tab.Screen name="AdminOrders" component={AdminOrdersScreen} />
       <Tab.Screen name="AdminUsers" component={AdminUsersScreen} />
       <Tab.Screen name="AdminProducts" component={AdminProductsScreen} />

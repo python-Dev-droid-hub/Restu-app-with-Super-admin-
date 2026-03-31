@@ -21,7 +21,7 @@ import {
   Chip,
   Skeleton,
 } from '@mui/material';
-import { Add, Edit, Delete, TableRestaurant, PersonAdd, SwapHoriz, Close } from '@mui/icons-material';
+import { Add, Edit, Delete, TableRestaurant } from '@mui/icons-material';
 import { api } from '../../services/api';
 
 interface TableItem {
@@ -33,12 +33,6 @@ interface TableItem {
   branchId?: string;
   branchName?: string;
   status: 'AVAILABLE' | 'OCCUPIED' | 'RESERVED' | 'CLEANING' | 'OUT_OF_SERVICE';
-  currentWaiter?: {
-    _id: string;
-    name: string;
-    email: string;
-  avatar?: string;
-  } | null;
   section?: string;
   floorNumber?: number;
   position?: { x: number; y: number };
@@ -46,31 +40,26 @@ interface TableItem {
 
 interface Branch {
   _id: string;
-  name: string;
-}
-
-interface Waiter {
-  _id: string;
-  name: string;
-  email: string;
-  avatar?: string;
+  name?: string;
+  branchName?: string;
 }
 
 const AdminTableAssignment: React.FC = () => {
   const [tables, setTables] = useState<TableItem[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
-  const [waiters, setWaiters] = useState<Waiter[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const [selectedBranch, setSelectedBranch] = useState<string>('all');
+  const [userRole, setUserRole] = useState<string>('');
+  const [userBranchId, setUserBranchId] = useState<string>('');
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingTable, setEditingTable] = useState<TableItem | null>(null);
-  const [assignDialogOpen, setAssignDialogOpen] = useState(false);
-  const [selectedTableForAssign, setSelectedTableForAssign] = useState<TableItem | null>(null);
   const [formData, setFormData] = useState<{
     tableNumber: string;
     seatingCapacity: number;
     branch: string;
     status: 'AVAILABLE' | 'OCCUPIED' | 'RESERVED' | 'CLEANING' | 'OUT_OF_SERVICE';
-    currentWaiter: string | null;
     section: string;
     floorNumber: number;
   }>({
@@ -78,22 +67,48 @@ const AdminTableAssignment: React.FC = () => {
     seatingCapacity: 4,
     branch: '',
     status: 'AVAILABLE',
-    currentWaiter: null,
     section: '',
     floorNumber: 1,
   });
 
   useEffect(() => {
-    loadData();
+    loadUserContext();
   }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [selectedBranch, userRole, userBranchId]);
+
+  const loadUserContext = () => {
+    try {
+      const raw = localStorage.getItem('userData');
+      if (!raw) {
+        return;
+      }
+      const parsed = JSON.parse(raw);
+      const role = parsed.role || '';
+      const branchId = parsed.assignedBranch?._id || parsed.branch?._id || parsed.assigned_branch_id || parsed.branchId || '';
+      setUserRole(role);
+      setUserBranchId(branchId);
+      if (role === 'BRANCH_MANAGER' && branchId) {
+        setSelectedBranch(branchId);
+      }
+    } catch (e) {
+      console.error('Error loading user context:', e);
+      loadData();
+    }
+  };
 
   const loadData = async () => {
     try {
       setLoading(true);
-      const [tablesRes, branchesRes, waitersRes]: [any, any, any] = await Promise.all([
-        api.getTables(),
+      const effectiveBranchId = userRole === 'BRANCH_MANAGER' && userBranchId
+        ? userBranchId
+        : (selectedBranch !== 'all' ? selectedBranch : userBranchId);
+
+      const [tablesRes, branchesRes]: [any, any] = await Promise.all([
+        api.get(effectiveBranchId ? `/tables?branch=${encodeURIComponent(effectiveBranchId)}` : '/tables'),
         api.getAllBranches(),
-        api.getUsers({ role: 'WAITER' }),
       ]);
 
       if (tablesRes.success && tablesRes.data) {
@@ -107,7 +122,6 @@ const AdminTableAssignment: React.FC = () => {
           branchId: t.branch?._id || t.branch || '',
           branchName: t.branch?.branchName || t.branch?.name || '',
           status: (t.status || 'AVAILABLE').toUpperCase() as any,
-          currentWaiter: t.currentWaiter || null,
           section: t.section || '',
           floorNumber: t.floorNumber || 1,
         }));
@@ -115,15 +129,6 @@ const AdminTableAssignment: React.FC = () => {
       }
       if (branchesRes.success && branchesRes.data) {
         setBranches(branchesRes.data.branches || branchesRes.data || []);
-      }
-      if (waitersRes.success && waitersRes.data) {
-        const rawWaiters = waitersRes.data.users || waitersRes.data || [];
-        setWaiters(rawWaiters.map((w: any) => ({
-          _id: w._id || w.id,
-          name: w.name || w.fullName || 'Unknown',
-          email: w.email || '',
-          avatar: w.avatar || w.profileImage || '',
-        })));
       }
     } catch (error) {
       console.error('Error loading data:', error);
@@ -140,7 +145,6 @@ const AdminTableAssignment: React.FC = () => {
         seatingCapacity: table.seatingCapacity || table.capacity || 4,
         branch: table.branch || table.branchId || '',
         status: table.status,
-        currentWaiter: (typeof table.currentWaiter === 'string' ? table.currentWaiter : table.currentWaiter?._id) || null,
         section: table.section || '',
         floorNumber: table.floorNumber || 1,
       });
@@ -151,7 +155,6 @@ const AdminTableAssignment: React.FC = () => {
         seatingCapacity: 4,
         branch: '',
         status: 'AVAILABLE',
-        currentWaiter: null,
         section: '',
         floorNumber: 1,
       });
@@ -174,9 +177,6 @@ const AdminTableAssignment: React.FC = () => {
         section: formData.section,
         floorNumber: formData.floorNumber,
       };
-      if (formData.currentWaiter) {
-        saveData.currentWaiter = formData.currentWaiter;
-      }
       if (editingTable) {
         await api.updateTable(editingTable._id, saveData);
       } else {
@@ -197,41 +197,6 @@ const AdminTableAssignment: React.FC = () => {
       } catch (error) {
         console.error('Error deleting table:', error);
       }
-    }
-  };
-
-  const handleOpenAssignDialog = (table: TableItem) => {
-    setSelectedTableForAssign(table);
-    setFormData({
-      ...formData,
-      currentWaiter: (typeof table.currentWaiter === 'string' ? table.currentWaiter : table.currentWaiter?._id) || null,
-    });
-    setAssignDialogOpen(true);
-  };
-
-  const handleCloseAssignDialog = () => {
-    setAssignDialogOpen(false);
-    setSelectedTableForAssign(null);
-  };
-
-  const handleUnassignWaiter = async (table: TableItem) => {
-    if (!window.confirm('Are you sure you want to remove the waiter from this table?')) return;
-    try {
-      await api.updateTable(table._id, { currentWaiter: null });
-      loadData();
-    } catch (error) {
-      console.error('Error unassigning waiter:', error);
-    }
-  };
-
-  const handleAssignSave = async () => {
-    if (!selectedTableForAssign) return;
-    try {
-      await api.updateTable(selectedTableForAssign._id, { currentWaiter: formData.currentWaiter });
-      handleCloseAssignDialog();
-      loadData();
-    } catch (error) {
-      console.error('Error assigning waiter:', error);
     }
   };
 
@@ -266,14 +231,34 @@ const AdminTableAssignment: React.FC = () => {
               <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
                 Table Assignment
               </Typography>
-              <Button
-                variant="contained"
-                startIcon={<Add />}
-                onClick={() => handleOpenDialog()}
-                sx={{ bgcolor: '#FF6B35', '&:hover': { bgcolor: '#e55a2b' } }}
-              >
-                Add Table
-              </Button>
+              <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                {userRole !== 'BRANCH_MANAGER' && (
+                  <FormControl size="small" sx={{ minWidth: 200, bgcolor: 'white', borderRadius: 1 }}>
+                    <InputLabel>Branch</InputLabel>
+                    <Select
+                      label="Branch"
+                      value={selectedBranch}
+                      onChange={(e) => setSelectedBranch(String(e.target.value))}
+                    >
+                      <MenuItem value="all">All Branches</MenuItem>
+                      {branches.map((b) => (
+                        <MenuItem key={b._id} value={b._id}>
+                          {b.branchName || b.name || 'Branch'}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                )}
+
+                <Button
+                  variant="contained"
+                  startIcon={<Add />}
+                  onClick={() => handleOpenDialog()}
+                  sx={{ bgcolor: '#FF6B35', '&:hover': { bgcolor: '#e55a2b' } }}
+                >
+                  Add Table
+                </Button>
+              </Box>
             </Box>
 
             {loading ? (
@@ -312,19 +297,6 @@ const AdminTableAssignment: React.FC = () => {
                           Section: {table.section}
                         </Typography>
                       )}
-                      {table.currentWaiter ? (
-                        <Box sx={{ mt: 1, p: 1, bgcolor: 'rgba(255,107,53,0.1)', borderRadius: 1 }}>
-                          <Typography variant="caption" color="primary.main" sx={{ display: 'block' }}>
-                            Waiter: {table.currentWaiter.name}
-                          </Typography>
-                        </Box>
-                      ) : (
-                        <Box sx={{ mt: 1, p: 1, bgcolor: 'rgba(0,0,0,0.05)', borderRadius: 1 }}>
-                          <Typography variant="caption" color="textSecondary" sx={{ display: 'block' }}>
-                            No waiter assigned
-                          </Typography>
-                        </Box>
-                      )}
                       <Chip
                         label={table.status.replace('_', ' ')}
                         color={getStatusColor(table.status) as any}
@@ -332,38 +304,6 @@ const AdminTableAssignment: React.FC = () => {
                         sx={{ mt: 1, mx: 'auto' }}
                       />
                       <Box sx={{ mt: 'auto', pt: 1, display: 'flex', justifyContent: 'center', gap: 0.5, flexWrap: 'wrap' }}>
-                        {table.currentWaiter ? (
-                          <>
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              startIcon={<SwapHoriz fontSize="small" />}
-                              onClick={() => handleOpenAssignDialog(table)}
-                              sx={{ fontSize: 11, px: 1, minWidth: 'auto', borderColor: '#FF6B35', color: '#FF6B35' }}
-                            >
-                              Reassign
-                            </Button>
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              startIcon={<Close fontSize="small" />}
-                              onClick={() => handleUnassignWaiter(table)}
-                              sx={{ fontSize: 11, px: 1, minWidth: 'auto', borderColor: '#999', color: '#666' }}
-                            >
-                              Remove
-                            </Button>
-                          </>
-                        ) : (
-                          <Button
-                            size="small"
-                            variant="contained"
-                            startIcon={<PersonAdd fontSize="small" />}
-                            onClick={() => handleOpenAssignDialog(table)}
-                            sx={{ fontSize: 11, px: 1, minWidth: 'auto', bgcolor: '#FF6B35' }}
-                          >
-                            Assign
-                          </Button>
-                        )}
                         <IconButton size="small" onClick={() => handleOpenDialog(table)}>
                           <Edit fontSize="small" />
                         </IconButton>
@@ -433,7 +373,7 @@ const AdminTableAssignment: React.FC = () => {
                 label="Branch"
               >
                 {branches.map((branch) => (
-                  <MenuItem key={branch._id} value={branch._id}>{branch.name}</MenuItem>
+                  <MenuItem key={branch._id} value={branch._id}>{branch.branchName || branch.name || 'Branch'}</MenuItem>
                 ))}
               </Select>
             </FormControl>
@@ -451,63 +391,11 @@ const AdminTableAssignment: React.FC = () => {
                 <MenuItem value="OUT_OF_SERVICE">Out of Service</MenuItem>
               </Select>
             </FormControl>
-            <FormControl fullWidth sx={{ mt: 2 }}>
-              <InputLabel>Assigned Waiter</InputLabel>
-              <Select
-                value={formData.currentWaiter || ''}
-                onChange={(e) => setFormData({ ...formData, currentWaiter: e.target.value || null })}
-                label="Assigned Waiter"
-              >
-                <MenuItem value="">
-                  <em>None</em>
-                </MenuItem>
-                {waiters.map((waiter) => (
-                  <MenuItem key={waiter._id} value={waiter._id}>
-                    {waiter.name}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
           </DialogContent>
           <DialogActions>
             <Button onClick={handleCloseDialog}>Cancel</Button>
             <Button onClick={handleSave} variant="contained" sx={{ bgcolor: '#FF6B35' }}>
               Save
-            </Button>
-          </DialogActions>
-        </Dialog>
-
-        {/* Assign/Reassign Waiter Dialog */}
-        <Dialog open={assignDialogOpen} onClose={handleCloseAssignDialog} maxWidth="sm" fullWidth>
-          <DialogTitle>
-            {selectedTableForAssign?.currentWaiter ? 'Reassign Waiter' : 'Assign Waiter'}
-          </DialogTitle>
-          <DialogContent>
-            <Typography variant="body2" sx={{ mb: 2 }}>
-              Table {selectedTableForAssign?.tableNumber}
-            </Typography>
-            <FormControl fullWidth sx={{ mt: 2 }}>
-              <InputLabel>Select Waiter</InputLabel>
-              <Select
-                value={formData.currentWaiter || ''}
-                onChange={(e) => setFormData({ ...formData, currentWaiter: e.target.value || null })}
-                label="Select Waiter"
-              >
-                <MenuItem value="">
-                  <em>None (Unassign)</em>
-                </MenuItem>
-                {waiters.map((waiter) => (
-                  <MenuItem key={waiter._id} value={waiter._id}>
-                    {waiter.name}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={handleCloseAssignDialog}>Cancel</Button>
-            <Button onClick={handleAssignSave} variant="contained" sx={{ bgcolor: '#FF6B35' }}>
-              {selectedTableForAssign?.currentWaiter ? 'Reassign' : 'Assign'}
             </Button>
           </DialogActions>
         </Dialog>

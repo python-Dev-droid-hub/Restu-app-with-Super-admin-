@@ -10,6 +10,7 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { api } from '../components/api/client';
 
@@ -100,19 +101,36 @@ export default function CustomerMenuScreen() {
   const [deals, setDeals] = useState<DealItem[]>([]);
   const [dealCampaigns, setDealCampaigns] = useState<DealCampaign[]>([]);
   const [dealsLoading, setDealsLoading] = useState(false);
+  const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null);
 
   useEffect(() => {
-    loadMenuData();
-    loadDeals();
+    loadSelectedBranchId();
   }, []);
+
+  const loadSelectedBranchId = async () => {
+    try {
+      const stored = await AsyncStorage.getItem('selectedBranchId');
+      if (stored) setSelectedBranchId(stored);
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    if (selectedBranchId !== null) {
+      loadMenuData();
+      loadDeals();
+    }
+  }, [selectedBranchId]);
 
   const loadMenuData = async () => {
     try {
       setLoading(true);
       console.log('🔍 [MENU DEBUG] Loading menu data...');
 
-      // Load categories with products
-      const response = await api.get('/menu');
+      // Pass branchId to API so backend can filter by activated products for this branch
+      const menuUrl = selectedBranchId ? `/menu?branchId=${selectedBranchId}` : '/menu';
+      const response = await api.get(menuUrl);
       console.log('🔍 [MENU DEBUG] API Response:', response);
       console.log('🔍 [MENU DEBUG] Response success:', response.success);
       console.log('🔍 [MENU DEBUG] Response data:', JSON.stringify(response.data, null, 2));

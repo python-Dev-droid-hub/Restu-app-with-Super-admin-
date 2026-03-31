@@ -64,6 +64,7 @@ export default function CreateBranchScreen() {
   const [acceptsTakeaway, setAcceptsTakeaway] = useState(true);
   const [latitude, setLatitude] = useState('');
   const [longitude, setLongitude] = useState('');
+  const [currency, setCurrency] = useState('PKR');
 
   // Operating hours
   const [operatingHours, setOperatingHours] = useState<OperatingHours>({
@@ -180,6 +181,7 @@ export default function CreateBranchScreen() {
         lat: latitude ? parseFloat(latitude) : null,
         lng: longitude ? parseFloat(longitude) : null,
         operating_hours: operatingHours,
+        currency,
       };
 
       const response = await api.post('', payload);
@@ -338,6 +340,22 @@ export default function CreateBranchScreen() {
           <View style={styles.toggleRow}>
             <Text style={styles.toggleLabel}>Branch Active</Text>
             <Switch value={isActive} onValueChange={setIsActive} trackColor={{ false: '#767577', true: theme.primary }} />
+          </View>
+
+          {/* Currency Selection */}
+          <View style={styles.currencySection}>
+            <Text style={styles.inputLabel}>Currency</Text>
+            <View style={styles.currencyOptions}>
+              {['PKR', 'USD', 'EUR', 'GBP', 'AED', 'SAR', 'INR'].map((c) => (
+                <TouchableOpacity
+                  key={c}
+                  style={[styles.currencyOption, currency === c && styles.currencyOptionSelected]}
+                  onPress={() => setCurrency(c)}
+                >
+                  <Text style={[styles.currencyText, currency === c && styles.currencyTextSelected]}>{c}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
         </View>
 
@@ -742,5 +760,34 @@ const styles = StyleSheet.create({
     color: theme.textSecondary,
     marginTop: getSpacing(1),
     textAlign: 'center',
+  },
+  currencySection: {
+    marginTop: getSpacing(2),
+  },
+  currencyOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: getSpacing(1),
+    marginTop: getSpacing(1),
+  },
+  currencyOption: {
+    paddingHorizontal: getSpacing(2),
+    paddingVertical: getSpacing(1),
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.white,
+  },
+  currencyOptionSelected: {
+    borderColor: theme.primary,
+    backgroundColor: theme.primary + '20',
+  },
+  currencyText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: theme.text,
+  },
+  currencyTextSelected: {
+    color: theme.primary,
   },
 });

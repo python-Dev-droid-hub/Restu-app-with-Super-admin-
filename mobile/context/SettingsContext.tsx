@@ -64,7 +64,7 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
   const loadInFlightRef = useRef(false);
   const lastLoadKeyRef = useRef<string>('');
 
-  const loadSettings = useCallback(async () => {
+  const loadSettings = useCallback(async (forceRefresh: boolean = false) => {
     if (loadInFlightRef.current) return;
     try {
       loadInFlightRef.current = true;
@@ -77,12 +77,17 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
 
       const selectedBranchId = await AsyncStorage.getItem('selectedBranchId');
       const loadKey = `${settingsPath}|${selectedBranchId || ''}`;
-      if (lastLoadKeyRef.current === loadKey && !isLoading) {
+      // Skip cache check if force refresh is requested or if already loaded this key
+      if (!forceRefresh && lastLoadKeyRef.current === loadKey) {
+        loadInFlightRef.current = false;
         return;
       }
       lastLoadKeyRef.current = loadKey;
 
-      const response = await api.get(settingsPath);
+      let response = await api.get(settingsPath);
+      if (!response.success && settingsPath === '/settings') {
+        response = await api.get('/settings/public');
+      }
       const systemSettings = response.success && response.data ? response.data : null;
 
       const storedUserData = await AsyncStorage.getItem('userData');
@@ -185,7 +190,7 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
       loadInFlightRef.current = false;
       setIsLoading(false);
     }
-  }, [isLoading]);
+  }, []);
 
   useEffect(() => {
     loadSettings();
@@ -213,7 +218,7 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
     () => ({
       ...settings,
       isLoading,
-      refreshSettings: loadSettings,
+      refreshSettings: () => loadSettings(true),
       formatPrice,
       calculatePriceWithTax,
     }),

@@ -18,7 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, typography, spacing, borderRadius, shadows } from '../../theme';
-import { getCurrentLocation, getCityFromCoordinates, getSavedBranch, fetchBranches, saveSelectedBranch, Branch } from '../../services/locationService';
+import { getCurrentLocation, getCityFromCoordinates, getSavedBranch, fetchBranches, saveSelectedBranch, findNearestBranch, Branch } from '../../services/locationService';
 import api from '../../services/api';
 import { getUnreadCount } from '../../services/notificationService';
 import { useCart } from '../../context/CartContext';
@@ -112,6 +112,8 @@ export default function HomeScreen() {
   const [showBranchSelector, setShowBranchSelector] = useState(true);
   const [branchSelectionRequired, setBranchSelectionRequired] = useState(true);
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
+  const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null);
+  const [previousBranchId, setPreviousBranchId] = useState<string | null>(null);
 
   const getFullImageUrl = useCallback((url?: string) => {
     if (!url) return '';
@@ -207,7 +209,9 @@ export default function HomeScreen() {
   const loadMenu = useCallback(async (branchId?: string | null) => {
     const targetBranchId = branchId || selectedBranchId;
     
-    const res = await api.get('/menu');
+    // Pass branchId to API so backend can filter by activated products for this branch
+    const menuUrl = targetBranchId ? `/menu?branchId=${targetBranchId}` : '/menu';
+    const res = await api.get(menuUrl);
     const apiCategories: Category[] = res?.data?.data?.categories || res?.data?.categories || [];
 
     // Store branch_id for order validation
@@ -240,11 +244,13 @@ export default function HomeScreen() {
     setCategories([{ id: 'all', name: 'All' }, ...catList]);
   }, [getFullImageUrl, getImageCandidate]);
 
-  const loadDeals = useCallback(async () => {
+  const loadDeals = useCallback(async (branchId?: string | null) => {
     try {
       setDealsLoading(true);
-      console.log('[HomeScreen] Loading deals from /deals/campaigns/active');
-      const res = await api.get('/deals/campaigns/active');
+      const targetBranchId = branchId || selectedBranchId;
+      const dealsUrl = targetBranchId ? `/deals/campaigns/active?branch=${targetBranchId}` : '/deals/campaigns/active';
+      console.log('[HomeScreen] Loading deals from', dealsUrl);
+      const res = await api.get(dealsUrl);
       console.log('[HomeScreen] Deals API response:', JSON.stringify(res?.data, null, 2));
       const campaigns: DealCampaign[] = res?.data?.data?.campaigns || res?.data?.campaigns || [];
       console.log('[HomeScreen] Parsed campaigns:', campaigns.length);
@@ -268,7 +274,7 @@ export default function HomeScreen() {
     } finally {
       setDealsLoading(false);
     }
-  }, []);
+  }, [selectedBranchId]);
 
   const loadNotificationCount = useCallback(async () => {
     try {
@@ -282,8 +288,6 @@ export default function HomeScreen() {
   const [favorites, setFavorites] = useState<string[]>([]);
   const [notificationCount, setNotificationCount] = useState(0);
   const { addToCart, clearCart, validateCart } = useCart();
-  const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null);
-  const [previousBranchId, setPreviousBranchId] = useState<string | null>(null);
 
   const loadFavorites = useCallback(async () => {
     try {
@@ -338,6 +342,8 @@ export default function HomeScreen() {
       }
 
       // No saved branch OR saved branch not found
+      // Show branch selector for manual selection (don't auto-select)
+      console.log('[HomeScreen] No saved branch - showing selector for manual selection');
       setSelectedBranch(null);
       setBranchSelectionRequired(true);
       setShowBranchSelector(true);
@@ -399,10 +405,21 @@ export default function HomeScreen() {
     console.log('[HomeScreen] isCurrentlyFavorite:', isCurrentlyFavorite, 'favorites:', favorites);
     
     try {
+      const extractServerFavorites = (resp: any): any[] => {
+        // services/api returns AxiosResponse
+        const data = resp?.data;
+        // API may return { success, data: { favorites } } OR { data: { favorites } } etc
+        const favoritesList = data?.data?.favorites || data?.favorites || data?.data || [];
+        return Array.isArray(favoritesList) ? favoritesList : [];
+      };
+
       if (isCurrentlyFavorite) {
         // Remove from favorites (need favorite record id; refetch is simplest)
         const existing: any = await api.get('/customer/favorites');
-        const fav = (existing?.data?.favorites || []).find((f: any) => String(f?.product?.id || f?.product?._id) === targetId);
+        const serverFavorites = extractServerFavorites(existing);
+        const fav = serverFavorites.find(
+          (f: any) => String(f?.product?.id || f?.product?._id || f?.productId || '') === targetId
+        );
         console.log('[HomeScreen] Found favorite to remove:', fav);
         if (fav?.id) {
           await api.delete(`/customer/favorites/${fav.id}`);
@@ -411,18 +428,37 @@ export default function HomeScreen() {
         setFavorites((prev) => prev.filter((id) => id !== targetId));
       } else {
         // Add to favorites
+        // IMPORTANT: Backend may return 400 "Product already in favorites".
+        // To prevent that error, verify against server list before POST.
+        const existing: any = await api.get('/customer/favorites');
+        const serverFavorites = extractServerFavorites(existing);
+        const alreadyOnServer = serverFavorites.some(
+          (f: any) => String(f?.product?.id || f?.product?._id || f?.productId || '') === targetId
+        );
+        if (alreadyOnServer) {
+          console.log('[HomeScreen] Product already in favorites on server - syncing local state');
+          setFavorites((prev) => (prev.includes(targetId) ? prev : [...prev, targetId]));
+          return;
+        }
+
         console.log('[HomeScreen] Adding to favorites, productId:', targetId);
         const response: any = await api.post('/customer/favorites', { productId: targetId });
         console.log('[HomeScreen] Add favorite response status:', response?.status);
         console.log('[HomeScreen] Add favorite response data:', response?.data);
         if (response?.data?.success || response?.status === 201) {
-          setFavorites((prev) => [...prev, targetId]);
+          setFavorites((prev) => (prev.includes(targetId) ? prev : [...prev, targetId]));
           console.log('[HomeScreen] Successfully added to local favorites state');
         } else {
           console.error('[HomeScreen] Failed to add favorite:', response?.data?.message || 'Unknown error');
         }
       }
     } catch (error: any) {
+      // Handle "Product already in favorites" as success
+      if (error?.response?.data?.message === 'Product already in favorites') {
+        console.log('[HomeScreen] Product already in favorites - adding to local state');
+        setFavorites((prev) => (prev.includes(targetId) ? prev : [...prev, targetId]));
+        return;
+      }
       console.error('[HomeScreen] Error toggling favorite:', error?.message || error);
       console.error('[HomeScreen] Error response:', error?.response?.data);
     }
@@ -590,8 +626,11 @@ export default function HomeScreen() {
       <View style={styles.locationHeader}>
         <View>
           <Text style={styles.deliveringTo}>Order Now</Text>
-          <TouchableOpacity style={styles.locationRow}>
-            <Text style={styles.locationText}>{locationLabel}</Text>
+          <TouchableOpacity 
+            style={styles.locationRow}
+            onPress={() => setShowBranchSelector(true)}
+          >
+            <Text style={styles.locationText}>{selectedBranch?.branchName || selectedBranch?.branchName || 'Select Branch'}</Text>
             <Ionicons name="chevron-down" size={14} color={colors.primary} />
           </TouchableOpacity>
         </View>

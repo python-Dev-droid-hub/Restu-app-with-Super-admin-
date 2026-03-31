@@ -1,4 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import type { ReactElement } from 'react';
 import { SettingsProvider } from './context/SettingsContext';
 import Layout from './components/Layout';
 import Orders from './pages/Orders';
@@ -37,6 +38,14 @@ import './pages/Dashboard.css';
 import './styles/components.css';
 import './styles/StandardLayout.css';
 
+function RequireAdminAuth({ children }: { children: ReactElement }) {
+  const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
+  return children;
+}
+
 function App() {
   return (
     <SettingsProvider>
@@ -47,23 +56,23 @@ function App() {
         <Route path="/mobile-required" element={<MobileRequired />} />
 
         {/* New MUI Admin Panel Routes */}
-        <Route path="/admin/dashboard" element={<AdminLayout><AdminDashboard /></AdminLayout>} />
-        <Route path="/admin/branches" element={<AdminLayout><AdminBranches /></AdminLayout>} />
-        <Route path="/admin/orders" element={<AdminLayout><AdminOrders /></AdminLayout>} />
-        <Route path="/admin/riders" element={<AdminLayout><AdminRiders /></AdminLayout>} />
-        <Route path="/admin/kitchens" element={<AdminLayout><AdminKitchens /></AdminLayout>} />
-        <Route path="/admin/customers" element={<AdminLayout><AdminCustomers /></AdminLayout>} />
-        <Route path="/admin/notifications" element={<AdminLayout><AdminNotifications /></AdminLayout>} />
-        <Route path="/admin/categories" element={<AdminLayout><AdminCategories /></AdminLayout>} />
-        <Route path="/admin/products" element={<AdminLayout><AdminProducts /></AdminLayout>} />
-        <Route path="/admin/coupons" element={<AdminLayout><AdminCoupons /></AdminLayout>} />
-        <Route path="/admin/deals" element={<AdminLayout><AdminDealCampaigns /></AdminLayout>} />
-        <Route path="/admin/deal-campaigns" element={<AdminLayout><AdminDealCampaigns /></AdminLayout>} />
-        <Route path="/admin/product-size" element={<AdminLayout><AdminProductSize /></AdminLayout>} />
-        <Route path="/admin/table-assignment" element={<AdminLayout><AdminTableAssignment /></AdminLayout>} />
-        <Route path="/admin/banners" element={<AdminLayout><AdminBanners /></AdminLayout>} />
-        <Route path="/admin/reports" element={<AdminLayout><AdminReports /></AdminLayout>} />
-        <Route path="/admin/settings" element={<AdminLayout><AdminSettings /></AdminLayout>} />
+        <Route path="/admin/dashboard" element={<RequireAdminAuth><AdminLayout><AdminDashboard /></AdminLayout></RequireAdminAuth>} />
+        <Route path="/admin/branches" element={<RequireAdminAuth><AdminLayout><AdminBranches /></AdminLayout></RequireAdminAuth>} />
+        <Route path="/admin/orders" element={<RequireAdminAuth><AdminLayout><AdminOrders /></AdminLayout></RequireAdminAuth>} />
+        <Route path="/admin/riders" element={<RequireAdminAuth><AdminLayout><AdminRiders /></AdminLayout></RequireAdminAuth>} />
+        <Route path="/admin/kitchens" element={<RequireAdminAuth><AdminLayout><AdminKitchens /></AdminLayout></RequireAdminAuth>} />
+        <Route path="/admin/customers" element={<RequireAdminAuth><AdminLayout><AdminCustomers /></AdminLayout></RequireAdminAuth>} />
+        <Route path="/admin/notifications" element={<RequireAdminAuth><AdminLayout><AdminNotifications /></AdminLayout></RequireAdminAuth>} />
+        <Route path="/admin/categories" element={<RequireAdminAuth><AdminLayout><AdminCategories /></AdminLayout></RequireAdminAuth>} />
+        <Route path="/admin/products" element={<RequireAdminAuth><AdminLayout><AdminProducts /></AdminLayout></RequireAdminAuth>} />
+        <Route path="/admin/coupons" element={<RequireAdminAuth><AdminLayout><AdminCoupons /></AdminLayout></RequireAdminAuth>} />
+        <Route path="/admin/deals" element={<RequireAdminAuth><AdminLayout><AdminDealCampaigns /></AdminLayout></RequireAdminAuth>} />
+        <Route path="/admin/deal-campaigns" element={<RequireAdminAuth><AdminLayout><AdminDealCampaigns /></AdminLayout></RequireAdminAuth>} />
+        <Route path="/admin/product-size" element={<RequireAdminAuth><AdminLayout><AdminProductSize /></AdminLayout></RequireAdminAuth>} />
+        <Route path="/admin/table-assignment" element={<RequireAdminAuth><AdminLayout><AdminTableAssignment /></AdminLayout></RequireAdminAuth>} />
+        <Route path="/admin/banners" element={<RequireAdminAuth><AdminLayout><AdminBanners /></AdminLayout></RequireAdminAuth>} />
+        <Route path="/admin/reports" element={<RequireAdminAuth><AdminLayout><AdminReports /></AdminLayout></RequireAdminAuth>} />
+        <Route path="/admin/settings" element={<RequireAdminAuth><AdminLayout><AdminSettings /></AdminLayout></RequireAdminAuth>} />
 
         {/* Legacy Routes */}
         <Route path="/" element={<Navigate to="/admin/dashboard" replace />} />

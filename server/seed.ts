@@ -25,7 +25,7 @@ async function seed() {
       email: 'admin@restaurant.com',
       displayName: 'Super Admin',
       role: 'SUPER_ADMIN',
-      passwordHash: 'Admin123!',
+      passwordHash: 'admin123',
       phoneNumber: '+923001234567',
       emailVerified: true,
       isActive: true,
@@ -44,7 +44,7 @@ async function seed() {
     });
 
     await superAdmin.save();
-    console.log('✅ Created SUPER_ADMIN: admin@restaurant.com / Admin123!');
+    console.log('✅ Created SUPER_ADMIN: admin@restaurant.com / admin123');
 
     await branchManager.save();
     console.log('✅ Created BRANCH_MANAGER: manager@restaurant.com / manager123');

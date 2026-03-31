@@ -45,6 +45,9 @@ export default function AdminProductSizesScreen() {
   const { t } = useLocalization();
   const { profileImage } = useUserData();
   const [sizes, setSizes] = useState<Size[]>([]);
+
+  // Get parent tab navigation for bottom nav (undefined for stack screens)
+  const tabNavigation = navigation.getParent();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
@@ -188,9 +191,11 @@ export default function AdminProductSizesScreen() {
           <View style={styles.branchInfo}>
             <Ionicons name="business-outline" size={18} color="#E87E35" />
             <Text style={styles.branchInfoText}>
-              {assignedBranch.name || 'Loading Branch...'}
+              {userRole === 'ADMIN' || userRole === 'SUPER_ADMIN'
+                ? 'All Branches'
+                : (assignedBranch.name || 'Loading Branch...')}
             </Text>
-            {assignedBranch.code && (
+            {userRole !== 'ADMIN' && userRole !== 'SUPER_ADMIN' && assignedBranch.code && (
               <View style={styles.branchCodeBadge}>
                 <Text style={styles.branchCodeText}>{assignedBranch.code}</Text>
               </View>
@@ -275,7 +280,7 @@ export default function AdminProductSizesScreen() {
       </TouchableOpacity>
 
       {/* Bottom Navigation */}
-      <AdminBottomNavigation onMorePress={() => setShowMoreMenu(true)} />
+      <AdminBottomNavigation onMorePress={() => setShowMoreMenu(true)} tabNavigation={tabNavigation} />
 
       {/* More Menu Modal */}
       <Modal

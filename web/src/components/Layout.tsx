@@ -5,6 +5,15 @@ import { useLanguage } from '../context/LanguageContext';
 import NotificationDropdown from './NotificationDropdown';
 import './Layout.css';
 
+const sanitizeWebImageSrc = (src: unknown): string => {
+  if (!src || typeof src !== 'string') return '';
+  const trimmed = src.trim();
+  if (!trimmed) return '';
+  const lower = trimmed.toLowerCase();
+  if (lower.startsWith('file:') || lower.includes('var/mobile') || lower.includes('imagepicker')) return '';
+  return trimmed;
+};
+
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { t } = useLanguage();
   const location = useLocation();
@@ -28,7 +37,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       try {
         const parsed = JSON.parse(userData);
         setUserName(parsed.name || '');
-        setProfileImage(parsed.profileImage || parsed.avatar || '');
+        setProfileImage(sanitizeWebImageSrc(parsed.profileImage || parsed.avatar));
       } catch (e) {
         console.error('Error parsing user data:', e);
       }
@@ -43,7 +52,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         try {
           const parsed = JSON.parse(userData);
           setUserName(parsed.name || '');
-          setProfileImage(parsed.profileImage || parsed.avatar || '');
+          setProfileImage(sanitizeWebImageSrc(parsed.profileImage || parsed.avatar));
         } catch (e) {
           console.error('Error parsing user data:', e);
         }

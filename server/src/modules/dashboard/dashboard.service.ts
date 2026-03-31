@@ -3,6 +3,7 @@ import { Order } from '@/models/Order';
 import { Branch } from '@/models/Branch';
 import { Payment } from '@/models/Payment';
 import { Product } from '@/models/Product';
+import { Types } from 'mongoose';
 
 export class DashboardService {
   // Super Admin Dashboard Stats
@@ -27,6 +28,14 @@ export class DashboardService {
     // Today's revenue
     const todayRevenue = await Order.aggregate([
       { $match: { createdAt: { $gte: today } } },
+      { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+    ]).then(result => result[0]?.total || 0);
+    
+    // TOTAL orders (all-time)
+    const totalOrders = await Order.countDocuments();
+    
+    // TOTAL revenue (all-time)
+    const totalRevenue = await Order.aggregate([
       { $group: { _id: null, total: { $sum: '$totalAmount' } } }
     ]).then(result => result[0]?.total || 0);
     
@@ -60,10 +69,402 @@ export class DashboardService {
       ordersToday,
       totalItemsSold,
       todayRevenue,
+      totalOrders,      // All-time total
+      totalRevenue,   // All-time total
       totalBranches,
       totalUsers,
       topPerformingBranches
     };
+  }
+
+  async getAdminWaitersPerformance(params?: { period?: string; branchId?: string }) {
+    const period = params?.period;
+    const branchIdRaw = params?.branchId && params.branchId !== 'all' ? params.branchId : undefined;
+    const branchObjectId = branchIdRaw && Types.ObjectId.isValid(branchIdRaw) ? new Types.ObjectId(branchIdRaw) : undefined;
+
+    console.log('[DEBUG Waiters] Params:', { period, branchIdRaw, branchObjectId: branchObjectId?.toString() });
+
+    const now = new Date();
+    const startDate = (() => {
+      if (!period || period === 'all') return null;
+      const d = new Date(now);
+      if (period === 'day') {
+        d.setHours(0, 0, 0, 0);
+        return d;
+      }
+      if (period === 'week') return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      if (period === 'month') return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      // Extended periods to catch older orders
+      if (period === 'quarter') return new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+      if (period === 'year') return new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+      return null;
+    })();
+
+    // Build simplified match - just branch and date, no status/orderType restrictions
+    const match: any = {};
+    
+    if (branchIdRaw) {
+      match.$or = [
+        { branch: branchObjectId },
+        { branch: branchIdRaw }
+      ];
+    }
+    
+    if (startDate) {
+      match.$and = match.$and || [];
+      match.$and.push({ $or: [{ updatedAt: { $gte: startDate } }, { createdAt: { $gte: startDate } }] });
+    }
+
+    console.log('[DEBUG Waiters] Simplified match:', JSON.stringify(match, null, 2));
+
+    // Count ALL orders matching branch/date
+    const totalOrdersInBranch = await Order.countDocuments(match);
+    console.log('[DEBUG Waiters] Total orders in branch/date range:', totalOrdersInBranch);
+
+    // Aggregate by waiter field (fallback to customer if no waiter)
+    const aggregationMatch = { ...match };
+    
+    const rows = await Order.aggregate([
+      { $match: aggregationMatch },
+      {
+        $project: {
+          performerId: {
+            $cond: {
+              if: { $and: [
+                { $ne: ['$waiter', null] },
+                { $ne: ['$waiter', ''] },
+                { $ne: [{ $type: '$waiter' }, 'missing'] }
+              ]},
+              then: '$waiter',
+              else: '$customer'
+            }
+          },
+          totalAmount: 1,
+          status: 1,
+          orderType: 1,
+        }
+      },
+      { $match: { performerId: { $exists: true, $ne: null } } },
+      { $group: { _id: '$performerId', servedOrders: { $sum: 1 }, revenue: { $sum: '$totalAmount' } } },
+      { $sort: { servedOrders: -1 } },
+    ]);
+
+    console.log('[DEBUG Waiters] Aggregation result count:', rows.length);
+    console.log('[DEBUG Waiters] Aggregation rows:', rows.slice(0, 5));
+
+    // Lookup user names for these performer IDs
+    const performerIds = rows.map((r: any) => r._id).filter(Boolean);
+    const users = await User.find({ _id: { $in: performerIds } }).select('_id displayName email role');
+    console.log('[DEBUG Waiters] Found users:', users.length);
+
+    const userMap = new Map();
+    users.forEach((u: any) => userMap.set(u._id.toString(), { name: u.displayName || u.email, role: u.role }));
+
+    const resultRows = rows.map((r: any) => {
+      const userInfo = userMap.get(r._id.toString()) || { name: 'Unknown User', role: 'CUSTOMER' };
+      return {
+        waiterId: r._id,
+        name: userInfo.name,
+        role: userInfo.role,
+        servedOrders: r.servedOrders,
+        revenue: r.revenue,
+      };
+    });
+
+    console.log('[DEBUG Waiters] Final result rows count:', resultRows.length);
+
+    // If branch selected, merge with staff list (show all staff even with 0 orders)
+    if (branchIdRaw) {
+      const staffBranchFilter: any = {
+        isActive: true,
+        role: 'WAITER',
+        ...(branchObjectId || branchIdRaw
+          ? {
+              assignedBranch: {
+                $in: [
+                  ...(branchObjectId ? [branchObjectId] : []),
+                  ...(branchIdRaw ? [branchIdRaw] : []),
+                ],
+              },
+            }
+          : {}),
+      };
+      const allWaiters = await User.find(staffBranchFilter).select('_id displayName email');
+      console.log('[DEBUG Waiters] Staff waiters found:', allWaiters.length);
+
+      const perfMap = new Map<string, { servedOrders: number; revenue: number; name?: string }>();
+      resultRows.forEach((r: any) => {
+        perfMap.set(String(r.waiterId), {
+          servedOrders: Number(r.servedOrders || 0),
+          revenue: Number(r.revenue || 0),
+          name: r.name,
+        });
+      });
+
+      const fullRows = (allWaiters || []).map((u: any) => {
+        const key = u._id.toString();
+        const perf = perfMap.get(key) || { servedOrders: 0, revenue: 0 };
+        return {
+          waiterId: u._id,
+          name: u.displayName || u.email,
+          servedOrders: perf.servedOrders,
+          revenue: perf.revenue,
+        };
+      });
+
+      // Also include any performers from orders who aren't in the staff list (e.g., customers as waiters)
+      const seen = new Set(fullRows.map((r: any) => String(r.waiterId)));
+      resultRows.forEach((r: any) => {
+        const id = String(r?.waiterId);
+        if (!id || seen.has(id)) return;
+        fullRows.push({
+          waiterId: r.waiterId,
+          name: r.name || 'Unknown User',
+          servedOrders: Number(r.servedOrders || 0),
+          revenue: Number(r.revenue || 0),
+        });
+        seen.add(id);
+      });
+
+      fullRows.sort((a: any, b: any) => Number(b.servedOrders || 0) - Number(a.servedOrders || 0));
+      console.log('[DEBUG Waiters] Final fullRows count:', fullRows.length);
+      return { waiters: fullRows };
+    }
+
+    return { waiters: resultRows };
+  }
+
+  async getAdminRidersPerformance(params?: { period?: string; branchId?: string }) {
+    const period = params?.period;
+    const branchIdRaw = params?.branchId && params.branchId !== 'all' ? params.branchId : undefined;
+    const branchObjectId = branchIdRaw && Types.ObjectId.isValid(branchIdRaw) ? new Types.ObjectId(branchIdRaw) : undefined;
+
+    console.log('[DEBUG Riders] Params:', { period, branchIdRaw, branchObjectId: branchObjectId?.toString() });
+
+    const now = new Date();
+    const startDate = (() => {
+      if (!period || period === 'all') return null;
+      const d = new Date(now);
+      if (period === 'day') {
+        d.setHours(0, 0, 0, 0);
+        return d;
+      }
+      if (period === 'week') return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      if (period === 'month') return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      // Extended periods to catch older orders
+      if (period === 'quarter') return new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+      if (period === 'year') return new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+      return null;
+    })();
+
+    // Build simplified match - just branch, date, and rider must exist
+    const match: any = {
+      rider: { $exists: true, $ne: null },
+    };
+    
+    if (branchIdRaw) {
+      match.$or = [
+        { branch: branchObjectId },
+        { branch: branchIdRaw }
+      ];
+    }
+    
+    if (startDate) {
+      match.$and = match.$and || [];
+      match.$and.push({ $or: [{ updatedAt: { $gte: startDate } }, { createdAt: { $gte: startDate } }] });
+    }
+
+    console.log('[DEBUG Riders] Simplified match:', JSON.stringify(match, null, 2));
+
+    // Count ALL orders with rider field matching branch/date
+    const totalOrdersWithRider = await Order.countDocuments(match);
+    console.log('[DEBUG Riders] Total orders with rider in branch/date range:', totalOrdersWithRider);
+
+    const rows = await Order.aggregate([
+      { $match: match },
+      { $group: { _id: '$rider', deliveredOrders: { $sum: 1 }, revenue: { $sum: '$totalAmount' } } },
+      { $sort: { deliveredOrders: -1 } },
+    ]);
+
+    console.log('[DEBUG Riders] Aggregation result count:', rows.length);
+    console.log('[DEBUG Riders] Aggregation rows:', rows.slice(0, 5));
+
+    // Lookup user names
+    const riderIds = rows.map((r: any) => r._id).filter(Boolean);
+    const users = await User.find({ _id: { $in: riderIds } }).select('_id displayName email role');
+    console.log('[DEBUG Riders] Found users:', users.length);
+
+    const userMap = new Map();
+    users.forEach((u: any) => userMap.set(u._id.toString(), u.displayName || u.email));
+
+    const resultRows = rows.map((r: any) => ({
+      riderId: r._id,
+      name: userMap.get(r._id.toString()) || 'Unknown',
+      deliveredOrders: r.deliveredOrders,
+      revenue: r.revenue,
+    }));
+
+    console.log('[DEBUG Riders] Final result rows count:', resultRows.length);
+
+    if (!branchIdRaw) {
+      return { riders: resultRows };
+    }
+
+    const staffBranchFilter: any = {
+      isActive: true,
+      role: 'RIDER',
+      ...(branchObjectId || branchIdRaw
+        ? {
+            assignedBranch: {
+              $in: [
+                ...(branchObjectId ? [branchObjectId] : []),
+                ...(branchIdRaw ? [branchIdRaw] : []),
+              ],
+            },
+          }
+        : {}),
+    };
+
+    const allRiders = await User.find(staffBranchFilter).select('_id displayName email');
+    console.log('[DEBUG Riders] Staff riders found:', allRiders.length);
+
+    const perfMap = new Map<string, { deliveredOrders: number; revenue: number; name?: string }>();
+    resultRows.forEach((r: any) => {
+      perfMap.set(String(r.riderId), {
+        deliveredOrders: Number(r.deliveredOrders || 0),
+        revenue: Number(r.revenue || 0),
+        name: r.name,
+      });
+    });
+
+    const fullRows = (allRiders || []).map((u: any) => {
+      const key = u._id.toString();
+      const perf = perfMap.get(key) || { deliveredOrders: 0, revenue: 0 };
+      return {
+        riderId: u._id,
+        name: u.displayName || u.email,
+        deliveredOrders: perf.deliveredOrders,
+        revenue: perf.revenue,
+      };
+    });
+
+    const seen = new Set(fullRows.map((r: any) => String(r.riderId)));
+    resultRows.forEach((r: any) => {
+      const id = String(r?.riderId);
+      if (!id || seen.has(id)) return;
+      fullRows.push({
+        riderId: r.riderId,
+        name: r.name || 'Unknown',
+        deliveredOrders: Number(r.deliveredOrders || 0),
+        revenue: Number(r.revenue || 0),
+      });
+      seen.add(id);
+    });
+
+    fullRows.sort((a: any, b: any) => Number(b.deliveredOrders || 0) - Number(a.deliveredOrders || 0));
+    console.log('[DEBUG Riders] Final fullRows count:', fullRows.length);
+    return { riders: fullRows };
+  }
+
+  async getAdminBranchesPerformance(params?: { period?: string; branchId?: string }) {
+    const period = params?.period;
+    const branchIdRaw = params?.branchId && params.branchId !== 'all' ? params.branchId : undefined;
+    const branchObjectId = branchIdRaw && Types.ObjectId.isValid(branchIdRaw) ? new Types.ObjectId(branchIdRaw) : undefined;
+
+    const now = new Date();
+    const startDate = (() => {
+      if (!period) return null;
+      const d = new Date(now);
+      if (period === 'day') {
+        d.setHours(0, 0, 0, 0);
+        return d;
+      }
+      if (period === 'week') return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      if (period === 'month') return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      return null;
+    })();
+
+    const branches = await Branch.find(
+      branchObjectId ? { _id: branchObjectId } : branchIdRaw ? { _id: branchIdRaw as any } : {}
+    ).select('_id branchName name isActive');
+    const branchList = branches.map((b: any) => ({
+      branchId: b._id.toString(),
+      name: b.branchName || b.name,
+      isActive: !!b.isActive,
+    }));
+
+    const match: any = {};
+    if (branchObjectId || branchIdRaw) {
+      const branchIn: any[] = [];
+      if (branchObjectId) branchIn.push(branchObjectId);
+      if (branchIdRaw) branchIn.push(branchIdRaw);
+      match.branch = { $in: branchIn };
+    }
+    if (startDate) {
+      match.$or = [{ updatedAt: { $gte: startDate } }, { createdAt: { $gte: startDate } }];
+    }
+
+    const perfRows = await Order.aggregate([
+      { $match: match },
+      { $addFields: { branchStr: { $toString: '$branch' } } },
+      {
+        $group: {
+          _id: '$branchStr',
+          orders: { $sum: 1 },
+          revenue: { $sum: '$totalAmount' },
+        },
+      },
+    ]);
+
+    const perfMap = new Map<string, { orders: number; revenue: number }>();
+    (perfRows || []).forEach((r: any) => {
+      if (!r?._id) return;
+      perfMap.set(String(r._id), { orders: Number(r.orders || 0), revenue: Number(r.revenue || 0) });
+    });
+
+    const riderCounts = await User.aggregate([
+      {
+        $match: {
+          isActive: true,
+          role: 'RIDER',
+          assignedBranch: { $exists: true, $ne: null },
+          ...(branchObjectId || branchIdRaw
+            ? {
+                assignedBranch: {
+                  $in: [
+                    ...(branchObjectId ? [branchObjectId] : []),
+                    ...(branchIdRaw ? [branchIdRaw] : []),
+                  ],
+                },
+              }
+            : {}),
+        },
+      },
+      { $addFields: { branchStr: { $toString: '$assignedBranch' } } },
+      { $group: { _id: '$branchStr', riders: { $sum: 1 } } },
+    ]);
+    const ridersMap = new Map<string, number>();
+    (riderCounts || []).forEach((r: any) => {
+      if (!r?._id) return;
+      ridersMap.set(String(r._id), Number(r.riders || 0));
+    });
+
+    const results = branchList.map((b) => {
+      const perf = perfMap.get(b.branchId) || { orders: 0, revenue: 0 };
+      const riders = ridersMap.get(b.branchId) || 0;
+      return {
+        branchId: b.branchId,
+        name: b.name,
+        isActive: b.isActive,
+        orders: perf.orders,
+        revenue: perf.revenue,
+        riders,
+      };
+    });
+
+    results.sort((a, b) => (b.orders || 0) - (a.orders || 0));
+
+    return { branches: results };
   }
 
   // Super Admin Branches Data
@@ -190,66 +591,145 @@ export class DashboardService {
   }
 
   // Admin Dashboard Stats
-  async getAdminStats() {
-    const totalUsers = await User.countDocuments({ isActive: true });
-    const totalCustomers = await User.countDocuments({ isActive: true, role: 'CUSTOMER' });
-    const totalRestaurants = await Branch.countDocuments({ isActive: true });
-    const totalOrders = await Order.countDocuments();
-    const totalProducts = await Product.countDocuments({ deletedAt: null });
-    
-    // Calculate revenue from completed orders with successful payment
-    const revenueResult = await Order.aggregate([
-      { 
-        $match: { 
-          status: 'COMPLETED',
-          $or: [
-            { paymentStatus: 'SUCCESS' },
-            { paymentMethod: { $exists: true, $ne: null } }
-          ]
-        } 
-      },
-      { 
-        $group: { _id: null, total: { $sum: '$totalAmount' } } 
+  async getAdminStats(params?: { period?: string; branchId?: string }) {
+    const period = params?.period;
+    const branchIdRaw = params?.branchId && params.branchId !== 'all' ? params.branchId : undefined;
+    const branchObjectId = branchIdRaw && Types.ObjectId.isValid(branchIdRaw) ? new Types.ObjectId(branchIdRaw) : undefined;
+
+    const now = new Date();
+    const startDate = (() => {
+      if (!period) return null;
+      const d = new Date(now);
+      if (period === 'day') {
+        d.setHours(0, 0, 0, 0);
+        return d;
       }
-    ]);
-    const totalRevenue = revenueResult[0]?.total || 0;
-    
-    // Calculate today's revenue
+      if (period === 'week') return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      if (period === 'month') return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      return null;
+    })();
+
+    const ordersBaseMatch: any = {};
+    if (branchObjectId || branchIdRaw) {
+      const branchIn: any[] = [];
+      if (branchObjectId) branchIn.push(branchObjectId);
+      if (branchIdRaw) branchIn.push(branchIdRaw);
+      ordersBaseMatch.branch = { $in: branchIn };
+    }
+    if (startDate) {
+      ordersBaseMatch.$or = [{ updatedAt: { $gte: startDate } }, { createdAt: { $gte: startDate } }];
+    }
+
+    const completedRevenueMatch: any = {
+      ...ordersBaseMatch,
+      status: { $in: ['COMPLETED', 'DELIVERED', 'SERVED'] },
+      $or: [{ paymentStatus: 'SUCCESS' }, { paymentMethod: { $exists: true, $ne: null } }],
+    };
+
+    const activeOrdersMatch: any = {
+      ...ordersBaseMatch,
+      status: { $in: ['PENDING', 'CONFIRMED', 'PREPARING', 'READY', 'OUT_FOR_DELIVERY', 'KITCHEN_ACCEPTED', 'PICKED_UP', 'COOKING_URGENT'] },
+    };
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const todayRevenueResult = await Order.aggregate([
-      { 
-        $match: { 
-          status: 'COMPLETED',
-          createdAt: { $gte: today },
-          $or: [
-            { paymentStatus: 'SUCCESS' },
-            { paymentMethod: { $exists: true, $ne: null } }
-          ]
-        } 
-      },
-      { 
-        $group: { _id: null, total: { $sum: '$totalAmount' } } 
-      }
-    ]);
-    const totalOrdersToday = await Order.countDocuments({ createdAt: { $gte: today } });
+    const todayOrdersMatch: any = { ...ordersBaseMatch };
+    todayOrdersMatch.$or = [{ updatedAt: { $gte: today } }, { createdAt: { $gte: today } }];
 
-    return {
-      totalUsers: totalCustomers,
+    const [
+      totalUsersAll,
+      totalCustomers,
       totalRestaurants,
       totalOrders,
+      activeOrders,
       totalProducts,
-      totalRevenue,
+      revenueResult,
       totalOrdersToday,
+      activeRiders,
+    ] = await Promise.all([
+      User.countDocuments({ isActive: true }),
+      User.countDocuments({ isActive: true, role: 'CUSTOMER' }),
+      Branch.countDocuments({ isActive: true }),
+      Order.countDocuments(ordersBaseMatch),
+      Order.countDocuments(activeOrdersMatch),
+      Product.countDocuments({
+        deletedAt: null,
+        ...(branchObjectId
+          ? {
+              $or: [
+                { branchId: branchObjectId },
+                { branchId: { $exists: false } },
+                { branchId: null },
+              ],
+            }
+          : {}),
+      }),
+      Order.aggregate([
+        { $match: completedRevenueMatch },
+        { $group: { _id: null, total: { $sum: '$totalAmount' } } },
+      ]),
+      Order.countDocuments(todayOrdersMatch),
+      User.countDocuments({
+        isActive: true,
+        role: 'RIDER',
+        ...(branchObjectId || branchIdRaw
+          ? {
+              assignedBranch: {
+                $in: [
+                  ...(branchObjectId ? [branchObjectId] : []),
+                  ...(branchIdRaw ? [branchIdRaw] : []),
+                ],
+              },
+            }
+          : {}),
+      }),
+    ]);
+
+    // Calculate branch-specific or all-users count based on branch filter
+    let totalUsers;
+    if (branchObjectId || branchIdRaw) {
+      // When branch is selected, count users assigned to that branch (staff) + customers who ordered from that branch
+      const branchFilter = branchObjectId || branchIdRaw;
+      const staffInBranch = await User.countDocuments({
+        isActive: true,
+        assignedBranch: branchFilter,
+      });
+      
+      // Count unique customers who have orders in this branch
+      const customersWithOrdersInBranch = await Order.distinct('customer', {
+        branch: branchFilter,
+      });
+      
+      totalUsers = staffInBranch + customersWithOrdersInBranch.length;
+    } else {
+      // When "All Branches" selected, count ALL active users in the app
+      totalUsers = totalUsersAll;
+    }
+
+    const totalRevenue = revenueResult[0]?.total || 0;
+
+    return {
+      // Web dashboard fields
+      totalOrders,
+      activeOrders,
+      totalRevenue,
+      totalProducts,
+      totalOrdersToday,
+      activeRiders,
+
+      // Existing fields kept for backward compatibility
+      totalUsers,
+      totalCustomers,
+      totalRestaurants,
       usersChange: 12,
       restaurantsChange: 5,
       ordersChange: 18,
-      revenueChange: 23
+      revenueChange: 23,
     };
   }
 
   // Admin Analytics with time range filtering
-  async getAdminAnalytics(timeRange: string = '30d') {
+  async getAdminAnalytics(timeRange: string = '30d', branchId?: string) {
     // Calculate date range
     const now = new Date();
     let startDate: Date;
@@ -271,46 +751,101 @@ export class DashboardService {
         startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     }
 
+    const branchMatch = branchId ? { branch: (branchId as any) } : {};
+
     // Total revenue for the period
-    const totalRevenue = await Payment.aggregate([
-      { $match: { status: 'COMPLETED', createdAt: { $gte: startDate } } },
-      { $group: { _id: null, total: { $sum: '$amount' } } }
-    ]).then(result => result[0]?.total || 0);
+    const totalRevenue = branchId
+      ? await Payment.aggregate([
+          { $match: { status: 'COMPLETED', createdAt: { $gte: startDate } } },
+          {
+            $lookup: {
+              from: 'orders',
+              localField: 'order',
+              foreignField: '_id',
+              as: 'order'
+            }
+          },
+          { $unwind: '$order' },
+          { $match: { 'order.branch': (branchId as any) } },
+          { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]).then(result => result[0]?.total || 0)
+      : await Payment.aggregate([
+          { $match: { status: 'COMPLETED', createdAt: { $gte: startDate } } },
+          { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]).then(result => result[0]?.total || 0);
 
     // Total orders for the period
-    const totalOrders = await Order.countDocuments({ createdAt: { $gte: startDate } });
+    const totalOrders = await Order.countDocuments({ createdAt: { $gte: startDate }, ...branchMatch });
 
     // Average order value
     const averageOrderValue = totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0;
 
     // Revenue by month
-    const revenueByMonth = await Payment.aggregate([
-      { $match: { status: 'COMPLETED', createdAt: { $gte: startDate } } },
-      {
-        $group: {
-          _id: {
-            year: { $year: '$createdAt' },
-            month: { $month: '$createdAt' }
+    const revenueByMonth = branchId
+      ? await Payment.aggregate([
+          { $match: { status: 'COMPLETED', createdAt: { $gte: startDate } } },
+          {
+            $lookup: {
+              from: 'orders',
+              localField: 'order',
+              foreignField: '_id',
+              as: 'order'
+            }
           },
-          revenue: { $sum: '$amount' },
-          orders: { $sum: 1 }
-        }
-      },
-      {
-        $project: {
-          month: {
-            $concat: [
-              { $arrayElemAt: [['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], '$_id.month'] },
-              ' ',
-              { $toString: '$_id.year' }
-            ]
+          { $unwind: '$order' },
+          { $match: { 'order.branch': (branchId as any) } },
+          {
+            $group: {
+              _id: {
+                year: { $year: '$createdAt' },
+                month: { $month: '$createdAt' }
+              },
+              revenue: { $sum: '$amount' },
+              orders: { $sum: 1 }
+            }
           },
-          revenue: 1,
-          orders: 1
-        }
-      },
-      { $sort: { '_id.year': 1, '_id.month': 1 } }
-    ]);
+          {
+            $project: {
+              month: {
+                $concat: [
+                  { $arrayElemAt: [['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], '$_id.month'] },
+                  ' ',
+                  { $toString: '$_id.year' }
+                ]
+              },
+              revenue: 1,
+              orders: 1
+            }
+          },
+          { $sort: { '_id.year': 1, '_id.month': 1 } }
+        ])
+      : await Payment.aggregate([
+          { $match: { status: 'COMPLETED', createdAt: { $gte: startDate } } },
+          {
+            $group: {
+              _id: {
+                year: { $year: '$createdAt' },
+                month: { $month: '$createdAt' }
+              },
+              revenue: { $sum: '$amount' },
+              orders: { $sum: 1 }
+            }
+          },
+          {
+            $project: {
+              month: {
+                $concat: [
+                  { $arrayElemAt: [['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], '$_id.month'] },
+                  ' ',
+                  { $toString: '$_id.year' }
+                ]
+              },
+              revenue: 1,
+              orders: 1
+            }
+          },
+          { $sort: { '_id.year': 1, '_id.month': 1 } }
+        ]);
 
     // Top restaurants
     const topRestaurants = await Payment.aggregate([
@@ -324,6 +859,7 @@ export class DashboardService {
         }
       },
       { $unwind: '$order' },
+      ...(branchId ? [{ $match: { 'order.branch': (branchId as any) } }] : []),
       {
         $lookup: {
           from: 'branches',
@@ -374,7 +910,7 @@ export class DashboardService {
 
     // Order status distribution
     const orderStatusDistribution = await Order.aggregate([
-      { $match: { createdAt: { $gte: startDate } } },
+      { $match: { createdAt: { $gte: startDate }, ...branchMatch } },
       {
         $group: {
           _id: '$status',
@@ -822,92 +1358,24 @@ export class DashboardService {
 
     if (!branchId) {
       return {
-        weeklyRevenue: 0,
-        monthlyOrders: 0,
+        totalOrders: 0,
+        totalRevenue: 0,
         averageOrderValue: 0,
-        changePercentages: { revenue: 0, orders: 0, avgValue: 0 }
+        topRestaurants: [],
+        revenueByMonth: [],
+        userGrowth: [],
+        orderStatusDistribution: {
+          PENDING: 0,
+          CONFIRMED: 0,
+          PREPARING: 0,
+          READY: 0,
+          OUT_FOR_DELIVERY: 0,
+          DELIVERED: 0,
+          CANCELLED: 0,
+        },
       };
     }
 
-    // Calculate date range
-    const now = new Date();
-    let startDate: Date;
-
-    switch (timeRange) {
-      case '7d':
-        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        break;
-      case '30d':
-        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        break;
-      case '90d':
-        startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-        break;
-      default:
-        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    }
-
-    // Current period metrics
-    const currentRevenue = await Payment.aggregate([
-      { $match: { status: 'COMPLETED', createdAt: { $gte: startDate } } },
-      {
-        $lookup: {
-          from: 'orders',
-          localField: 'order',
-          foreignField: '_id',
-          as: 'order'
-        }
-      },
-      { $unwind: '$order' },
-      { $match: { 'order.branch': branchId } },
-      { $group: { _id: null, total: { $sum: '$amount' } } }
-    ]).then(result => result[0]?.total || 0);
-
-    const currentOrders = await Order.countDocuments({
-      branch: branchId,
-      createdAt: { $gte: startDate }
-    });
-
-    const currentAvgValue = currentOrders > 0 ? Math.round(currentRevenue / currentOrders) : 0;
-
-    // Previous period metrics for comparison
-    const prevStartDate = new Date(startDate.getTime() - (now.getTime() - startDate.getTime()));
-    const prevRevenue = await Payment.aggregate([
-      { $match: { status: 'COMPLETED', createdAt: { $gte: prevStartDate, $lt: startDate } } },
-      {
-        $lookup: {
-          from: 'orders',
-          localField: 'order',
-          foreignField: '_id',
-          as: 'order'
-        }
-      },
-      { $unwind: '$order' },
-      { $match: { 'order.branch': branchId } },
-      { $group: { _id: null, total: { $sum: '$amount' } } }
-    ]).then(result => result[0]?.total || 0);
-
-    const prevOrders = await Order.countDocuments({
-      branch: branchId,
-      createdAt: { $gte: prevStartDate, $lt: startDate }
-    });
-
-    const prevAvgValue = prevOrders > 0 ? Math.round(prevRevenue / prevOrders) : 0;
-
-    // Calculate percentage changes
-    const revenueChange = prevRevenue > 0 ? Math.round(((currentRevenue - prevRevenue) / prevRevenue) * 100) : 0;
-    const ordersChange = prevOrders > 0 ? Math.round(((currentOrders - prevOrders) / prevOrders) * 100) : 0;
-    const avgValueChange = prevAvgValue > 0 ? Math.round(((currentAvgValue - prevAvgValue) / prevAvgValue) * 100) : 0;
-
-    return {
-      weeklyRevenue: currentRevenue,
-      monthlyOrders: currentOrders,
-      averageOrderValue: currentAvgValue,
-      changePercentages: {
-        revenue: revenueChange,
-        orders: ordersChange,
-        avgValue: avgValueChange
-      }
-    };
+    return this.getAdminAnalytics(timeRange, branchId.toString());
   }
 }

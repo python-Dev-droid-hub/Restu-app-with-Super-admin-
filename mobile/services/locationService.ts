@@ -22,6 +22,19 @@ export interface Branch {
   distance?: number;
 }
 
+function getBranchCoordinates(branch: Branch): { lat: number; lng: number } | null {
+  const lat =
+    typeof branch.lat === 'number'
+      ? branch.lat
+      : (typeof branch.location?.latitude === 'number' ? branch.location.latitude : undefined);
+  const lng =
+    typeof branch.lng === 'number'
+      ? branch.lng
+      : (typeof branch.location?.longitude === 'number' ? branch.location.longitude : undefined);
+  if (typeof lat !== 'number' || typeof lng !== 'number') return null;
+  return { lat, lng };
+}
+
 /**
  * Request location permissions and get current location
  */
@@ -103,13 +116,14 @@ export function findNearestBranch(
   let minDistance = Infinity;
 
   for (const branch of branches) {
-    if (branch.lat === undefined || branch.lng === undefined) continue;
+    const coords = getBranchCoordinates(branch);
+    if (!coords) continue;
 
     const distance = calculateDistance(
       userLocation.latitude,
       userLocation.longitude,
-      branch.lat,
-      branch.lng
+      coords.lat,
+      coords.lng
     );
 
     if (distance < minDistance) {
@@ -130,14 +144,15 @@ export function calculateBranchDistances(
 ): Branch[] {
   return branches
     .map((branch) => {
-      if (branch.lat === undefined || branch.lng === undefined) {
+      const coords = getBranchCoordinates(branch);
+      if (!coords) {
         return { ...branch, distance: Infinity };
       }
       const distance = calculateDistance(
         userLocation.latitude,
         userLocation.longitude,
-        branch.lat,
-        branch.lng
+        coords.lat,
+        coords.lng
       );
       return { ...branch, distance };
     })

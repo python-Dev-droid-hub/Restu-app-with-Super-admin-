@@ -120,6 +120,12 @@ router.get('/admin/products', authenticate, authorize('ADMIN', 'BRANCH_MANAGER',
 router.post('/admin/products', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), menuController.createAdminProduct);
 router.put('/admin/products/:id', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), validate(updateMenuItemSchema), menuController.updateAdminProduct);
 router.delete('/admin/products/:id', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), menuController.deleteAdminProduct);
+
+// Branch product activation routes
+router.post('/admin/products/:productId/activate', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), menuController.activateProductForBranch);
+router.post('/admin/products/:productId/deactivate', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), menuController.deactivateProductForBranch);
+router.post('/admin/products/:productId/toggle-activation', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), menuController.toggleProductActivation);
+
 router.get('/admin/categories', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), menuController.getAllCategories);
 router.post('/admin/categories', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), validate(createCategorySchema), menuController.createAdminCategory);
 router.put('/admin/categories/:id', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), validate(updateCategorySchema), menuController.updateAdminCategory);

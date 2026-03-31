@@ -22,7 +22,7 @@ class ApiClient {
     // Request interceptor to add auth token
     this.instance.interceptors.request.use(
       async (config: InternalAxiosRequestConfig) => {
-        const token = localStorage.getItem('auth_token');
+        const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
         console.log(`API Request to ${config.url} - Token exists:`, !!token);
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
@@ -190,6 +190,30 @@ class ApiClient {
     return this.request('GET', `/dashboard/admin/stats${queryString}`);
   }
 
+  async getAdminWaitersPerformance(params?: { period?: string; branchId?: string }) {
+    const queryParams = new URLSearchParams();
+    if (params?.period) queryParams.append('period', params.period);
+    if (params?.branchId && params.branchId !== 'all') queryParams.append('branchId', params.branchId);
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request('GET', `/dashboard/admin/performance/waiters${queryString}`);
+  }
+
+  async getAdminRidersPerformance(params?: { period?: string; branchId?: string }) {
+    const queryParams = new URLSearchParams();
+    if (params?.period) queryParams.append('period', params.period);
+    if (params?.branchId && params.branchId !== 'all') queryParams.append('branchId', params.branchId);
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request('GET', `/dashboard/admin/performance/riders${queryString}`);
+  }
+
+  async getAdminBranchesPerformance(params?: { period?: string; branchId?: string }) {
+    const queryParams = new URLSearchParams();
+    if (params?.period) queryParams.append('period', params.period);
+    if (params?.branchId && params.branchId !== 'all') queryParams.append('branchId', params.branchId);
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request('GET', `/dashboard/admin/performance/branches${queryString}`);
+  }
+
   async getAdminOrders(params?: { limit?: number; period?: string; branchId?: string }) {
     const queryParams = new URLSearchParams();
     if (params?.limit) queryParams.append('limit', params.limit.toString());
@@ -244,6 +268,11 @@ class ApiClient {
   async getRecentNotifications(limit?: number) {
     const queryString = limit ? `?limit=${limit}` : '';
     return this.request('GET', `/notifications/admin/recent${queryString}`);
+  }
+
+  // Admin: Mark any notification as read
+  async markAdminNotificationAsRead(notificationId: string) {
+    return this.request('PUT', `/notifications/admin/${notificationId}/read`);
   }
 
   async markNotificationAsRead(notificationId: string) {
@@ -452,7 +481,12 @@ class ApiClient {
     return this.request('PUT', '/notifications/mark-all-read');
   }
 
-  // Delete notification
+  // Admin: Delete any notification
+  async deleteAdminNotification(id: string) {
+    return this.request('DELETE', `/notifications/admin/${id}`);
+  }
+
+  // Delete notification (user's own)
   async deleteNotification(id: string) {
     return this.request('DELETE', `/notifications/${id}`);
   }

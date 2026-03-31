@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -14,17 +14,22 @@ import {
   KeyboardAvoidingView,
 } from 'react-native';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../../components/api/client';
+import * as Location from 'expo-location';
 
 const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 0;
 
 export default function AddBranchScreen() {
   const navigation = useNavigation();
+  const route = useRoute() as any;
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<'details' | 'hours'>('details');
   const [loading, setLoading] = useState(false);
+
+  const branchId: string | undefined = route?.params?.branchId;
+  const isEditMode = !!branchId;
   
   // Branch details
   const [branchCode, setBranchCode] = useState('');
@@ -57,8 +62,89 @@ export default function AddBranchScreen() {
     sunday: { open: '10:00', close: '22:00', isOpen: true },
   });
 
-  const handleSetLocation = () => {
-    Alert.alert('Set Location', 'Location picker would open here');
+  useEffect(() => {
+    const loadBranchForEdit = async () => {
+      if (!branchId) return;
+
+      try {
+        setLoading(true);
+        const response: any = await api.get(`/branches/${branchId}`);
+        if (!response?.success || !response?.data) {
+          Alert.alert('Error', response?.message || 'Failed to load branch');
+          return;
+        }
+
+        const b = response.data;
+
+        setBranchCode(b.branchCode || '');
+        setBranchName(b.branchName || '');
+        setAddressLine(b.addressLine || b.address || '');
+        setCity(b.city || '');
+        setState(b.state || '');
+        setPostalCode(b.postalCode || '');
+        setCountry(b.country || 'Pakistan');
+        setPhoneNumber(b.phoneNumber || b.phone || '');
+        setEmail(b.email || '');
+        setDeliveryRadius(String(b.deliveryRadius ?? 5000));
+        setIsActive(b.isActive !== false);
+        setAcceptsDelivery(b.acceptsDelivery !== false);
+        setAcceptsDineIn(b.acceptsDineIn !== false);
+        setAcceptsTakeaway(b.acceptsTakeaway !== false);
+
+        if (b.lat !== undefined && b.lat !== null) setLatitude(String(b.lat));
+        if (b.lng !== undefined && b.lng !== null) setLongitude(String(b.lng));
+
+        if (b.operatingHours) {
+          setOperatingHours(b.operatingHours);
+        }
+      } catch (error: any) {
+        console.error('[AddBranch] Failed to load branch:', error?.message || error);
+        Alert.alert('Error', 'Failed to load branch');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void loadBranchForEdit();
+  }, [branchId]);
+
+  const handleSetLocation = async () => {
+    try {
+      setLoading(true);
+
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Location permission is required to set branch location.');
+        return;
+      }
+
+      const enabled = await Location.hasServicesEnabledAsync();
+      if (!enabled) {
+        Alert.alert('Location Disabled', 'Please enable location services on your device and try again.');
+        return;
+      }
+
+      const current = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+
+      const lat = current?.coords?.latitude;
+      const lng = current?.coords?.longitude;
+
+      if (typeof lat !== 'number' || typeof lng !== 'number') {
+        Alert.alert('Error', 'Could not determine your current location.');
+        return;
+      }
+
+      setLatitude(String(lat));
+      setLongitude(String(lng));
+      Alert.alert('Location Set', `Latitude: ${lat.toFixed(6)}\nLongitude: ${lng.toFixed(6)}`);
+    } catch (error: any) {
+      console.error('[AddBranch] Set location error:', error?.message || error);
+      Alert.alert('Error', error?.message || 'Failed to get current location');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const updateOperatingHours = (day: string, field: string, value: string | boolean) => {
@@ -119,14 +205,16 @@ export default function AddBranchScreen() {
       
       console.log('[AddBranch] Sending payload:', JSON.stringify(payload, null, 2));
       
-      const response = await api.post('/branches', payload);
+      const response = isEditMode
+        ? await api.put(`/branches/${branchId}`, payload)
+        : await api.post('/branches', payload);
 
       if (response.success) {
-        Alert.alert('Success', 'Branch added successfully', [
+        Alert.alert('Success', isEditMode ? 'Branch updated successfully' : 'Branch added successfully', [
           { text: 'OK', onPress: () => navigation.goBack() },
         ]);
       } else {
-        Alert.alert('Error', response.message || 'Failed to add branch');
+        Alert.alert('Error', response.message || (isEditMode ? 'Failed to update branch' : 'Failed to add branch'));
       }
     } catch (error: any) {
       console.error('[AddBranch] Error:', error);
@@ -380,7 +468,7 @@ export default function AddBranchScreen() {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#1a1a2e" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Add New Branch</Text>
+        <Text style={styles.headerTitle}>{isEditMode ? 'Edit Branch' : 'Add New Branch'}</Text>
         <View style={styles.placeholder} />
       </View>
 

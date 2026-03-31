@@ -26,6 +26,8 @@ interface FavoriteProduct {
     price: number;
     originalPrice?: number;
     imageUrl?: string;
+    image?: string;
+    images?: string[];
   };
 }
 
@@ -82,19 +84,31 @@ export default function FavoritesScreen() {
     setRefreshing(false);
   }, [loadFavorites]);
 
-  const getImageUrl = (imageUrl?: string): string => {
-    if (!imageUrl) return 'https://images.unsplash.com/photo-1546069901-ba9592793667?w=400&h=300&fit=crop';
-    if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) return imageUrl;
-    const base = 'http://192.168.0.140:3000';
-    return imageUrl.startsWith('/') ? `${base}${imageUrl}` : `${base}/${imageUrl}`;
-  };
+  const getFullImageUrl = useCallback((url?: string): string => {
+    if (!url) return '';
+    const normalized = String(url).replace(/\\/g, '/');
+    if (normalized.startsWith('http://') || normalized.startsWith('https://')) return normalized;
+    const baseUrl = api.getBaseURL().replace(/\/?api\/?$/, '');
+    if (normalized.startsWith('/')) return `${baseUrl}${normalized}`;
+    return `${baseUrl}/${normalized}`;
+  }, []);
+
+  const getProductImage = useCallback((p?: FavoriteProduct['product']): string => {
+    if (!p) return '';
+    if (Array.isArray(p.images) && p.images.length > 0) return getFullImageUrl(p.images[0]);
+    return getFullImageUrl(p.imageUrl || p.image);
+  }, [getFullImageUrl]);
 
   const renderFavorite = ({ item }: { item: FavoriteProduct }) => (
     <View style={styles.cardContainer}>
       <TouchableOpacity style={styles.card} activeOpacity={0.9}>
-        <Image 
-          source={{ uri: getImageUrl(item.product?.imageUrl) }} 
-          style={styles.image} 
+        <Image
+          source={{
+            uri:
+              getProductImage(item.product) ||
+              'https://images.unsplash.com/photo-1546069901-ba9592793667?w=400&h=300&fit=crop',
+          }}
+          style={styles.image}
         />
         <TouchableOpacity 
           style={styles.heartButton}

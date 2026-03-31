@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -47,6 +47,24 @@ export default function AdminCategoriesScreen() {
   const insets = useSafeAreaInsets();
   const { t } = useLocalization();
   const { profileImage } = useUserData();
+
+  // Get parent tab navigation for bottom nav (undefined for stack screens)
+  const tabNavigation = navigation.getParent();
+
+  const uploadsBaseUrl = useMemo(() => {
+    const base = api.getBaseURL();
+    return base.endsWith('/api') ? base.slice(0, -4) : base;
+  }, []);
+
+  const resolveImageUrl = useCallback(
+    (url?: string) => {
+      if (!url) return undefined;
+      if (url.startsWith('http://') || url.startsWith('https://')) return url;
+      if (url.startsWith('/')) return `${uploadsBaseUrl}${url}`;
+      return url;
+    },
+    [uploadsBaseUrl]
+  );
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -238,9 +256,11 @@ export default function AdminCategoriesScreen() {
           <View style={styles.branchInfo}>
             <Ionicons name="business-outline" size={18} color="#E87E35" />
             <Text style={styles.branchInfoText}>
-              {assignedBranch.name || 'Loading Branch...'}
+              {userRole === 'ADMIN' || userRole === 'SUPER_ADMIN'
+                ? 'All Branches'
+                : (assignedBranch.name || 'Loading Branch...')}
             </Text>
-            {assignedBranch.code && (
+            {userRole !== 'ADMIN' && userRole !== 'SUPER_ADMIN' && assignedBranch.code && (
               <View style={styles.branchCodeBadge}>
                 <Text style={styles.branchCodeText}>{assignedBranch.code}</Text>
               </View>
@@ -275,7 +295,7 @@ export default function AdminCategoriesScreen() {
                 <View style={styles.categoryHeader}>
                   <View style={styles.iconContainer}>
                     {category.imageUrl ? (
-                      <Image source={{ uri: category.imageUrl }} style={styles.categoryImage} />
+                      <Image source={{ uri: resolveImageUrl(category.imageUrl) }} style={styles.categoryImage} />
                     ) : (
                       <Ionicons name="grid-outline" size={24} color={COLORS.orange} />
                     )}
@@ -350,7 +370,7 @@ export default function AdminCategoriesScreen() {
       </TouchableOpacity>
 
       {/* Bottom Navigation */}
-      <AdminBottomNavigation onMorePress={() => setShowMoreMenu(true)} />
+      <AdminBottomNavigation onMorePress={() => setShowMoreMenu(true)} tabNavigation={tabNavigation} />
 
       {/* Profile Menu Modal */}
       <Modal

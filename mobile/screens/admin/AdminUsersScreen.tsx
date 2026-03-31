@@ -167,6 +167,9 @@ export default function AdminUsersScreen() {
     );
   };
 
+  // Get parent tab navigation for bottom nav
+  const tabNavigation = navigation.getParent();
+
   const handleLogout = async () => {
     setShowProfileMenu(false);
     Alert.alert(
@@ -441,7 +444,7 @@ export default function AdminUsersScreen() {
       </Modal>
 
       {/* Bottom Navigation */}
-      <AdminBottomNavigation onMorePress={() => setShowMoreMenu(true)} />
+      <AdminBottomNavigation onMorePress={() => setShowMoreMenu(true)} tabNavigation={tabNavigation} />
     </View>
   );
 }

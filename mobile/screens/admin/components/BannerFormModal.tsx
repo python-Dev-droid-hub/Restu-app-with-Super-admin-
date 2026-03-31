@@ -10,9 +10,12 @@ import {
   Alert,
   StyleSheet,
   ActivityIndicator,
+  StatusBar,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, spacing, borderRadius } from '../../../theme';
 import { api } from '../../../components/api/client';
 
@@ -45,6 +48,8 @@ const BannerFormModal = ({ visible, banner, onClose, onSave }: BannerFormModalPr
   });
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const insets = useSafeAreaInsets();
+  const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 0;
 
   useEffect(() => {
     if (banner) {
@@ -148,7 +153,7 @@ const BannerFormModal = ({ visible, banner, onClose, onSave }: BannerFormModalPr
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={styles.container}>
         {/* Header */}
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
           <TouchableOpacity onPress={onClose}>
             <Ionicons name="close" size={24} color={colors.text_dark} />
           </TouchableOpacity>

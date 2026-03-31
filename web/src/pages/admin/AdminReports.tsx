@@ -99,40 +99,73 @@ const AdminReports: React.FC = () => {
     }).format(amount);
   };
 
-  const StatCard = ({ title, value, icon, trend, color }: { title: string; value: string | number; icon: React.ReactNode; trend?: number; color: string }) => (
-    <Card sx={{ borderRadius: 2, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
-      <CardContent>
+  const SolidStatCard = ({
+    icon,
+    value,
+    label,
+    sublabel,
+    bgcolor,
+  }: {
+    icon: React.ReactNode;
+    value: string;
+    label: string;
+    sublabel: string;
+    bgcolor: string;
+  }) => (
+    <Card
+      sx={{
+        borderRadius: 4,
+        backgroundColor: bgcolor,
+        boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+        color: 'white',
+        position: 'relative',
+        overflow: 'hidden',
+        height: 140,
+        transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+        '&:hover': {
+          transform: 'translateY(-2px)',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+        },
+      }}
+    >
+      <CardContent
+        sx={{
+          p: 2.5,
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'space-between',
+        }}
+      >
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <Box>
-            <Typography variant="body2" color="textSecondary" sx={{ mb: 1 }}>
-              {title}
-            </Typography>
-            <Typography variant="h4" sx={{ fontWeight: 'bold', color }}>
-              {value}
-            </Typography>
-            {trend !== undefined && (
-              <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
-                {trend >= 0 ? (
-                  <TrendingUp sx={{ fontSize: 16, color: '#4CAF50' }} />
-                ) : (
-                  <TrendingDown sx={{ fontSize: 16, color: '#F44336' }} />
-                )}
-                <Typography variant="caption" sx={{ color: trend >= 0 ? '#4CAF50' : '#F44336', ml: 0.5 }}>
-                  {Math.abs(trend)}% vs last period
-                </Typography>
-              </Box>
-            )}
-          </Box>
-          <Box sx={{ bgcolor: `${color}20`, borderRadius: 2, p: 1.5 }}>
+          <Box
+            sx={{
+              bgcolor: 'rgba(255,255,255,0.2)',
+              borderRadius: 2,
+              p: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
             {icon}
           </Box>
+        </Box>
+        <Box>
+          <Typography sx={{ fontSize: 28, fontWeight: 700, lineHeight: 1, color: 'white' }}>
+            {loading ? <Skeleton width={80} sx={{ bgcolor: 'rgba(255,255,255,0.4)' }} /> : value}
+          </Typography>
+        </Box>
+        <Box>
+          <Typography sx={{ fontSize: 13, fontWeight: 600, color: 'white', opacity: 0.95 }}>{label}</Typography>
+          <Typography sx={{ fontSize: 11, color: 'white', opacity: 0.8 }}>{sublabel}</Typography>
         </Box>
       </CardContent>
     </Card>
   );
 
   return (
-    <Box sx={{ p: 3, bgcolor: '#f8f5ff', minHeight: '100vh' }}>
+    <Box sx={{ p: 3, bgcolor: '#f5f5f5', minHeight: '100vh' }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#333' }}>
           Reports & Analytics
@@ -171,39 +204,39 @@ const AdminReports: React.FC = () => {
         ) : (
           <>
             <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-              <StatCard
-                title="Total Revenue"
+              <SolidStatCard
+                icon={<AttachMoney sx={{ fontSize: 24, color: 'white' }} />}
                 value={formatCurrency(stats?.totalRevenue || 0)}
-                icon={<AttachMoney sx={{ color: '#4CAF50' }} />}
-                color="#4CAF50"
-                trend={12}
+                label="Total Revenue"
+                sublabel="All payments"
+                bgcolor="#2E7D52"
               />
             </Grid>
             <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-              <StatCard
-                title="Total Orders"
-                value={stats?.totalOrders || 0}
-                icon={<Receipt sx={{ color: '#2196F3' }} />}
-                color="#2196F3"
-                trend={8}
+              <SolidStatCard
+                icon={<Receipt sx={{ fontSize: 24, color: 'white' }} />}
+                value={(stats?.totalOrders || 0).toLocaleString()}
+                label="Total Orders"
+                sublabel="Orders placed"
+                bgcolor="#E87E35"
               />
             </Grid>
             <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-              <StatCard
-                title="Total Customers"
-                value={stats?.totalCustomers || 0}
-                icon={<People sx={{ color: '#FF9800' }} />}
-                color="#FF9800"
-                trend={5}
+              <SolidStatCard
+                icon={<People sx={{ fontSize: 24, color: 'white' }} />}
+                value={(stats?.totalCustomers || 0).toLocaleString()}
+                label="Customers"
+                sublabel="Registered customers"
+                bgcolor="#1E5AA8"
               />
             </Grid>
             <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-              <StatCard
-                title="Avg Order Value"
+              <SolidStatCard
+                icon={<Restaurant sx={{ fontSize: 24, color: 'white' }} />}
                 value={formatCurrency(stats?.averageOrderValue || 0)}
-                icon={<Restaurant sx={{ color: '#9C27B0' }} />}
-                color="#9C27B0"
-                trend={3}
+                label="Avg Order Value"
+                sublabel="Revenue per order"
+                bgcolor="#7B5CB8"
               />
             </Grid>
           </>

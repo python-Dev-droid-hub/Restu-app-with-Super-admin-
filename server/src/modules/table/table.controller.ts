@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { TableRepository } from './table.repository';
+import { IAuthRequest } from '@/types';
 
 export class TableController {
   private tableRepository: TableRepository;
@@ -9,12 +10,29 @@ export class TableController {
   }
 
   // Get all tables with optional filtering
-  getTables = async (req: Request, res: Response): Promise<void> => {
+  getTables = async (req: IAuthRequest, res: Response): Promise<void> => {
     try {
       const { branch, status, search } = req.query;
       const filters: any = {};
 
-      if (branch) filters.branch = branch;
+      // Branch scoping: waiters (and other branch-scoped staff) should only see tables from their assigned branch
+      const userRole = req.user?.role;
+      const userBranch = req.user?.assignedBranch as any;
+      const assignedBranchId = userBranch?._id?.toString() || userBranch?.toString?.() || '';
+      const isBranchScopedRole = userRole === 'BRANCH_MANAGER' || userRole === 'WAITER' || userRole === 'CHEF';
+
+      if (isBranchScopedRole) {
+        if (!assignedBranchId) {
+          res.status(403).json({
+            success: false,
+            message: 'Access denied. No branch assigned to this user.'
+          });
+          return;
+        }
+        filters.branch = assignedBranchId;
+      } else if (branch) {
+        filters.branch = branch;
+      }
       if (status && status !== 'all') filters.status = status;
       if (search) {
         filters.$or = [

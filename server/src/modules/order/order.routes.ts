@@ -18,7 +18,7 @@ const createOrderSchema = Joi.object({
     })
   ).min(1).required(),
   restaurantId: Joi.string().required(),
-  customerName: Joi.string().trim().min(2).max(100).required(),
+  customerName: Joi.string().trim().min(2).max(100).optional().allow(''),
   phoneNumber: Joi.string().max(30).optional().allow(''),
   alternatePhoneNumber: Joi.string().max(30).optional().allow(''),
   deliveryAddress: Joi.object({
@@ -91,6 +91,7 @@ router.get('/stats/:restaurantId', authenticate, authorize('BRANCH_MANAGER', 'AD
 router.get('/driver/my-orders', authenticate, authorize('RIDER', 'SUPER_ADMIN'), orderController.getDriverOrders);
 router.get('/driver/available', authenticate, authorize('RIDER', 'SUPER_ADMIN'), orderController.getAvailableOrders);
 router.put('/:id/accept', authenticate, authorize('RIDER', 'SUPER_ADMIN'), orderController.acceptOrder);
+router.put('/:id/reject', authenticate, authorize('RIDER', 'SUPER_ADMIN'), orderController.rejectOrder);
 router.put('/:id/deliver', authenticate, authorize('RIDER', 'SUPER_ADMIN'), validate(updateStatusSchema), orderController.updateOrderStatus);
 
 // Protected routes - Admins

@@ -24,6 +24,15 @@ import { api } from '../../services/api';
 
 const SIDEBAR_WIDTH = 260;
 
+const sanitizeWebImageSrc = (src: unknown): string | null => {
+  if (!src || typeof src !== 'string') return null;
+  const trimmed = src.trim();
+  if (!trimmed) return null;
+  const lower = trimmed.toLowerCase();
+  if (lower.startsWith('file:') || lower.includes('var/mobile') || lower.includes('imagepicker')) return null;
+  return trimmed;
+};
+
 const AdminTopBar: React.FC = () => {
   const navigate = useNavigate();
   const [profileMenuAnchor, setProfileMenuAnchor] = useState<null | HTMLElement>(null);
@@ -44,7 +53,7 @@ const AdminTopBar: React.FC = () => {
           try {
             const parsed = JSON.parse(userData);
             setAdminName(parsed.name || parsed.displayName || 'Admin');
-            setProfileImage(parsed.avatar || parsed.image || parsed.profileImage || null);
+            setProfileImage(sanitizeWebImageSrc(parsed.avatar || parsed.image || parsed.profileImage));
           } catch (e) {
             console.error('Error parsing user data:', e);
           }

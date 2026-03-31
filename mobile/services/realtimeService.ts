@@ -4,7 +4,7 @@ import type { Socket } from 'socket.io-client';
 let socket: Socket | null = null;
 
 const SOCKET_URL = __DEV__
-  ? 'http://192.168.0.140:3000' // replace with your server IP
+  ? 'http://192.168.18.179:3000' // Updated to match API client IP
   : 'https://your-production-api.com';
 
 const RECONNECT_TIMEOUT = 5000;

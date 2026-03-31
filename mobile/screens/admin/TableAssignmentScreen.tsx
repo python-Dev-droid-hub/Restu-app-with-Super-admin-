@@ -625,8 +625,8 @@ export default function TableAssignmentScreen() {
         onProfilePress={() => setShowProfileMenu(true)}
       />
 
-      {/* Branch Selector (SUPER_ADMIN only). Managers see fixed branch name + code (no filter). */}
-      {userRole === 'SUPER_ADMIN' ? (
+      {/* Branch Selector (SUPER_ADMIN and ADMIN). Managers see fixed branch name + code (no filter). */}
+      {userRole === 'SUPER_ADMIN' || userRole === 'ADMIN' ? (
         <>
           <TouchableOpacity
             style={styles.branchSelector}
@@ -681,18 +681,6 @@ export default function TableAssignmentScreen() {
           <Text style={styles.statCardValue}>{tables.length}</Text>
           <Text style={styles.statCardLabel}>Total</Text>
         </View>
-        {canManageWaiterAssignment ? (
-          <>
-            <View style={[styles.statCard, styles.greenCard]}>
-              <Text style={styles.statCardValue}>{tables.filter(t => t.assignedWaiterId).length}</Text>
-              <Text style={styles.statCardLabel}>Assigned</Text>
-            </View>
-            <View style={[styles.statCard, styles.blueCard]}>
-              <Text style={styles.statCardValue}>{tables.filter(t => !t.assignedWaiterId).length}</Text>
-              <Text style={styles.statCardLabel}>Unassigned</Text>
-            </View>
-          </>
-        ) : null}
       </View>
 
       {/* Add Table Button */}

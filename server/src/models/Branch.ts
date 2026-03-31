@@ -124,7 +124,7 @@ const branchSchema = new Schema({
   phoneNumber: {
     type: String,
     trim: true,
-    match: [/^[\+]?[1-9][\d]{0,15}$/, 'Please enter a valid phone number']
+    match: [/^[\+]?[-\d\s\(\)]{10,20}$/, 'Please enter a valid phone number']
   },
   email: {
     type: String,

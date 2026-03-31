@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { api } from '../services/api';
 
 interface SettingsContextType {
@@ -52,7 +52,7 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
   const loadSettings = async () => {
     try {
       // Check if user is authenticated first
-      const token = localStorage.getItem('authToken');
+      const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
       if (!token) {
         console.log('[Settings] No auth token, skipping settings load');
         setIsLoading(false);
