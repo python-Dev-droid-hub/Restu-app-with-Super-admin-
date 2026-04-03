@@ -29,7 +29,6 @@ import {
   Store,
   AccountBalanceWallet,
   AccessTime,
-  Person,
   TwoWheeler,
   RestaurantMenu,
   ReceiptLong,
@@ -105,7 +104,7 @@ interface RiderPerformanceRow {
 // ==================== COMPONENT ====================
 const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
-  const { formatPrice, refreshSettings } = useSettings();
+  const { refreshSettings } = useSettings();
   const [loading, setLoading] = useState(true);
   const [activePeriod, setActivePeriod] = useState<'all' | 'day' | 'week' | 'month'>('all');
   const [selectedBranch, setSelectedBranch] = useState<string>('all');
@@ -445,16 +444,12 @@ const AdminDashboard: React.FC = () => {
     value,
     label,
     sublabel,
-    trend: _trend,
-    trendUp: _trendUp,
     bgcolor 
   }: { 
     icon: React.ReactNode;
     value: string;
     label: string;
     sublabel: string;
-    trend: string;
-    trendUp: boolean;
     bgcolor: string;
   }) => (
     <Card sx={{
@@ -588,8 +583,6 @@ const AdminDashboard: React.FC = () => {
               value={loading ? '' : formatCurrency(stats.totalRevenue)}
               label="Total Revenue"
               sublabel={loading ? '' : `${statusCounts.completed} completed • ${statusCounts.cancelled} cancelled`}
-              trend={loading ? '' : formatCurrency(stats.totalRevenue)}
-              trendUp={true}
               bgcolor="#2E7D52"
               />
             </Box>
@@ -601,8 +594,6 @@ const AdminDashboard: React.FC = () => {
               value={loading ? '' : stats.totalOrders.toLocaleString()}
               label="Total Orders"
               sublabel={loading ? '' : `${statusCounts.preparing} preparing • ${statusCounts.ready} ready`}
-              trend={loading ? '' : stats.totalOrders.toLocaleString()}
-              trendUp={true}
               bgcolor="#E87E35"
               />
             </Box>
@@ -614,8 +605,6 @@ const AdminDashboard: React.FC = () => {
               value={loading ? '' : stats.totalProducts.toLocaleString()}
               label="Menu Items"
               sublabel={loading ? '' : 'Active products across selection'}
-              trend={loading ? '' : stats.totalProducts.toLocaleString()}
-              trendUp={true}
               bgcolor="#7B5CB8"
               />
             </Box>
@@ -627,8 +616,6 @@ const AdminDashboard: React.FC = () => {
               value={loading ? '' : stats.totalBranches.toString()}
               label="Branches"
               sublabel={loading ? '' : 'All branches'}
-              trend={loading ? '' : stats.totalBranches.toString()}
-              trendUp={true}
               bgcolor="#1E5AA8"
               />
             </Box>

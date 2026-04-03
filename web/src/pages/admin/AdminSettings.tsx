@@ -204,7 +204,7 @@ const AdminSettings: React.FC = () => {
         loadSettings();
         setSuccess('Settings reset to defaults');
       }
-    } catch (err) {
+    } catch {
       setError('Failed to reset settings');
     }
   };

@@ -10,7 +10,7 @@ const dealController = new DealController();
 
 // Validation schemas
 const createDealSchema = Joi.object({
-  branch: Joi.string().optional().allow(null),
+  branch: Joi.alternatives().try(Joi.string(), Joi.array().items(Joi.string())).optional().allow(null, ''),
   title: Joi.string().min(2).max(255).required(),
   description: Joi.string().max(2000).optional(),
   discountType: Joi.string().valid('PERCENTAGE', 'FIXED_AMOUNT').required(),
@@ -26,7 +26,7 @@ const createDealSchema = Joi.object({
 });
 
 const updateDealSchema = Joi.object({
-  branch: Joi.string().optional().allow(null),
+  branch: Joi.alternatives().try(Joi.string(), Joi.array().items(Joi.string())).optional().allow(null, ''),
   title: Joi.string().min(2).max(255).optional(),
   description: Joi.string().max(2000).optional(),
   discountType: Joi.string().valid('PERCENTAGE', 'FIXED_AMOUNT').optional(),

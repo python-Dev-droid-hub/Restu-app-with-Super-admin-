@@ -47,11 +47,34 @@ export class OrderController {
     }
   }
 
+  private async resolveGuestCustomer(customerName?: string, phoneNumber?: string) {
+    const normalizedName = String(customerName || '').trim() || 'Guest Customer';
+    const phoneDigits = String(phoneNumber || '').replace(/\D/g, '');
+    const normalizedPhone = phoneDigits.replace(/^0+/, '');
+    const validGuestPhone = /^[1-9]\d{0,15}$/.test(normalizedPhone) ? normalizedPhone : undefined;
+    const emailKey = phoneDigits || `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const guestEmail = `guest.${emailKey}@example.com`;
+    const existing = await this.userRepository.findByEmail(guestEmail);
+    if (existing) {
+      return existing;
+    }
+    const created = await this.userRepository.create({
+      email: guestEmail,
+      passwordHash: `guest-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      displayName: normalizedName,
+      role: 'CUSTOMER' as any,
+      phoneNumber: validGuestPhone,
+      emailVerified: false,
+      phoneVerified: false,
+      isActive: true,
+    } as any);
+    return created;
+  }
+
   createOrder = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
     console.log('[ORDER DEBUG] ====== START ORDER CREATION ======');
     console.log('[ORDER DEBUG] Request body:', JSON.stringify(req.body, null, 2));
     
-    const userId = req.user!._id;
     const {
       items,
       restaurantId,
@@ -69,11 +92,13 @@ export class OrderController {
       table_number,
     } = req.body;
 
-    const userRole = req.user?.role;
+    const actor = req.user || (await this.resolveGuestCustomer(customerName, phoneNumber) as any);
+    const userId = actor?._id;
+    const userRole = actor?.role;
     const resolvedCustomerName =
       (typeof customerName === 'string' && customerName.trim().length > 0)
         ? customerName.trim()
-        : (req.user as any)?.displayName || (req.user as any)?.name || '';
+        : (actor as any)?.displayName || (actor as any)?.name || '';
 
     // Customer orders must include a name (either provided or from profile)
     if (userRole === 'CUSTOMER' && !resolvedCustomerName) {
@@ -719,6 +744,30 @@ export class OrderController {
     }, 'Orders retrieved successfully');
   });
 
+  getGuestOrderStatus = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { id } = req.params;
+    const order = await this.orderRepository.findById(id);
+    if (!order) {
+      throw createError('Order not found', 404);
+    }
+
+    sendSuccess(res, {
+      _id: order._id,
+      orderNumber: order.orderNumber,
+      status: order.status,
+      orderType: order.orderType,
+      totalAmount: order.totalAmount,
+      createdAt: order.createdAt,
+      branch: order.branch ? { branchName: (order.branch as any).branchName } : undefined,
+      items: Array.isArray(order.items)
+        ? order.items.map((item: any) => ({
+            quantity: item.quantity,
+            product: { name: item.productName || item.product?.name || 'Item' },
+          }))
+        : [],
+    }, 'Order status retrieved successfully');
+  });
+
   getOrderById = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
     const { id } = req.params;
     const userId = req.user!._id;
@@ -878,16 +927,18 @@ export class OrderController {
                 
                 // Notify the assigned rider
                 try {
-                  await this.notificationService.sendPushNotification(
-                    nearestRider._id.toString(),
-                    'New Delivery Assignment',
-                    `Order #${order.orderNumber} has been auto-assigned to you. Pick up from ${order.branch?.branchName || 'restaurant'}.`,
-                    {
-                      type: 'ORDER_ASSIGNED',
+                  await NotificationServiceGlobal.sendNotification({
+                    recipient: nearestRider._id.toString(),
+                    recipientRole: 'RIDER',
+                    type: 'ORDER_ASSIGNED',
+                    title: 'New Delivery Assignment',
+                    message: `Order #${order.orderNumber} has been auto-assigned to you. Pick up from ${order.branch?.branchName || 'restaurant'}.`,
+                    data: {
                       orderId: order._id.toString(),
                       orderNumber: order.orderNumber,
-                    }
-                  );
+                    },
+                    priority: 'HIGH',
+                  });
                   console.log(`[AUTO-ASSIGN] Notification sent to rider ${nearestRider._id}`);
                 } catch (notifError) {
                   console.error('[AUTO-ASSIGN] Failed to notify rider:', notifError);
@@ -1188,8 +1239,25 @@ export class OrderController {
       throw createError('Order not found', 404);
     }
 
+    const assignedRiderId = String((order as any)?.rider?._id ?? (order as any)?.rider ?? '').trim();
+    const currentUserId = String(userId ?? '').trim();
+
+    // Debug logging to diagnose authorization issues
+    console.log('[rejectOrder] Debug:', {
+      orderId: id,
+      userId: userId.toString(),
+      orderRider: order.rider ? {
+        _id: order.rider._id?.toString(),
+        displayName: order.rider.displayName
+      } : null,
+      orderStatus: order.status,
+      orderRiderId: order.rider?._id?.toString(),
+      userIdString: userId.toString(),
+      match: assignedRiderId === currentUserId
+    });
+
     // Check if the current rider is the one rejecting
-    const isAssignedRider = order.rider && order.rider._id.toString() === userId.toString();
+    const isAssignedRider = !!assignedRiderId && assignedRiderId === currentUserId;
     if (!isAssignedRider) {
       throw createError('Not authorized to reject this order', 403);
     }
@@ -1223,15 +1291,15 @@ export class OrderController {
       }
 
       // Notify admin
-      await this.notificationService.sendNotification({
-        recipient: 'ADMIN',
-        recipientRole: 'ADMIN',
-        type: 'ORDER_REJECTED_BY_RIDER',
-        title: 'Order Rejected by Rider',
-        message: `Order #${order.orderNumber} was rejected${reason ? ` (Reason: ${reason})` : ''}`,
-        data: { orderId: order._id, rejectionReason: reason },
-        priority: 'HIGH',
-      });
+      await this.notifyByRole(
+        'ADMIN',
+        branchId || '',
+        'ORDER_REJECTED_BY_RIDER',
+        'Order Rejected by Rider',
+        `Order #${order.orderNumber} was rejected${reason ? ` (Reason: ${reason})` : ''}`,
+        { orderId: order._id, rejectionReason: reason },
+        'HIGH'
+      );
     } catch (notifError) {
       console.error('[Order Reject] Failed to send notifications:', notifError);
     }

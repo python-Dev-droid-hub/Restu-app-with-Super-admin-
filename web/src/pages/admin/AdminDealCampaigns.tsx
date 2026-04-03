@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -7,12 +7,6 @@ import {
   Chip,
   IconButton,
   OutlinedInput,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   Paper,
   Skeleton,
   TextField,
@@ -26,17 +20,11 @@ import {
   MenuItem,
   Switch,
   FormControlLabel,
-  Alert,
   Card,
   CardMedia,
   CardContent,
   CardActions,
   Avatar,
-  Tooltip,
-  Fab,
-  Divider,
-  Tab,
-  Tabs,
   Badge,
 } from '@mui/material';
 import {
@@ -45,23 +33,12 @@ import {
   Delete,
   LocalOffer,
   Image as ImageIcon,
-  Visibility,
   ArrowBack,
-  AddShoppingCart,
-  Percent,
-  TrendingUp,
 } from '@mui/icons-material';
 import { api } from '../../services/api';
 import { useSettings } from '../../context/SettingsContext';
 
-const API_BASE_URL = 'http://192.168.0.140:3000';
 
-const getFullImageUrl = (url?: string) => {
-  if (!url) return '';
-  if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  if (url.startsWith('/')) return `${API_BASE_URL}${url}`;
-  return url;
-};
 
 interface DealItem {
   _id: string;
@@ -118,6 +95,8 @@ const AdminDealCampaigns: React.FC = () => {
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [selectedCampaignCategoryIds, setSelectedCampaignCategoryIds] = useState<string[]>([]);
   const [selectedDealCategoryIds, setSelectedDealCategoryIds] = useState<string[]>([]);
+  const [branches, setBranches] = useState<any[]>([]);
+  const [selectedBranchFilter, setSelectedBranchFilter] = useState<string>('all');
 
   // Campaign Dialog
   const [campaignDialogOpen, setCampaignDialogOpen] = useState(false);
@@ -134,6 +113,7 @@ const AdminDealCampaigns: React.FC = () => {
     endDate: '',
     displayOrder: 0,
     category: '',
+    branch: [] as string[],
   });
 
   // Deal Item Dialog
@@ -153,12 +133,27 @@ const AdminDealCampaigns: React.FC = () => {
   useEffect(() => {
     loadCampaigns();
     loadCategories();
-  }, []);
+    loadBranches();
+  }, [selectedBranchFilter]);
+
+  const loadBranches = async () => {
+    try {
+      const response: any = await api.getAllBranches();
+      if (response?.success) {
+        setBranches(response.data?.branches || response.data || []);
+      }
+    } catch (err) {
+      console.error('Error loading branches:', err);
+    }
+  };
 
   const loadCampaigns = async () => {
     try {
       setLoading(true);
-      const response: any = await api.get('/deals/campaigns');
+      const url = selectedBranchFilter === 'all' 
+        ? '/deals/campaigns' 
+        : `/deals/campaigns?branchId=${selectedBranchFilter}`;
+      const response: any = await api.get(url);
       if (response?.success) {
         setCampaigns(response.data?.campaigns || []);
       }
@@ -205,6 +200,7 @@ const AdminDealCampaigns: React.FC = () => {
         endDate: campaign.endDate ? campaign.endDate.split('T')[0] : '',
         displayOrder: campaign.displayOrder || 0,
         category: campaign.category || '',
+        branch: Array.isArray(campaign.branch) ? campaign.branch : (campaign.branch ? [campaign.branch] : []),
       });
       setSelectedCampaignCategoryIds(
         Array.isArray(campaign.categories)
@@ -224,6 +220,7 @@ const AdminDealCampaigns: React.FC = () => {
         endDate: '',
         displayOrder: 0,
         category: '',
+        branch: [] as string[],
       });
       setSelectedCampaignCategoryIds([]);
     }
@@ -257,6 +254,7 @@ const AdminDealCampaigns: React.FC = () => {
         displayOrder: campaignForm.displayOrder,
         category: campaignForm.category || undefined,
         categories: selectedCampaignCategoryIds.length > 0 ? selectedCampaignCategoryIds : undefined,
+        branch: campaignForm.branch && campaignForm.branch.length > 0 ? campaignForm.branch : undefined,
       };
 
       let response;
@@ -393,7 +391,9 @@ const AdminDealCampaigns: React.FC = () => {
         alert(`Deal ${editingDeal ? 'updated' : 'added'} successfully`);
         handleCloseDealDialog();
         // Reload campaign data
-        const campaignResponse = await api.get(`/deals/campaigns/${selectedCampaign._id}`);
+        const campaignResponse = await api.get<{ campaign: Campaign }>(
+          `/deals/campaigns/${selectedCampaign._id}`
+        );
         if (campaignResponse?.success && campaignResponse.data?.campaign) {
           setSelectedCampaign(campaignResponse.data.campaign);
         }
@@ -470,49 +470,67 @@ const AdminDealCampaigns: React.FC = () => {
           <Typography variant="h4" sx={{ fontWeight: 'bold', color: '#1a1a2e' }}>
             Deal Campaigns
           </Typography>
-          <Button
-            variant="contained"
-            startIcon={<Add />}
-            onClick={() => handleOpenCampaignDialog()}
-            sx={{
-              bgcolor: '#E87E35',
-              '&:hover': { bgcolor: '#d66d2a' },
-              textTransform: 'none',
-              fontWeight: 'bold',
-            }}
-          >
-            New Campaign
-          </Button>
+          <Box sx={{ display: 'flex', gap: 2 }}>
+            <FormControl size="small" sx={{ minWidth: 200, bgcolor: 'white' }}>
+              <InputLabel>Filter by Branch</InputLabel>
+              <Select
+                value={selectedBranchFilter}
+                label="Filter by Branch"
+                onChange={(e) => setSelectedBranchFilter(e.target.value)}
+              >
+                <MenuItem value="all">All Branches</MenuItem>
+                <MenuItem value="global">Global (No Branch)</MenuItem>
+                {branches.map((branch) => (
+                  <MenuItem key={branch._id} value={branch._id}>
+                    {branch.branchName}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Button
+              variant="contained"
+              startIcon={<Add />}
+              onClick={() => handleOpenCampaignDialog()}
+              sx={{
+                bgcolor: '#E87E35',
+                '&:hover': { bgcolor: '#d66d2a' },
+                textTransform: 'none',
+                fontWeight: 'bold',
+              }}
+            >
+              New Campaign
+            </Button>
+          </Box>
         </Box>
 
         {/* Stats */}
-        <Grid container spacing={2} sx={{ mb: 3, width: '100%' }}>
-          <Grid item xs={12} sm={4}>
-            <Paper sx={{ p: 2, bgcolor: '#E87E35', color: 'white', borderRadius: 2 }}>
-              <Typography variant="h3" sx={{ fontWeight: 'bold' }}>
+        <Grid container spacing={3} sx={{ mb: 3, width: '100%', m: 0 }}>
+          <Grid size={{ xs: 12, sm: 4 }} sx={{ pl: '0 !important' }}>
+            <Paper sx={{ p: 2, bgcolor: '#E87E35', color: 'white', borderRadius: 2, height: '100%' }}>
+              <Typography variant="h3" sx={{ fontWeight: 'bold', color: 'white' }}>
                 {campaigns.length}
               </Typography>
-              <Typography variant="body2" sx={{ opacity: 0.9 }}>
+              <Typography variant="body2" sx={{ opacity: 0.9, color: 'white' }}>
                 Total Campaigns
               </Typography>
             </Paper>
           </Grid>
-          <Grid item xs={12} sm={4}>
-            <Paper sx={{ p: 2, bgcolor: '#4CAF50', color: 'white', borderRadius: 2 }}>
-              <Typography variant="h3" sx={{ fontWeight: 'bold' }}>
+          <Grid size={{ xs: 12, sm: 4 }} sx={{ pl: '0 !important' }}>
+            <Paper sx={{ p: 2, bgcolor: '#4CAF50', color: 'white', borderRadius: 2, height: '100%' }}>
+              <Typography variant="h3" sx={{ fontWeight: 'bold', color: 'white' }}>
                 {campaigns.filter((c) => c.status === 'ACTIVE').length}
               </Typography>
-              <Typography variant="body2" sx={{ opacity: 0.9 }}>
+              <Typography variant="body2" sx={{ opacity: 0.9, color: 'white' }}>
                 Active Campaigns
               </Typography>
             </Paper>
           </Grid>
-          <Grid item xs={12} sm={4}>
-            <Paper sx={{ p: 2, bgcolor: '#9C27B0', color: 'white', borderRadius: 2 }}>
-              <Typography variant="h3" sx={{ fontWeight: 'bold' }}>
+          <Grid size={{ xs: 12, sm: 4 }} sx={{ pl: '0 !important' }}>
+            <Paper sx={{ p: 2, bgcolor: '#9C27B0', color: 'white', borderRadius: 2, height: '100%' }}>
+              <Typography variant="h3" sx={{ fontWeight: 'bold', color: 'white' }}>
                 {campaigns.reduce((sum, c) => sum + (c.deals?.length || 0), 0)}
               </Typography>
-              <Typography variant="body2" sx={{ opacity: 0.9 }}>
+              <Typography variant="body2" sx={{ opacity: 0.9, color: 'white' }}>
                 Total Deals
               </Typography>
             </Paper>
@@ -520,37 +538,38 @@ const AdminDealCampaigns: React.FC = () => {
         </Grid>
 
         {/* Campaigns Grid */}
-        {loading ? (
-          <Grid container spacing={3} sx={{ width: '100%' }}>
-            {[1, 2, 3, 4].map((i) => (
-              <Grid item xs={12} sm={6} md={6} lg={4} xl={3} key={i}>
-                <Skeleton variant="rectangular" height={280} sx={{ borderRadius: 2 }} />
-              </Grid>
-            ))}
-          </Grid>
-        ) : campaigns.length === 0 ? (
-          <Paper sx={{ p: 6, textAlign: 'center', borderRadius: 2 }}>
-            <LocalOffer sx={{ fontSize: 64, color: '#ddd', mb: 2 }} />
-            <Typography variant="h6" color="textSecondary">
-              No campaigns found
-            </Typography>
-            <Typography variant="body2" color="textSecondary" sx={{ mb: 3 }}>
-              Create your first deal campaign to get started
-            </Typography>
-            <Button
-              variant="contained"
-              startIcon={<Add />}
-              onClick={() => handleOpenCampaignDialog()}
-              sx={{ bgcolor: '#E87E35', '&:hover': { bgcolor: '#d66d2a' } }}
-            >
-              Create Campaign
-            </Button>
-          </Paper>
-        ) : (
-          <Grid container spacing={3} sx={{ width: '100%' }}>
-            {campaigns.map((campaign) => (
-              <Grid item xs={12} sm={6} md={6} lg={4} xl={3} key={campaign._id}>
-                <Card
+        <Box sx={{ width: '100%', mt: 2 }}>
+          {loading ? (
+            <Grid container spacing={3} sx={{ width: '100%', m: 0 }}>
+              {[1, 2, 3, 4].map((i) => (
+                <Grid key={i} size={{ xs: 12, sm: 6, md: 6, lg: 4, xl: 3 }} sx={{ pl: '0 !important' }}>
+                  <Skeleton variant="rectangular" height={280} sx={{ borderRadius: 2 }} />
+                </Grid>
+              ))}
+            </Grid>
+          ) : campaigns.length === 0 ? (
+            <Paper sx={{ p: 6, textAlign: 'center', borderRadius: 2, width: '100%' }}>
+              <LocalOffer sx={{ fontSize: 64, color: '#ddd', mb: 2 }} />
+              <Typography variant="h6" color="textSecondary">
+                No campaigns found
+              </Typography>
+              <Typography variant="body2" color="textSecondary" sx={{ mb: 3 }}>
+                Create your first deal campaign to get started
+              </Typography>
+              <Button
+                variant="contained"
+                startIcon={<Add />}
+                onClick={() => handleOpenCampaignDialog()}
+                sx={{ bgcolor: '#E87E35', '&:hover': { bgcolor: '#d66d2a' } }}
+              >
+                Create Campaign
+              </Button>
+            </Paper>
+          ) : (
+            <Grid container spacing={3} sx={{ width: '100%', m: 0 }}>
+              {campaigns.map((campaign) => (
+                <Grid key={campaign._id} size={{ xs: 12, sm: 6, md: 6, lg: 4, xl: 3 }} sx={{ pl: '0 !important' }}>
+                  <Card
                   sx={{
                     borderRadius: 2,
                     overflow: 'hidden',
@@ -567,7 +586,7 @@ const AdminDealCampaigns: React.FC = () => {
                     <CardMedia
                       component="img"
                       height="140"
-                      image={getFullImageUrl(campaign.heroBanner.imageUrl)}
+                      image={api.getImageUrl(campaign.heroBanner.imageUrl)}
                       alt={campaign.name}
                     />
                   ) : (
@@ -649,6 +668,7 @@ const AdminDealCampaigns: React.FC = () => {
             ))}
           </Grid>
         )}
+        </Box>
 
         {/* Campaign Dialog */}
         <Dialog
@@ -662,7 +682,7 @@ const AdminDealCampaigns: React.FC = () => {
           </DialogTitle>
           <DialogContent dividers>
             <Grid container spacing={2}>
-              <Grid item xs={12}>
+              <Grid size={{ xs: 12 }}>
                 <TextField
                   label="Campaign Name *"
                   fullWidth
@@ -670,7 +690,7 @@ const AdminDealCampaigns: React.FC = () => {
                   onChange={(e) => setCampaignForm({ ...campaignForm, name: e.target.value })}
                 />
               </Grid>
-              <Grid item xs={12}>
+              <Grid size={{ xs: 12 }}>
                 <TextField
                   label="Description"
                   fullWidth
@@ -680,7 +700,7 @@ const AdminDealCampaigns: React.FC = () => {
                   onChange={(e) => setCampaignForm({ ...campaignForm, description: e.target.value })}
                 />
               </Grid>
-              <Grid item xs={12}>
+              <Grid size={{ xs: 12 }}>
                 <FormControl fullWidth>
                   <InputLabel>Categories</InputLabel>
                   <Select
@@ -713,12 +733,37 @@ const AdminDealCampaigns: React.FC = () => {
                   </Select>
                 </FormControl>
               </Grid>
-              <Grid item xs={12}>
+              <Grid size={{ xs: 12 }}>
+                <FormControl fullWidth>
+                  <InputLabel>Branches</InputLabel>
+                  <Select
+                    multiple
+                    value={campaignForm.branch || []}
+                    onChange={(e) => setCampaignForm({ ...campaignForm, branch: typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value })}
+                    label="Branches"
+                    renderValue={(selected) => (
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                        {(selected as string[]).map((id) => {
+                          const name = branches.find((b) => b._id === id)?.branchName || id;
+                          return <Chip key={id} label={name} size="small" />;
+                        })}
+                      </Box>
+                    )}
+                  >
+                    {branches.map((b) => (
+                      <MenuItem key={b._id} value={b._id}>
+                        {b.branchName}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid size={{ xs: 12 }}>
                 <Typography variant="subtitle2" sx={{ mb: 1, color: '#666' }}>
                   Hero Banner
                 </Typography>
               </Grid>
-              <Grid item xs={12}>
+              <Grid size={{ xs: 12 }}>
                 <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
                   <Button
                     variant="outlined"
@@ -747,13 +792,13 @@ const AdminDealCampaigns: React.FC = () => {
                   {campaignForm.heroBannerImageUrl ? (
                     <Avatar
                       variant="rounded"
-                      src={getFullImageUrl(campaignForm.heroBannerImageUrl)}
+                      src={api.getImageUrl(campaignForm.heroBannerImageUrl)}
                       sx={{ width: 72, height: 48 }}
                     />
                   ) : null}
                 </Box>
               </Grid>
-              <Grid item xs={12} sm={6}>
+              <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
                   label="Banner Title"
                   fullWidth
@@ -763,7 +808,7 @@ const AdminDealCampaigns: React.FC = () => {
                   }
                 />
               </Grid>
-              <Grid item xs={12} sm={6}>
+              <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
                   label="Banner Subtitle"
                   fullWidth
@@ -773,7 +818,7 @@ const AdminDealCampaigns: React.FC = () => {
                   }
                 />
               </Grid>
-              <Grid item xs={12}>
+              <Grid size={{ xs: 12 }}>
                 <FormControl fullWidth>
                   <InputLabel>Status</InputLabel>
                   <Select
@@ -792,7 +837,7 @@ const AdminDealCampaigns: React.FC = () => {
                   </Select>
                 </FormControl>
               </Grid>
-              <Grid item xs={12} sm={6}>
+              <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
                   label="Start Date"
                   type="date"
@@ -804,7 +849,7 @@ const AdminDealCampaigns: React.FC = () => {
                   }
                 />
               </Grid>
-              <Grid item xs={12} sm={6}>
+              <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
                   label="End Date"
                   type="date"
@@ -814,7 +859,7 @@ const AdminDealCampaigns: React.FC = () => {
                   onChange={(e) => setCampaignForm({ ...campaignForm, endDate: e.target.value })}
                 />
               </Grid>
-              <Grid item xs={12}>
+              <Grid size={{ xs: 12 }}>
                 <TextField
                   label="Display Order"
                   type="number"
@@ -887,7 +932,7 @@ const AdminDealCampaigns: React.FC = () => {
         >
           <Box
             component="img"
-            src={getFullImageUrl(selectedCampaign.heroBanner.imageUrl)}
+            src={api.getImageUrl(selectedCampaign.heroBanner.imageUrl)}
             alt="Hero Banner"
             sx={{ width: '100%', height: 200, objectFit: 'cover' }}
           />
@@ -934,7 +979,7 @@ const AdminDealCampaigns: React.FC = () => {
       ) : (
         <Grid container spacing={3}>
           {selectedCampaign?.deals?.map((deal) => (
-            <Grid item xs={12} sm={6} md={6} lg={4} xl={3} key={deal._id}>
+            <Grid key={deal._id} size={{ xs: 12, sm: 6, md: 6, lg: 4, xl: 3 }}>
               <Card
                 sx={{
                   borderRadius: 2,
@@ -948,7 +993,7 @@ const AdminDealCampaigns: React.FC = () => {
                     <CardMedia
                       component="img"
                       height="160"
-                      image={getFullImageUrl(deal.imageUrl)}
+                      image={api.getImageUrl(deal.imageUrl)}
                       alt={deal.title}
                     />
                   ) : (
@@ -1043,7 +1088,7 @@ const AdminDealCampaigns: React.FC = () => {
         <DialogTitle>{editingDeal ? 'Edit Deal' : 'Add Deal'}</DialogTitle>
         <DialogContent dividers>
           <Grid container spacing={2}>
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <TextField
                 label="Deal Title *"
                 fullWidth
@@ -1051,7 +1096,7 @@ const AdminDealCampaigns: React.FC = () => {
                 onChange={(e) => setDealForm({ ...dealForm, title: e.target.value })}
               />
             </Grid>
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <TextField
                 label="Description"
                 fullWidth
@@ -1061,7 +1106,7 @@ const AdminDealCampaigns: React.FC = () => {
                 onChange={(e) => setDealForm({ ...dealForm, description: e.target.value })}
               />
             </Grid>
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
                 <Button
                   variant="outlined"
@@ -1090,13 +1135,13 @@ const AdminDealCampaigns: React.FC = () => {
                 {dealForm.imageUrl ? (
                   <Avatar
                     variant="rounded"
-                    src={getFullImageUrl(dealForm.imageUrl)}
+                    src={api.getImageUrl(dealForm.imageUrl)}
                     sx={{ width: 72, height: 48 }}
                   />
                 ) : null}
               </Box>
             </Grid>
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <FormControl fullWidth>
                 <InputLabel>Categories</InputLabel>
                 <Select
@@ -1129,7 +1174,7 @@ const AdminDealCampaigns: React.FC = () => {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={12} sm={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
                 label={`Original Price (${currencySymbol})`}
                 type="number"
@@ -1140,7 +1185,7 @@ const AdminDealCampaigns: React.FC = () => {
                 }
               />
             </Grid>
-            <Grid item xs={12} sm={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
                 label={`Sale Price * (${currencySymbol})`}
                 type="number"
@@ -1151,7 +1196,7 @@ const AdminDealCampaigns: React.FC = () => {
                 }
               />
             </Grid>
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <TextField
                 label="Display Order"
                 type="number"
@@ -1163,7 +1208,7 @@ const AdminDealCampaigns: React.FC = () => {
                 helperText="Lower numbers appear first"
               />
             </Grid>
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <FormControlLabel
                 control={
                   <Switch

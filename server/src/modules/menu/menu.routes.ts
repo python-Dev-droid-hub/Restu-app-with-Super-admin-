@@ -14,7 +14,7 @@ const createCategorySchema = Joi.object({
   displayOrder: Joi.number().min(0).optional(),
   isActive: Joi.boolean().optional(),
   imageUrl: Joi.string().optional().allow(''),
-  branchId: Joi.string().optional(),
+  branchId: Joi.alternatives().try(Joi.string(), Joi.array().items(Joi.string())).optional(),
 }).unknown(true);
 
 const updateCategorySchema = Joi.object({
@@ -23,7 +23,7 @@ const updateCategorySchema = Joi.object({
   displayOrder: Joi.number().min(0).optional(),
   isActive: Joi.boolean().optional(),
   imageUrl: Joi.string().optional().allow(''),
-  branchId: Joi.string().optional(),
+  branchId: Joi.alternatives().try(Joi.string(), Joi.array().items(Joi.string())).optional(),
 }).unknown(true);
 
 const reorderCategoriesSchema = Joi.object({
@@ -37,7 +37,7 @@ const reorderCategoriesSchema = Joi.object({
 
 const createMenuItemSchema = Joi.object({
   name: Joi.string().min(2).max(100).required(),
-  description: Joi.string().min(10).max(500).required(),
+  description: Joi.string().max(2000).optional().allow(''),
   price: Joi.number().min(0).required(),
   category: Joi.string().required(),
   imageUrl: Joi.string().max(500).optional().allow('', null),
@@ -49,8 +49,9 @@ const createMenuItemSchema = Joi.object({
   isVegan: Joi.boolean().optional(),
   isGlutenFree: Joi.boolean().optional(),
   isSpicy: Joi.boolean().optional(),
+  isActive: Joi.boolean().optional(),
   isAvailable: Joi.boolean().optional(),
-  preparationTime: Joi.number().min(1).required(),
+  preparationTime: Joi.number().min(1).optional(),
   nutritionInfo: Joi.object({
     calories: Joi.number().min(0).optional(),
     protein: Joi.number().min(0).optional(),
@@ -67,12 +68,12 @@ const createMenuItemSchema = Joi.object({
     })
   ).optional(),
   // Branch assignment
-  branchId: Joi.string().optional(),
+  branchId: Joi.alternatives().try(Joi.string(), Joi.array().items(Joi.string())).optional(),
 });
 
 const updateMenuItemSchema = Joi.object({
   name: Joi.string().min(2).max(100).optional(),
-  description: Joi.string().min(10).max(500).optional(),
+  description: Joi.string().max(2000).optional().allow(''),
   price: Joi.number().min(0).optional(),
   category: Joi.string().optional(),
   imageUrl: Joi.string().max(500).optional().allow('', null),
@@ -102,7 +103,7 @@ const updateMenuItemSchema = Joi.object({
     })
   ).optional(),
   // Branch assignment
-  branchId: Joi.string().optional(),
+  branchId: Joi.alternatives().try(Joi.string(), Joi.array().items(Joi.string())).optional(),
 });
 
 const menuItemParamsSchema = Joi.object({
@@ -117,7 +118,7 @@ const categoryParamsSchema = Joi.object({
 
 // Admin routes - System wide menu management (MUST be before public routes)
 router.get('/admin/products', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), menuController.getAllProducts);
-router.post('/admin/products', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), menuController.createAdminProduct);
+router.post('/admin/products', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), validate(createMenuItemSchema), menuController.createAdminProduct);
 router.put('/admin/products/:id', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), validate(updateMenuItemSchema), menuController.updateAdminProduct);
 router.delete('/admin/products/:id', authenticate, authorize('ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'), menuController.deleteAdminProduct);
 

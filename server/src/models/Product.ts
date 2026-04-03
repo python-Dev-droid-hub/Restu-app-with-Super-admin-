@@ -30,11 +30,11 @@ const productCustomizationSchema = new Schema({
 
 const productSchema = new Schema({
   // Branch assignment for multi-branch setups
-  branchId: {
+  branchId: [{
     type: Schema.Types.ObjectId,
     ref: 'Branch',
     index: true,
-  },
+  }],
   category: {
     type: Schema.Types.ObjectId,
     ref: 'Category',

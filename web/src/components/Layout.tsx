@@ -93,11 +93,6 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const currentPageKey = getCurrentPageKey();
   const currentPage = t(currentPageKey as any);
 
-  // Load unread notification count on component mount
-  useEffect(() => {
-    loadUnreadCount();
-  }, []);
-
   const loadUnreadCount = async () => {
     // Only load notifications for ADMIN users
     if (userRole === 'ADMIN') {
@@ -117,8 +112,12 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     }
   };
 
+  useEffect(() => {
+    loadUnreadCount();
+  }, []);
+
   const handleNotificationClick = () => {
-    setShowNotifications(!showNotifications);
+    setShowNotifications((prev) => !prev);
   };
 
   const handleNotificationClose = () => {

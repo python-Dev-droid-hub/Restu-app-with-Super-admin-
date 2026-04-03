@@ -46,7 +46,7 @@ interface Deal {
   expiryDate: string;
   imageUrl?: string;
   isActive: boolean;
-  branch?: { _id: string; branchName: string } | null;
+  branch?: { _id: string; branchName: string }[] | null;
   products?: { product: { _id: string; name: string } }[];
 }
 
@@ -73,7 +73,7 @@ const AdminDeals: React.FC = () => {
     minOrderAmount: string;
     startDate: string;
     expiryDate: string;
-    branch: string;
+    branch: string[];
     isActive: boolean;
   }>({
     title: '',
@@ -84,7 +84,7 @@ const AdminDeals: React.FC = () => {
     minOrderAmount: '0',
     startDate: new Date().toISOString().split('T')[0],
     expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    branch: '',
+    branch: [],
     isActive: true,
   });
 
@@ -129,7 +129,7 @@ const AdminDeals: React.FC = () => {
         minOrderAmount: deal.minOrderAmount?.toString() || '0',
         startDate: new Date(deal.startDate).toISOString().split('T')[0],
         expiryDate: new Date(deal.expiryDate).toISOString().split('T')[0],
-        branch: deal.branch?._id || '',
+        branch: Array.isArray(deal.branch) ? deal.branch.map((b: any) => b._id || b) : (deal.branch ? [(deal.branch as any)._id || deal.branch] : []),
         isActive: deal.isActive,
       });
     } else {
@@ -143,7 +143,7 @@ const AdminDeals: React.FC = () => {
         minOrderAmount: '0',
         startDate: new Date().toISOString().split('T')[0],
         expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        branch: '',
+        branch: [],
         isActive: true,
       });
     }
@@ -166,7 +166,7 @@ const AdminDeals: React.FC = () => {
         startDate: new Date(formData.startDate),
         expiryDate: new Date(formData.expiryDate),
         isActive: formData.isActive,
-        branch: formData.branch || null,
+        branch: formData.branch && formData.branch.length > 0 ? formData.branch : undefined,
       };
 
       if (formData.maxDiscountAmount) {
@@ -334,7 +334,7 @@ const AdminDeals: React.FC = () => {
                         />
                       </TableCell>
                       <TableCell>
-                        {deal.branch?.branchName || 'All Branches'}
+                        {deal.branch && deal.branch.length > 0 ? deal.branch.map(b => b.branchName).join(', ') : 'All Branches'}
                       </TableCell>
                       <TableCell>
                         <Typography variant="body2">
@@ -430,13 +430,21 @@ const AdminDeals: React.FC = () => {
               />
             </Box>
             <FormControl fullWidth>
-              <InputLabel>Branch</InputLabel>
+              <InputLabel>Branches</InputLabel>
               <Select
-                value={formData.branch}
-                label="Branch"
-                onChange={(e) => setFormData({ ...formData, branch: e.target.value })}
+                multiple
+                value={formData.branch || []}
+                onChange={(e) => setFormData({ ...formData, branch: typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value })}
+                label="Branches"
+                renderValue={(selected) => (
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                    {(selected as string[]).map((id) => {
+                      const name = branches.find((b) => b._id === id)?.branchName || id;
+                      return <Chip key={id} label={name} size="small" />;
+                    })}
+                  </Box>
+                )}
               >
-                <MenuItem value="">All Branches</MenuItem>
                 {branches.map((branch) => (
                   <MenuItem key={branch._id} value={branch._id}>
                     {branch.branchName}

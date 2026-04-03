@@ -32,6 +32,13 @@ import AdminProductSize from './pages/admin/AdminProductSize';
 import AdminTableAssignment from './pages/admin/AdminTableAssignment';
 import AdminBanners from './pages/admin/AdminBanners';
 
+import CustomerLayout from './components/customer/CustomerLayout';
+import CustomerHome from './pages/customer/CustomerHome';
+import CustomerMenu from './pages/customer/CustomerMenu';
+import CustomerCart from './pages/customer/CustomerCart';
+import CustomerOrders from './pages/customer/CustomerOrders';
+import CheckoutPage from './pages/customer/CheckoutPage';
+
 import './styles/variables.css';
 import './components/Layout.css';
 import './pages/Dashboard.css';
@@ -46,6 +53,21 @@ function RequireAdminAuth({ children }: { children: ReactElement }) {
   return children;
 }
 
+function RootRedirect() {
+  const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
+  const role = localStorage.getItem('userRole');
+
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (role === 'ADMIN' || role === 'SUPER_ADMIN') {
+    return <Navigate to="/admin/dashboard" replace />;
+  }
+
+  return <Navigate to="/customer" replace />;
+}
+
 function App() {
   return (
     <SettingsProvider>
@@ -54,6 +76,48 @@ function App() {
         {/* Login & Mobile Required */}
         <Route path="/login" element={<Login />} />
         <Route path="/mobile-required" element={<MobileRequired />} />
+
+        {/* Customer Web Routes */}
+        <Route
+          path="/customer"
+          element={
+            <CustomerLayout>
+              <CustomerHome />
+            </CustomerLayout>
+          }
+        />
+        <Route
+          path="/customer/menu"
+          element={
+            <CustomerLayout>
+              <CustomerMenu />
+            </CustomerLayout>
+          }
+        />
+        <Route
+          path="/customer/cart"
+          element={
+            <CustomerLayout>
+              <CustomerCart />
+            </CustomerLayout>
+          }
+        />
+        <Route
+          path="/customer/orders"
+          element={
+            <CustomerLayout>
+              <CustomerOrders />
+            </CustomerLayout>
+          }
+        />
+        <Route
+          path="/customer/checkout"
+          element={
+            <CustomerLayout>
+              <CheckoutPage />
+            </CustomerLayout>
+          }
+        />
 
         {/* New MUI Admin Panel Routes */}
         <Route path="/admin/dashboard" element={<RequireAdminAuth><AdminLayout><AdminDashboard /></AdminLayout></RequireAdminAuth>} />
@@ -75,8 +139,8 @@ function App() {
         <Route path="/admin/settings" element={<RequireAdminAuth><AdminLayout><AdminSettings /></AdminLayout></RequireAdminAuth>} />
 
         {/* Legacy Routes */}
-        <Route path="/" element={<Navigate to="/admin/dashboard" replace />} />
-        <Route path="/dashboard" element={<Navigate to="/admin/dashboard" replace />} />
+        <Route path="/" element={<RootRedirect />} />
+        <Route path="/dashboard" element={<RootRedirect />} />
         <Route path="/orders" element={<Layout><Orders /></Layout>} />
         <Route path="/products" element={<Layout><Products /></Layout>} />
         <Route path="/branches" element={<Layout><Branches /></Layout>} />

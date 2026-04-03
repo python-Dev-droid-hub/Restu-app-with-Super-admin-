@@ -21,7 +21,7 @@ router.get('/home', asyncHandler(async (req, res) => {
     startDate: { $lte: new Date() },
     endDate: { $gte: new Date() }
   })
-    .select('name description image discountPercentage')
+    .select('name description imageUrl discountPercentage')
     .limit(5)
     .lean();
 
@@ -84,7 +84,7 @@ router.get('/home', asyncHandler(async (req, res) => {
       id: b._id,
       title: b.name,
       subtitle: b.description,
-      image: b.image || 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=600&h=400&fit=crop',
+      image: b.imageUrl || 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=600&h=400&fit=crop',
       discount: b.discountPercentage
     })),
     categories: categories.map(c => ({

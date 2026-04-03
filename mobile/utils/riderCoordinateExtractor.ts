@@ -84,38 +84,85 @@ export const extractDeliveryCoordinates = (order: any): ExtractedCoordinates => 
   }
   
   // TRY MULTIPLE POSSIBLE LOCATIONS FOR PICKUP COORDINATES
-  const pickupCoords =
-    // Location 0: mapped/normalized field already on object
-    normalizeCoordinates(order.pickupCoords) ||
-    // Location 1: pickupLocation.location
-    normalizeCoordinates(order.pickupLocation?.location) ||
-    // Location 2: pickupLocation.coordinates
-    normalizeCoordinates(order.pickupLocation?.coordinates) ||
-    // Location 3: pickupLocation direct
-    normalizeCoordinates(order.pickupLocation) ||
-    // Location 4: branch.location (fallback)
-    normalizeCoordinates(order.branch?.location) ||
-    // Location 5: branch.coordinates
-    normalizeCoordinates(order.branch?.coordinates) ||
-    // Location 6: branch root (lat/lng)
-    normalizeCoordinates(order.branch);
+  let pickupCoords = null;
+  
+  // Try pickupCoords already extracted
+  if (!pickupCoords) pickupCoords = normalizeCoordinates(order.pickupCoords);
+  
+  // Try pickupLocation various formats
+  if (!pickupCoords && order.pickupLocation) {
+    pickupCoords = normalizeCoordinates(order.pickupLocation?.location) ||
+                   normalizeCoordinates(order.pickupLocation?.coordinates) ||
+                   normalizeCoordinates(order.pickupLocation);
+  }
+  
+  // Try branch location - handle various API response formats
+  if (!pickupCoords && order.branch) {
+    // Format 1: branch.lat and branch.lng (separate fields from API)
+    if (typeof order.branch.lat === 'number' && typeof order.branch.lng === 'number') {
+      pickupCoords = { 
+        latitude: order.branch.lat, 
+        longitude: order.branch.lng 
+      };
+    }
+    
+    // Format 2: branch.location with lat/lng or latitude/longitude
+    if (!pickupCoords) {
+      pickupCoords = normalizeCoordinates(order.branch?.location);
+    }
+    
+    // Format 3: branch.location as GeoJSON [lng, lat] array
+    if (!pickupCoords && Array.isArray(order.branch?.location?.coordinates)) {
+      const coords = order.branch.location.coordinates;
+      if (coords.length === 2) {
+        pickupCoords = { longitude: coords[0], latitude: coords[1] };
+      }
+    }
+    
+    // Format 4: branch with direct lat/lng fields in location object
+    if (!pickupCoords && order.branch?.location) {
+      pickupCoords = normalizeCoordinates(order.branch.location);
+    }
+  }
+  
+  // Try restaurant/pickup location from raw order data
+  if (!pickupCoords && order.raw) {
+    pickupCoords = normalizeCoordinates(order.raw?.branch?.location) ||
+                   normalizeCoordinates(order.raw?.pickupLocation);
+  }
   
   // TRY MULTIPLE POSSIBLE LOCATIONS FOR DELIVERY COORDINATES
-  const deliveryCoords =
-    // Location 0: mapped/normalized field already on object
-    normalizeCoordinates(order.deliveryCoords) ||
-    // Location 0b: Order model deliveryLocation GeoJSON
-    normalizeCoordinates(order.deliveryLocation) ||
-    // Location 1: deliveryAddress.location
-    normalizeCoordinates(order.deliveryAddress?.location) ||
-    // Location 2: deliveryAddress.coordinates
-    normalizeCoordinates(order.deliveryAddress?.coordinates) ||
-    // Location 3: deliveryAddress.coords
-    normalizeCoordinates(order.deliveryAddress?.coords) ||
-    // Location 4: delivery.location
-    normalizeCoordinates(order.delivery?.location) ||
-    // Location 5: delivery.coordinates
-    normalizeCoordinates(order.delivery?.coordinates);
+  let deliveryCoords = null;
+  
+  // Try already extracted deliveryCoords
+  if (!deliveryCoords) deliveryCoords = normalizeCoordinates(order.deliveryCoords);
+  
+  // Try deliveryLocation (from Order model GeoJSON)
+  if (!deliveryCoords && order.deliveryLocation) {
+    // GeoJSON format [lng, lat]
+    if (Array.isArray(order.deliveryLocation.coordinates) && order.deliveryLocation.coordinates.length === 2) {
+      deliveryCoords = { 
+        longitude: order.deliveryLocation.coordinates[0], 
+        latitude: order.deliveryLocation.coordinates[1] 
+      };
+    } else {
+      deliveryCoords = normalizeCoordinates(order.deliveryLocation);
+    }
+  }
+  
+  // Try deliveryAddress various formats
+  if (!deliveryCoords && order.deliveryAddress) {
+    deliveryCoords = normalizeCoordinates(order.deliveryAddress?.location) ||
+                     normalizeCoordinates(order.deliveryAddress?.coordinates) ||
+                     normalizeCoordinates(order.deliveryAddress?.coords) ||
+                     normalizeCoordinates(order.deliveryAddress);
+  }
+  
+  // Try delivery object
+  if (!deliveryCoords && order.delivery) {
+    deliveryCoords = normalizeCoordinates(order.delivery?.location) ||
+                     normalizeCoordinates(order.delivery?.coordinates);
+  }
   
   // Get friendly names
   const pickupName = 
@@ -129,9 +176,22 @@ export const extractDeliveryCoordinates = (order: any): ExtractedCoordinates => 
     'Delivery Location';
   
   console.log('[CoordinateExtractor] Result:', {
-    order: order._id,
-    pickup: pickupCoords ? '✅ Found' : '❌ Not found',
-    delivery: deliveryCoords ? '✅ Found' : '❌ Not found'
+    order: order._id || order.id,
+    pickup: pickupCoords ? `✅ Found (${pickupCoords.latitude}, ${pickupCoords.longitude})` : '❌ Not found',
+    delivery: deliveryCoords ? `✅ Found (${deliveryCoords.latitude}, ${deliveryCoords.longitude})` : '❌ Not found',
+    branchData: order.branch ? JSON.stringify({ 
+      id: order.branch._id || order.branch.id,
+      branchName: order.branch.branchName,
+      addressLine: order.branch.addressLine,
+      city: order.branch.city,
+      state: order.branch.state,
+      country: order.branch.country,
+      lat: order.branch.lat,
+      lng: order.branch.lng,
+      hasLocation: !!order.branch?.location,
+      locationType: order.branch?.location?.type,
+      locationCoords: order.branch?.location?.coordinates
+    }) : 'no branch'
   });
   
   return {

@@ -17,6 +17,7 @@ import { colors, typography, spacing, borderRadius, shadows } from '../../theme'
 import { formatDate } from '../../utils/formatHelpers';
 import { useSettings } from '../../context/SettingsContext';
 import api from '../../services/api';
+import OrderReviewModal from './components/OrderReviewModal';
 
 interface Order {
   _id: string;
@@ -31,6 +32,8 @@ interface Order {
   }>;
   createdAt: string;
   branchName?: string;
+  foodRating?: number;
+  deliveryRating?: number;
 }
 
 const getStatusColor = (status: string) => {
@@ -122,6 +125,8 @@ export default function OrderHistoryScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'completed'>('all');
+  const [reviewModalVisible, setReviewModalVisible] = useState(false);
+  const [selectedOrderForReview, setSelectedOrderForReview] = useState<Order | null>(null);
 
   const fetchOrders = async () => {
     try {
@@ -151,6 +156,8 @@ export default function OrderHistoryScreen() {
           items: mappedItems,
           createdAt: o?.createdAt || o?.created_at || new Date().toISOString(),
           branchName: o?.branch?.branchName || o?.branch?.name || o?.branchName,
+          foodRating: o?.foodRating,
+          deliveryRating: o?.deliveryRating,
         };
       });
 
@@ -211,6 +218,22 @@ export default function OrderHistoryScreen() {
     fetchOrders();
   };
 
+  const handleOrderPress = (order: Order) => {
+    // Show review modal if order is delivered and not yet reviewed
+    if (order.status === 'delivered' && !order.foodRating && !order.deliveryRating) {
+      setSelectedOrderForReview(order);
+      setReviewModalVisible(true);
+    } else {
+      // Otherwise just go to order tracking
+      navigation.navigate('OrderTracking' as never, { orderId: order._id });
+    }
+  };
+
+  const handleReviewSubmitted = () => {
+    // Refresh orders to show the review has been submitted
+    fetchOrders();
+  };
+
   const filteredOrders = orders.filter(order => {
     if (activeFilter === 'active') {
       return ['pending', 'confirmed', 'preparing', 'ready', 'out_for_delivery'].includes(order.status);
@@ -224,7 +247,7 @@ export default function OrderHistoryScreen() {
   const renderOrder = ({ item }: { item: Order }) => (
     <TouchableOpacity 
       style={styles.orderCard}
-      onPress={() => navigation.navigate('OrderTracking' as never, { orderId: item._id })}
+      onPress={() => handleOrderPress(item)}
     >
       {/* Order Header */}
       <View style={styles.orderHeader}>
@@ -268,6 +291,18 @@ export default function OrderHistoryScreen() {
 
       {/* Action Buttons */}
       <View style={styles.actionButtons}>
+        {item.status === 'delivered' && !item.foodRating && !item.deliveryRating && (
+          <TouchableOpacity 
+            style={styles.reviewButton}
+            onPress={() => {
+              setSelectedOrderForReview(item);
+              setReviewModalVisible(true);
+            }}
+          >
+            <Ionicons name="star" size={16} color={colors.white} style={{ marginRight: 6 }} />
+            <Text style={styles.reviewText}>RATE ORDER</Text>
+          </TouchableOpacity>
+        )}
         {item.status === 'delivered' && (
           <TouchableOpacity style={styles.reorderButton}>
             <Text style={styles.reorderText}>REORDER</Text>
@@ -280,7 +315,7 @@ export default function OrderHistoryScreen() {
         )}
         <TouchableOpacity
           style={styles.trackButton}
-          onPress={() => navigation.navigate('OrderTracking' as never, { orderId: item._id })}
+          onPress={() => handleOrderPress(item)}
         >
           <Text style={styles.trackText}>TRACK ORDER</Text>
         </TouchableOpacity>
@@ -343,6 +378,20 @@ export default function OrderHistoryScreen() {
           </View>
         }
       />
+
+      {/* Review Modal */}
+      {selectedOrderForReview && (
+        <OrderReviewModal
+          visible={reviewModalVisible}
+          onClose={() => {
+            setReviewModalVisible(false);
+            setSelectedOrderForReview(null);
+          }}
+          orderId={selectedOrderForReview._id}
+          orderNumber={selectedOrderForReview.orderNumber}
+          onReviewSubmitted={handleReviewSubmitted}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -500,6 +549,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm,
     marginTop: spacing.md,
+  },
+  reviewButton: {
+    flex: 1,
+    backgroundColor: colors.warning,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  reviewText: {
+    color: colors.white,
+    fontSize: typography.sizes.small,
+    fontWeight: typography.weights.bold,
   },
   reorderButton: {
     flex: 1,

@@ -28,7 +28,7 @@ const Users: React.FC = () => {
   const [selectedBranch, setSelectedBranch] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   const [branches, setBranches] = useState<any[]>([]);
-  const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [, setShowAddUserModal] = useState(false);
 
   useEffect(() => {
     loadUsers();

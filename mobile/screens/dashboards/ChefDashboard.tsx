@@ -730,6 +730,7 @@ export default function ChefDashboard() {
             await AsyncStorage.removeItem('authToken');
             await AsyncStorage.removeItem('userRole');
             await AsyncStorage.removeItem('userData');
+            await AsyncStorage.removeItem('selectedBranchId');
             navigation.dispatch(
               CommonActions.reset({
                 index: 0,

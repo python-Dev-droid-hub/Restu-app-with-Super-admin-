@@ -572,11 +572,11 @@ export default function RiderDashboard() {
     setNewOrderAlert(null);
   };
 
-  // Cancel auto-assigned order
+  // Cancel auto-assigned order - Use PUT /reject endpoint for riders
   const handleCancelOrder = async (orderId: string, reason?: string) => {
     try {
-      const response = await api.patch(`/orders/${orderId}/status`, { 
-        status: 'CANCELLED',
+      // Use the dedicated rider reject endpoint which has proper authorization
+      const response = await api.put(`/orders/${orderId}/reject`, { 
         reason: reason || 'Rider cancelled assignment'
       });
       if (response.success) {
@@ -670,7 +670,13 @@ export default function RiderDashboard() {
       // If coords are missing but we have an address, geocode it for accurate directions.
       if ((!destLat || !destLng) && address) {
         try {
-          const results = await Location.geocodeAsync(address);
+          // If address is too short/ambiguous, add context to avoid wrong geocoding (e.g., "Link Road" -> India)
+          let geocodeAddress = address;
+          if (address.length < 15 && !address.toLowerCase().includes('lahore') && !address.toLowerCase().includes('pakistan')) {
+            geocodeAddress = `${address}, Lahore, Pakistan`;
+            console.log('[openInMaps] Enhanced address for geocoding:', geocodeAddress);
+          }
+          const results = await Location.geocodeAsync(geocodeAddress);
           if (results && results.length > 0) {
             destLat = results[0].latitude;
             destLng = results[0].longitude;
@@ -810,12 +816,20 @@ export default function RiderDashboard() {
           data?.deliveryAddress?.zipCode,
           data?.deliveryAddress?.country,
         ]) || deliveryLocation;
-        const pickupCoords = data?.branch?.location
-          ? {
-              latitude: data.branch.location.latitude || data.branch.location.lat,
-              longitude: data.branch.location.longitude || data.branch.location.lng,
-            }
-          : undefined;
+        const pickupCoords = 
+          // Try lat/lng fields first
+          (typeof data?.branch?.lat === 'number' && typeof data?.branch?.lng === 'number')
+            ? { latitude: data.branch.lat, longitude: data.branch.lng }
+            // Try GeoJSON location.coordinates [lng, lat]
+            : Array.isArray(data?.branch?.location?.coordinates) && data.branch.location.coordinates.length === 2
+              ? { longitude: data.branch.location.coordinates[0], latitude: data.branch.location.coordinates[1] }
+              // Try legacy location format
+              : data?.branch?.location?.lat || data?.branch?.location?.latitude
+                ? {
+                    latitude: data.branch.location.latitude || data.branch.location.lat,
+                    longitude: data.branch.location.longitude || data.branch.location.lng,
+                  }
+                : undefined;
         const deliveryCoords = data?.deliveryAddress?.location
           ? {
               latitude: data.deliveryAddress.location.latitude || data.deliveryAddress.location.lat,
@@ -887,7 +901,7 @@ export default function RiderDashboard() {
 
   // Logout
   const handleLogout = async () => {
-    await AsyncStorage.multiRemove(['authToken', 'userRole', 'userData']);
+    await AsyncStorage.multiRemove(['authToken', 'userRole', 'userData', 'selectedBranchId']);
     navigation.dispatch(
       CommonActions.reset({
         index: 0,
@@ -916,6 +930,7 @@ export default function RiderDashboard() {
         onNotificationPress={() => setActiveTab('Notifications')}
         onSettingsPress={() => setActiveTab('Settings')}
         notificationCount={unreadCount}
+        formatPrice={formatPrice}
       />
 
       {/* Content */}
@@ -957,6 +972,8 @@ export default function RiderDashboard() {
                 Alert.alert('Error', 'Failed to open phone dialer');
               }
             }}
+            onRejectOrder={(deliveryId: string) => handleRejectOrder(deliveryId)}
+            formatPrice={formatPrice}
           />
         )}
 

@@ -56,7 +56,9 @@ interface RiderHomeContentProps {
   onNavigateToPickup?: (deliveryId: string) => void;
   onNavigateToDelivery?: (deliveryId: string) => void;
   onCallCustomer?: (phone: string) => void;
+  onRejectOrder?: (deliveryId: string) => void;
   isLoading?: boolean;
+  formatPrice?: (price: number) => string;
 }
 
 const BENEFITS = [
@@ -76,7 +78,9 @@ const RiderHomeContent: React.FC<RiderHomeContentProps> = ({
   onNavigateToPickup,
   onNavigateToDelivery,
   onCallCustomer,
+  onRejectOrder,
   isLoading = false,
+  formatPrice = (p) => `$${p.toFixed(2)}`,
 }) => {
   if (isLoading) {
     return (
@@ -196,6 +200,8 @@ const RiderHomeContent: React.FC<RiderHomeContentProps> = ({
           onNavigateToPickup={() => onNavigateToPickup?.(delivery._id)}
           onNavigateToDelivery={() => onNavigateToDelivery?.(delivery._id)}
           onCallCustomer={() => onCallCustomer?.(delivery.customerPhone || '')}
+          onReject={delivery.status === 'assigned' ? () => onRejectOrder?.(delivery._id) : undefined}
+          formatPrice={formatPrice}
         />
       ))}
     </ScrollView>

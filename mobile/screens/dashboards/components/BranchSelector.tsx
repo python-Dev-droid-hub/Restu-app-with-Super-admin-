@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { SvgXml } from 'react-native-svg';
 import {
   getCurrentLocation,
   fetchBranches,
@@ -38,28 +39,47 @@ interface BranchSelectorProps {
   requireSelection?: boolean;
 }
 
-// City icons mapping (using Ionicons as fallback for landmarks)
-const CITY_ICONS: Record<string, string> = {
-  karachi: 'business',
-  lahore: 'flag',
-  islamabad: 'home',
-  rawalpindi: 'build',
-  faisalabad: 'construct',
-  multan: 'cube',
-  peshawar: 'shield',
-  quetta: 'locate',
-  hyderabad: 'water',
-  gujranwala: 'people',
-  sialkot: 'football',
-  bahawalpur: 'sunny',
-  sargodha: 'leaf',
-  sukkur: 'boat',
-  larkana: 'pin',
-  sheikhupura: 'star',
-  jhang: 'flame',
-  rahimyarkhan: 'compass',
-  default: 'location',
+// City colors for styled initials
+const CITY_COLORS: Record<string, { bg: string; text: string }> = {
+  karachi: { bg: '#4A90D9', text: '#FFFFFF' },
+  lahore: { bg: '#E85A2B', text: '#FFFFFF' },
+  islamabad: { bg: '#2ECC71', text: '#FFFFFF' },
+  rawalpindi: { bg: '#9B59B6', text: '#FFFFFF' },
+  hyderabad: { bg: '#3498DB', text: '#FFFFFF' },
+  multan: { bg: '#F39C12', text: '#FFFFFF' },
+  faisalabad: { bg: '#1ABC9C', text: '#FFFFFF' },
+  peshawar: { bg: '#E74C3C', text: '#FFFFFF' },
+  quetta: { bg: '#34495E', text: '#FFFFFF' },
+  gujranwala: { bg: '#16A085', text: '#FFFFFF' },
+  sialkot: { bg: '#2980B9', text: '#FFFFFF' },
+  bahawalpur: { bg: '#D35400', text: '#FFFFFF' },
+  sargodha: { bg: '#27AE60', text: '#FFFFFF' },
+  sukkur: { bg: '#8E44AD', text: '#FFFFFF' },
+  larkana: { bg: '#C0392B', text: '#FFFFFF' },
+  sheikhupura: { bg: '#F39C12', text: '#FFFFFF' },
+  jhang: { bg: '#3498DB', text: '#FFFFFF' },
+  rahimyarkhan: { bg: '#E85A2B', text: '#FFFFFF' },
+  gujrat: { bg: '#1ABC9C', text: '#FFFFFF' },
+  sahiwal: { bg: '#9B59B6', text: '#FFFFFF' },
+  default: { bg: '#95A5A6', text: '#FFFFFF' },
 };
+
+ const CITY_LANDMARK_SVGS: Record<string, string> = {
+   lahore: 'https://kababjeesfriedchicken.com/assets/svg/lahore.svg',
+ };
+
+ function sanitizeSvgXml(xml: string): string {
+   if (!xml) return xml;
+   // react-native-svg can fail on some inline style attributes coming from web SVGs.
+   // Strip all style="..." and style='...' attributes to improve compatibility.
+   return xml
+     .replace(/\sstyle=("[^"]*"|'[^']*')/g, '')
+     // clipPath often causes SVGs to render blank in react-native-svg depending on the SVG.
+     // This SVG uses clip-path for a simple rectangle, so it's safe to remove.
+     .replace(/<defs>[\s\S]*?<\/defs>/g, '')
+     .replace(/\sclip-path=("[^"]*"|'[^']*')/g, '')
+     .trim();
+ }
 
 export default function BranchSelector({
   visible,
@@ -74,11 +94,44 @@ export default function BranchSelector({
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null);
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
+  const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
+  const [citySvgXml, setCitySvgXml] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (visible) {
       loadBranchesAndLocation();
     }
+  }, [visible]);
+
+  useEffect(() => {
+    if (!visible) return;
+
+    const loadSvgs = async () => {
+      const entries = Object.entries(CITY_LANDMARK_SVGS);
+      if (entries.length === 0) return;
+
+      const results = await Promise.all(
+        entries.map(async ([cityKey, url]) => {
+          try {
+            const res = await fetch(url);
+            const text = await res.text();
+            return [cityKey, sanitizeSvgXml(text)] as const;
+          } catch {
+            return [cityKey, ''] as const;
+          }
+        })
+      );
+
+      setCitySvgXml((prev) => {
+        const next = { ...prev };
+        for (const [k, v] of results) {
+          if (v) next[k] = v;
+        }
+        return next;
+      });
+    };
+
+    loadSvgs();
   }, [visible]);
 
   const loadBranchesAndLocation = async () => {
@@ -190,6 +243,38 @@ export default function BranchSelector({
     [branches, selectedBranchId]
   );
 
+  const handleImageError = useCallback((city: string) => {
+    setImageErrors((prev) => new Set([...prev, city]));
+  }, []);
+
+  const renderCityIcon = useCallback((city: string, isSelected: boolean) => {
+    const cityKey = city?.toLowerCase() || '';
+    const colors = CITY_COLORS[cityKey] || CITY_COLORS.default;
+    const initials = city.slice(0, 2).toUpperCase();
+    const svgXml = citySvgXml[cityKey];
+    const showSvg = Boolean(svgXml) && !imageErrors.has(cityKey);
+
+    if (showSvg) {
+      return (
+        <View style={[styles.cityIcon, isSelected && styles.cityIconSelected]}>
+          <SvgXml xml={svgXml} width={44} height={44} />
+        </View>
+      );
+    }
+
+    return (
+      <View style={[
+        styles.cityIcon,
+        { backgroundColor: colors.bg },
+        isSelected && styles.cityIconSelected
+      ]}>
+        <Text style={[styles.cityInitials, { color: colors.text }]}>
+          {initials}
+        </Text>
+      </View>
+    );
+  }, [citySvgXml, imageErrors]);
+
   const handleClose = () => {
     if (requireSelection) return;
     onClose();
@@ -240,27 +325,13 @@ export default function BranchSelector({
                 <View style={styles.citiesGrid}>
                   {cities.map((city, index) => {
                     const isSelected = selectedCity === city;
-                    const iconName =
-                      CITY_ICONS[city?.toLowerCase() || ''] || CITY_ICONS.default;
-                    
                     return (
                       <TouchableOpacity
                         key={city + index}
                         style={[styles.cityButton, isSelected && styles.cityButtonSelected]}
                         onPress={() => handleManualCitySelect(city)}
                       >
-                        <View
-                          style={[
-                            styles.cityIcon,
-                            isSelected && styles.cityIconSelected,
-                          ]}
-                        >
-                          <Ionicons
-                            name={iconName as any}
-                            size={24}
-                            color={isSelected ? COLORS.primary : COLORS.gray}
-                          />
-                        </View>
+                        {renderCityIcon(city, isSelected)}
                         <Text
                           style={[
                             styles.cityText,
@@ -476,13 +547,17 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: COLORS.white,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 8,
   },
   cityIconSelected: {
-    backgroundColor: COLORS.primary + '20',
+    borderWidth: 2,
+    borderColor: COLORS.primary,
+  },
+  cityInitials: {
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   cityText: {
     fontSize: 12,

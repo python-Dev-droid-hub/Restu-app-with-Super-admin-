@@ -249,6 +249,14 @@ export default function OrderCard({
         </View>
       </View>
 
+      {/* Rejection Reason - shown for orders that were rejected by rider */}
+      {(order as any).rejectionReason && (
+        <View style={[styles.rejectionBox, { marginBottom: gap }]}>
+          <Text style={styles.rejectionLabel}>⚠️ Rider Rejection:</Text>
+          <Text style={styles.rejectionText}>{(order as any).rejectionReason}</Text>
+        </View>
+      )}
+
       <View style={[styles.divider, { marginBottom: gap }]} />
 
       {/* Order Level Special Instructions */}
@@ -420,7 +428,7 @@ export default function OrderCard({
       {/* Payment Info - Only shown for specific roles */}
       {showPayment && (order as any).totalAmount !== undefined && (order as any).totalAmount !== null && (
         <View style={[styles.paymentBox, { marginBottom: gap }]}>
-          <Text style={styles.paymentText}>Total: ${Number((order as any).totalAmount || 0).toFixed(2)}</Text>
+          <Text style={styles.paymentText}>Total: ₨{Number((order as any).totalAmount || 0).toFixed(2)}</Text>
           {(order as any).paymentMethod && (
             <Text style={styles.paymentMethod}>Payment: {(order as any).paymentMethod}</Text>
           )}
@@ -723,6 +731,25 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   specialInstructionsText: {
+    fontSize: 13,
+    color: COLORS.darkText,
+    fontStyle: 'italic',
+  },
+  rejectionBox: {
+    backgroundColor: COLORS.danger + '15',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.danger,
+  },
+  rejectionLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.danger,
+    marginBottom: 4,
+  },
+  rejectionText: {
     fontSize: 13,
     color: COLORS.darkText,
     fontStyle: 'italic',

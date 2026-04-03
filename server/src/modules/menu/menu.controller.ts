@@ -397,6 +397,18 @@ export class MenuController {
         if (activatedProductIds !== null) {
           productFilter._id = { $in: activatedProductIds };
         }
+        
+        // ALSO: If branch is selected, exclude products assigned to OTHER branches
+        // Products can have branchId field indicating they belong to a specific branch
+        if (branchFilter && branchFilter !== 'all') {
+          productFilter.$and.push({
+            $or: [
+              { branchId: { $exists: false } }, // No branch assigned (global product)
+              { branchId: null },               // Explicitly null (global product)
+              { branchId: branchFilter }        // Assigned to this specific branch
+            ]
+          });
+        }
 
         console.log('🔍 [SERVER MENU DEBUG] Product filter for category', category.name + ':', JSON.stringify(productFilter));
         console.log('🔍 [SERVER MENU DEBUG] Activated IDs filter:', activatedProductIds ? `active, count: ${activatedProductIds.length}` : 'null (showing all)');

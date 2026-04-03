@@ -74,6 +74,40 @@ const restaurantParamsSchema = Joi.object({
   restaurantId: Joi.string().required(),
 });
 
+// Public guest order creation - no auth
+const createGuestOrderSchema = Joi.object({
+  items: Joi.array().items(
+    Joi.object({
+      menuItemId: Joi.string().required(),
+      quantity: Joi.number().min(1).required(),
+      customizations: Joi.array().items(Joi.string()).optional(),
+      specialInstructions: Joi.string().max(500).optional().allow(''),
+    })
+  ).min(1).required(),
+  restaurantId: Joi.string().required(),
+  customerName: Joi.string().trim().min(2).max(100).optional().allow(''),
+  phoneNumber: Joi.string().max(30).optional().allow(''),
+  alternatePhoneNumber: Joi.string().max(30).optional().allow(''),
+  deliveryAddress: Joi.object({
+    street: Joi.string().required(),
+    city: Joi.string().required(),
+    state: Joi.string().required(),
+    zipCode: Joi.string().required(),
+    coordinates: Joi.object({
+      lat: Joi.number().min(-90).max(90),
+      lng: Joi.number().min(-180).max(180),
+    }).optional(),
+  }).required(),
+  orderType: Joi.string().valid('DELIVERY', 'DINE_IN', 'TAKEAWAY').required(),
+  paymentMethod: Joi.string().valid('cash', 'card', 'digital_wallet').required(),
+  deliveryInstructions: Joi.string().max(500).optional(),
+  tableId: Joi.string().optional(),
+  specialInstructions: Joi.string().max(1000).optional(),
+});
+
+router.post('/guest', validate(createGuestOrderSchema), orderController.createOrder);
+router.get('/guest/status/:id', validateParams(orderParamsSchema), orderController.getGuestOrderStatus);
+
 // Protected routes - Customers
 router.post('/', authenticate, authorize('CUSTOMER', 'WAITER'), validate(createOrderSchema), orderController.createOrder);
 router.get('/my-orders', authenticate, authorize('CUSTOMER'), orderController.getMyOrders);

@@ -67,8 +67,7 @@ export function Login() {
         if (userRole === 'ADMIN' || userRole === 'SUPER_ADMIN') {
           navigate('/admin/dashboard');
         } else {
-          // For non-admin users, show mobile app requirement
-          navigate('/mobile-required');
+          navigate('/customer');
         }
       };
 

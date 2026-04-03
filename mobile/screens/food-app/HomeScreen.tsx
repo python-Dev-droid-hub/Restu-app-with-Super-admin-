@@ -18,7 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, typography, spacing, borderRadius, shadows } from '../../theme';
-import { getCurrentLocation, getCityFromCoordinates, getSavedBranch, fetchBranches, saveSelectedBranch, findNearestBranch, Branch } from '../../services/locationService';
+import { getSavedBranch, fetchBranches, saveSelectedBranch, findNearestBranch, Branch } from '../../services/locationService';
 import api from '../../services/api';
 import { getUnreadCount } from '../../services/notificationService';
 import { useCart } from '../../context/CartContext';
@@ -100,7 +100,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const [selectedCategory, setSelectedCategory] = useState('All');
 
-  const [locationLabel, setLocationLabel] = useState<string>('Fetching location...');
+  const [locationLabel, setLocationLabel] = useState<string>('Select Branch');
   const [categories, setCategories] = useState<Array<{ id: string; name: string; imageUrl?: string }>>([
     { id: 'all', name: 'All' },
   ]);
@@ -191,20 +191,6 @@ export default function HomeScreen() {
       return catName === selectedCategory;
     });
   }, [products, selectedCategory]);
-
-  const loadLocation = useCallback(async () => {
-    try {
-      const coords = await getCurrentLocation();
-      if (!coords) {
-        setLocationLabel('Location unavailable');
-        return;
-      }
-      const city = await getCityFromCoordinates(coords.latitude, coords.longitude);
-      setLocationLabel(city ? city : 'Current location');
-    } catch {
-      setLocationLabel('Location unavailable');
-    }
-  }, []);
 
   const loadMenu = useCallback(async (branchId?: string | null) => {
     const targetBranchId = branchId || selectedBranchId;
@@ -314,36 +300,16 @@ export default function HomeScreen() {
     loadSelectedBranchId();
   }, []);
 
-  // Check saved branch and show selector if needed
+  // Check saved branch and show selector only if no branch is saved
   const checkAndLoadBranch = useCallback(async () => {
     try {
-      const savedBranchId = await getSavedBranch();
-      let allBranches: Branch[] = [];
-      try {
-        allBranches = await fetchBranches();
-      } catch (e) {
-        allBranches = [];
+      // Only show selector if no branch is currently selected
+      if (selectedBranchId) {
+        console.log('[HomeScreen] Branch already selected, skipping selector');
+        return;
       }
-
-      console.log('[HomeScreen] savedBranchId:', savedBranchId);
-      console.log('[HomeScreen] branches loaded:', allBranches.length);
-
-      if (savedBranchId && allBranches.length > 0) {
-        const branch = allBranches.find((b) => b._id === savedBranchId);
-        if (branch) {
-          setSelectedBranch(branch);
-          setSelectedBranchId(savedBranchId);
-          setPreviousBranchId(savedBranchId);
-          setBranchSelectionRequired(false);
-          setShowBranchSelector(false);
-          // Menu will load via useEffect when selectedBranchId changes
-          return;
-        }
-      }
-
-      // No saved branch OR saved branch not found
-      // Show branch selector for manual selection (don't auto-select)
-      console.log('[HomeScreen] No saved branch - showing selector for manual selection');
+      
+      console.log('[HomeScreen] No branch selected, showing selector');
       setSelectedBranch(null);
       setBranchSelectionRequired(true);
       setShowBranchSelector(true);
@@ -352,7 +318,7 @@ export default function HomeScreen() {
       setBranchSelectionRequired(true);
       setShowBranchSelector(true);
     }
-  }, []);
+  }, [selectedBranchId]);
 
   useEffect(() => {
     checkAndLoadBranch();
@@ -486,11 +452,17 @@ export default function HomeScreen() {
   const loadAll = useCallback(async () => {
     try {
       setLoading(true);
-      await Promise.all([loadLocation(), loadMenu(), loadDeals(), loadNotificationCount(), loadFavorites()]);
+      // Only load menu if branch is selected
+      if (selectedBranchId) {
+        await Promise.all([loadMenu(), loadDeals(), loadNotificationCount(), loadFavorites()]);
+      } else {
+        // Just load notifications and favorites without menu data
+        await Promise.all([loadNotificationCount(), loadFavorites()]);
+      }
     } finally {
       setLoading(false);
     }
-  }, [loadLocation, loadMenu, loadDeals, loadNotificationCount, loadFavorites]);
+  }, [loadMenu, loadDeals, loadNotificationCount, loadFavorites, selectedBranchId]);
 
   // Validate cart separately on mount only
   useEffect(() => {
@@ -508,9 +480,12 @@ export default function HomeScreen() {
     }
   }, [loadAll]);
 
+  // Only load data on mount if branch is already selected
   useEffect(() => {
-    loadAll();
-  }, [loadAll]);
+    if (selectedBranchId) {
+      loadAll();
+    }
+  }, [loadAll, selectedBranchId]);
 
   const renderCategory = ({ item }: { item: { id: string; name: string; imageUrl?: string } }) => {
     const isSelected = selectedCategory === item.name;
@@ -554,7 +529,6 @@ export default function HomeScreen() {
       ? Math.round(((deal.originalPrice - deal.price) / deal.originalPrice) * 100)
       : 0);
     const imageUri = getFullImageUrl(deal.imageUrl);
-    const isFavorite = favorites.includes(String(deal._id || ''));
     return (
       <TouchableOpacity key={deal._id} activeOpacity={0.9} style={styles.dealCard}>
         <View style={styles.dealImageContainer}>
@@ -565,13 +539,7 @@ export default function HomeScreen() {
               <Ionicons name="pricetag" size={28} color={colors.primary} />
             </View>
           )}
-          <View style={styles.dealFavoriteButton}>
-            <Ionicons
-              name={isFavorite ? 'heart' : 'heart-outline'}
-              size={18}
-              color={isFavorite ? colors.danger : colors.gray_500}
-            />
-          </View>
+          {/* Favorite button removed - backend doesn't support deal favorites, only product favorites */}
           {discountPercent > 0 && (
             <View style={styles.dealDiscountBadge}>
               <Text style={styles.dealDiscountText}>{discountPercent}% OFF</Text>
@@ -676,7 +644,20 @@ export default function HomeScreen() {
 
         {/* Products Grid */}
         <Text style={styles.sectionTitle}>Popular Items</Text>
-        {loading ? (
+        {!selectedBranchId ? (
+          <View style={{ paddingVertical: spacing.xl, alignItems: 'center' }}>
+            <Ionicons name="location-outline" size={48} color={colors.gray_400} />
+            <Text style={{ marginTop: spacing.md, color: colors.gray_500, fontSize: 16 }}>
+              Please select a branch to view products
+            </Text>
+            <TouchableOpacity
+              style={[styles.dealAddToCartButton, { marginTop: spacing.md, paddingHorizontal: spacing.lg }]}
+              onPress={() => setShowBranchSelector(true)}
+            >
+              <Text style={styles.dealAddToCartText}>Select Branch</Text>
+            </TouchableOpacity>
+          </View>
+        ) : loading ? (
           <View style={{ paddingVertical: spacing.xl }}>
             <ActivityIndicator size="large" color={colors.primary} />
           </View>

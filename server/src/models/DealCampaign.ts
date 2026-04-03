@@ -110,11 +110,11 @@ const dealCampaignSchema = new Schema(
       type: [{ type: Schema.Types.ObjectId, ref: 'Category' }],
       default: [],
     },
-    branch: {
+    branch: [{
       type: Schema.Types.ObjectId,
       ref: 'Branch',
-      default: null,
-    },
+      default: [],
+    }],
     createdBy: {
       type: Schema.Types.ObjectId,
       ref: 'User',

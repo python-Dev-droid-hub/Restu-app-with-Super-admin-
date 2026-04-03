@@ -18,6 +18,10 @@ import {
   FormControlLabel,
   Skeleton,
   Alert,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import {
   Add,
@@ -35,6 +39,7 @@ interface CategoryItem {
   displayOrder?: number;
   isActive?: boolean;
   itemCount?: number;
+  branchId?: string[];
 }
 
 const AdminCategories: React.FC = () => {
@@ -42,19 +47,33 @@ const AdminCategories: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<CategoryItem | null>(null);
+  const [branches, setBranches] = useState<any[]>([]);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
     imageUrl: '',
     displayOrder: 0,
     isActive: true,
+    branchId: [] as string[],
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     loadCategories();
+    loadBranches();
   }, []);
+
+  const loadBranches = async () => {
+    try {
+      const response: any = await api.getAllBranches();
+      if (response?.success) {
+        setBranches(response.data?.branches || response.data || []);
+      }
+    } catch (err) {
+      console.error('Error loading branches:', err);
+    }
+  };
 
   const loadCategories = async () => {
     try {
@@ -76,6 +95,7 @@ const AdminCategories: React.FC = () => {
             displayOrder: c.displayOrder || 0,
             isActive: c.isActive ?? true,
             itemCount: c.productCount || c.itemCount || 0,
+            branchId: Array.isArray(c.branchId) ? c.branchId : (c.branchId ? [c.branchId] : []),
           };
         });
         setCategories(normalized);
@@ -97,10 +117,11 @@ const AdminCategories: React.FC = () => {
         imageUrl: category.imageUrl || '',
         displayOrder: category.displayOrder || 0,
         isActive: category.isActive ?? true,
+        branchId: category.branchId || [],
       });
     } else {
       setEditingCategory(null);
-      setFormData({ name: '', description: '', imageUrl: '', displayOrder: 0, isActive: true });
+      setFormData({ name: '', description: '', imageUrl: '', displayOrder: 0, isActive: true, branchId: [] as string[] });
     }
     setDialogOpen(true);
   };
@@ -332,6 +353,30 @@ const AdminCategories: React.FC = () => {
             value={formData.displayOrder}
             onChange={(e) => setFormData({ ...formData, displayOrder: parseInt(e.target.value) || 0 })}
           />
+          <FormControl fullWidth margin="dense" sx={{ mt: 2 }}>
+            <InputLabel id="branch-select-label">Branches</InputLabel>
+            <Select
+              labelId="branch-select-label"
+              multiple
+              value={formData.branchId || []}
+              label="Branches"
+              onChange={(e) => setFormData({ ...formData, branchId: typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value })}
+              renderValue={(selected) => (
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                  {(selected as string[]).map((id) => {
+                    const name = branches.find((b) => b._id === id)?.branchName || id;
+                    return <Chip key={id} label={name} size="small" />;
+                  })}
+                </Box>
+              )}
+            >
+              {branches.map((branch) => (
+                <MenuItem key={branch._id} value={branch._id}>
+                  {branch.branchName}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
           <FormControlLabel
             control={
               <Switch

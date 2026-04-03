@@ -96,6 +96,28 @@ const AdminBanners: React.FC = () => {
     setEditingBanner(null);
   };
 
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64 = reader.result as string;
+        const response: any = await api.uploadImage(base64, file.name);
+        if (response?.success && response?.data?.url) {
+          setFormData((prev) => ({ ...prev, imageUrl: response.data.url }));
+        } else {
+          alert(response?.error || response?.message || 'Failed to upload image');
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      alert('Error uploading image');
+    }
+  };
+
   const handleSave = async () => {
     try {
       const payload: any = {
@@ -231,14 +253,22 @@ const AdminBanners: React.FC = () => {
         <Dialog open={dialogOpen} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
           <DialogTitle>{editingBanner ? 'Edit Banner' : 'Add Banner'}</DialogTitle>
           <DialogContent>
-            <TextField
-              fullWidth
-              label="Image URL"
-              value={formData.imageUrl}
-              onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
-              sx={{ mt: 2 }}
-              placeholder="https://example.com/image.jpg"
-            />
+            <Box sx={{ mt: 2, mb: 1 }}>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>Banner Image</Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                {formData.imageUrl && (
+                  <Box
+                    component="img"
+                    src={api.getImageUrl(formData.imageUrl)}
+                    sx={{ width: 120, height: 60, objectFit: 'cover', borderRadius: 1 }}
+                  />
+                )}
+                <Button variant="outlined" component="label" size="small">
+                  Upload Image
+                  <input type="file" hidden accept="image/*" onChange={handleImageUpload} />
+                </Button>
+              </Box>
+            </Box>
             <TextField
               fullWidth
               label="Display Order"

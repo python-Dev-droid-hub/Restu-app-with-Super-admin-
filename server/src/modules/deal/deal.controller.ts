@@ -14,7 +14,7 @@ export class DealController {
       if (branch) {
         filter.$or = [
           { branch: branch },
-          { branch: null }
+          { branch: { $size: 0 } }
         ];
       }
       

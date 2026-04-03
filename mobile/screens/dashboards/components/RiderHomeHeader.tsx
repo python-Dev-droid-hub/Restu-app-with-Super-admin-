@@ -43,6 +43,7 @@ interface RiderHomeHeaderProps {
   notificationCount?: number;
   onPressInProgress?: () => void;
   onPressEarnings?: () => void;
+  formatPrice?: (price: number) => string;
 }
 
 const StatCard: React.FC<{
@@ -77,6 +78,7 @@ const RiderHomeHeader: React.FC<RiderHomeHeaderProps> = ({
   notificationCount = 0,
   onPressInProgress,
   onPressEarnings,
+  formatPrice = (p) => `$${p.toFixed(2)}`,
 }) => {
   return (
     <View style={styles.container}>
@@ -150,7 +152,7 @@ const RiderHomeHeader: React.FC<RiderHomeHeaderProps> = ({
         />
         <StatCard
           icon="cash-outline"
-          value={`$${Number(stats.earnings || 0).toFixed(2)}`}
+          value={formatPrice(stats.earnings || 0)}
           label="Earnings"
           backgroundColor={COLORS.success}
           onPress={onPressEarnings}

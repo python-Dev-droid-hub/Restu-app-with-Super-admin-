@@ -38,12 +38,10 @@ import {
   ArrowBack,
   TwoWheeler,
   LocalShipping,
-  Warning,
   PersonAdd,
   Close,
   CheckCircle,
   AccessTime,
-  LocationOn,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 

@@ -23,11 +23,12 @@ class ApiClient {
     this.instance.interceptors.request.use(
       async (config: InternalAxiosRequestConfig) => {
         const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
+        const isGuestOrderEndpoint = String(config.url || '').includes('/orders/guest');
         console.log(`API Request to ${config.url} - Token exists:`, !!token);
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
           console.log('Token preview:', token.substring(0, 20) + '...');
-        } else {
+        } else if (!isGuestOrderEndpoint) {
           console.warn('No auth token found in localStorage!');
         }
         return config;
@@ -64,9 +65,19 @@ class ApiClient {
     } catch (error: any) {
       console.error(`API Error: ${method} ${url}`, error);
       if (error.response) {
+        const responseData = error.response.data || {};
+        const details = Array.isArray(responseData?.details)
+          ? responseData.details.map((d: any) => d?.message || d?.path?.join?.('.') || '').filter(Boolean).join(', ')
+          : '';
+        const backendMessage =
+          responseData?.error ||
+          responseData?.message ||
+          details ||
+          error.message ||
+          'Request failed';
         return {
           success: false,
-          error: error.response.data?.message || error.message || 'Request failed',
+          error: backendMessage,
         };
       }
       return {
@@ -83,6 +94,10 @@ class ApiClient {
 
   async post<T>(url: string, data?: any): Promise<ApiResponse<T>> {
     return this.request('POST', url, data);
+  }
+
+  async put<T>(url: string, data?: any): Promise<ApiResponse<T>> {
+    return this.request('PUT', url, data);
   }
 
   async patch<T>(url: string, data?: any): Promise<ApiResponse<T>> {
@@ -500,7 +515,12 @@ class ApiClient {
   getImageUrl(imagePath: string | undefined): string {
     if (!imagePath) return '';
     // If already a full URL, return as-is
-    if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+    if (
+      imagePath.startsWith('http://') ||
+      imagePath.startsWith('https://') ||
+      imagePath.startsWith('data:image') ||
+      imagePath.startsWith('blob:')
+    ) {
       return imagePath;
     }
     // Get base URL without /api suffix

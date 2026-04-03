@@ -71,17 +71,24 @@ export class DealCampaignController {
       const user: any = (req as any).user;
       const role = user?.role;
       const userBranchId = getUserBranchId(req);
+      const queryBranchId = req.query.branchId as string;
 
       const filter: any = { deletedAt: null };
 
       // Branch scoping:
       // - BRANCH_MANAGER sees only their branch campaigns
-      // - ADMIN/SUPER_ADMIN sees all
+      // - ADMIN/SUPER_ADMIN sees all, but can filter by query parameter
       if (role === 'BRANCH_MANAGER') {
         if (!userBranchId) {
           return res.status(400).json({ success: false, message: 'Branch manager branch is missing' });
         }
         filter.branch = userBranchId;
+      } else if (queryBranchId) {
+        if (queryBranchId === 'global') {
+          filter.branch = { $size: 0 };
+        } else if (queryBranchId !== 'all') {
+          filter.branch = new mongoose.Types.ObjectId(queryBranchId);
+        }
       }
 
       const campaigns = await DealCampaign.find(filter)
@@ -111,10 +118,16 @@ export class DealCampaignController {
         ],
       };
 
-      // For public access (no branch specified), show all active campaigns
-      // For branch-specific, filter by branch or global (null)
+      // For public access (no branch specified), show only global campaigns (branch: null)
+      // For branch-specific, ONLY show campaigns specifically assigned to that branch
+      // Must EXCLUDE global campaigns (branch: null) when a branch is selected
       if (branchId) {
-        filter.$or = [{ branch: branchId }, { branch: null }];
+        // Only show campaigns specifically assigned to this branch
+        // Do NOT show global campaigns (branch: null) when a specific branch is selected
+        filter.branch = new mongoose.Types.ObjectId(branchId);
+      } else {
+        // No branch specified - only show global campaigns (no branch assigned)
+        filter.branch = { $size: 0 };
       }
 
       const campaigns = await DealCampaign.find(filter)

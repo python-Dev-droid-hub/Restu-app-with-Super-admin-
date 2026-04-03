@@ -24,7 +24,7 @@ const createCampaignSchema = Joi.object({
   endDate: Joi.date().optional().allow(null),
   status: Joi.string().valid('ACTIVE', 'INACTIVE', 'SCHEDULED').optional(),
   displayOrder: Joi.number().min(0).optional(),
-  branch: Joi.string().optional().allow(null),
+  branch: Joi.alternatives().try(Joi.string(), Joi.array().items(Joi.string())).optional().allow(null, ''),
 });
 
 const updateCampaignSchema = Joi.object({
@@ -37,7 +37,7 @@ const updateCampaignSchema = Joi.object({
   endDate: Joi.date().optional().allow(null),
   status: Joi.string().valid('ACTIVE', 'INACTIVE', 'SCHEDULED').optional(),
   displayOrder: Joi.number().min(0).optional(),
-  branch: Joi.string().optional().allow(null),
+  branch: Joi.alternatives().try(Joi.string(), Joi.array().items(Joi.string())).optional().allow(null, ''),
 });
 
 const dealItemSchema = Joi.object({

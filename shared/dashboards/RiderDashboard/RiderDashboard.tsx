@@ -4,6 +4,139 @@ import { StatCard } from '../../dashboards/components/StatCard';
 import { getNavigationItems } from '../../dashboards/components/NavigationMenu';
 import { api } from '../../api/client';
 
+// Currency symbols mapping
+const currencySymbols: Record<string, string> = {
+  USD: '$',
+  EUR: '€',
+  GBP: '£',
+  PKR: '₨',
+  INR: '₹',
+  AED: 'د.إ',
+  SAR: '﷼',
+  CAD: 'C$',
+  AUD: 'A$',
+  JPY: '¥',
+  CNY: '¥',
+  BRL: 'R$',
+  MXN: '$',
+  ZAR: 'R',
+  RUB: '₽',
+  KRW: '₩',
+  CHF: 'Fr',
+  SEK: 'kr',
+  NOK: 'kr',
+  DKK: 'kr',
+  NZD: 'NZ$',
+  SGD: 'S$',
+  HKD: 'HK$',
+  TWD: 'NT$',
+  THB: '฿',
+  MYR: 'RM',
+  IDR: 'Rp',
+  PHP: '₱',
+  VND: '₫',
+  COP: '$',
+  ARS: '$',
+  CLP: '$',
+  PEN: 'S/',
+  UYU: '$',
+  PLN: 'zł',
+  CZK: 'Kč',
+  HUF: 'Ft',
+  RON: 'lei',
+  BGN: 'лв',
+  HRK: 'kn',
+  ISK: 'kr',
+  TRY: '₺',
+  ILS: '₪',
+  EGP: '£',
+  NGN: '₦',
+  KES: 'KSh',
+  GHS: '₵',
+  UGX: 'USh',
+  TZS: 'TSh',
+  ZMW: 'K',
+  BWP: 'P',
+  NAD: 'N$',
+  BDT: '৳',
+  LKR: 'Rs',
+  NPR: 'Rs',
+  MVR: '.ރ',
+  MUR: '₨',
+  SCR: '₨',
+  GTQ: 'Q',
+  HNL: 'L',
+  NIO: 'C$',
+  CRC: '₡',
+  PAB: 'B/.',
+  DOP: 'RD$',
+  PYG: '₲',
+  BOB: 'Bs',
+  VES: 'Bs',
+  GYD: '$',
+  SRD: '$',
+  ANG: 'ƒ',
+  XCD: '$',
+  BBD: '$',
+  TTD: '$',
+  JMD: '$',
+  BSD: '$',
+  BMD: '$',
+  KYD: '$',
+  FJD: '$',
+  WST: 'T',
+  TOP: 'T$',
+  SBD: '$',
+  VUV: 'Vt',
+  PGK: 'K',
+  KWD: 'د.ك',
+  BHD: '.د.ب',
+  OMR: '﷼',
+  JOD: 'د.ا',
+  QAR: '﷼',
+  BND: '$',
+  KZT: '₸',
+  UZS: 'soʻm',
+  TMT: 'm',
+  AZN: '₼',
+  GEL: '₾',
+  AMD: '֏',
+  MDL: 'L',
+  BYN: 'Br',
+  UAH: '₴',
+  ALL: 'L',
+  MKD: 'ден',
+  RSD: 'дин',
+  BAM: 'KM',
+  TND: 'د.ت',
+  MAD: 'د.م.',
+  DZD: 'د.ج',
+  LYD: 'ل.د',
+  SDG: 'ج.س.',
+  SSP: '£',
+  ETB: 'Br',
+  SOS: 'S',
+  DJF: 'Fdj',
+  KMF: 'Fr',
+  XAF: 'Fr',
+  XOF: 'Fr',
+  XPF: 'Fr',
+  AWG: 'ƒ',
+  CUP: '$',
+  CVE: '$',
+  ERN: 'Nfk',
+  SZL: 'L',
+  LSL: 'L',
+  MWK: 'MK',
+  MZN: 'MT',
+  RWF: 'Fr',
+  STN: 'Db',
+  SLL: 'Le',
+  TJS: 'SM',
+  XDR: 'SDR',
+  ZWL: '$',
+};
+
 type TabType = 'overview' | 'deliveries' | 'earnings' | 'profile';
 
 interface Delivery {
@@ -59,6 +192,8 @@ export function RiderDashboard() {
   const [earnings, setEarnings] = useState<RiderEarnings | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const [currencySymbol, setCurrencySymbol] = useState('$');
+
   const navigationItems = getNavigationItems('RIDER');
 
   const handleNavigation = (path: string) => {
@@ -76,6 +211,7 @@ export function RiderDashboard() {
 
   useEffect(() => {
     fetchDashboardData();
+    fetchCurrencySettings();
   }, []);
 
   const fetchDashboardData = async () => {
@@ -123,6 +259,21 @@ export function RiderDashboard() {
       console.error('Error fetching rider dashboard data:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchCurrencySettings = async () => {
+    try {
+      const settingsRes: any = await api.get('/settings');
+      if (settingsRes?.success && settingsRes.data) {
+        const currency = settingsRes.data?.defaultCurrency || 'USD';
+        const symbol = currencySymbols[currency] || '$';
+        setCurrencySymbol(symbol);
+        console.log('[RiderDashboard] Loaded currency:', currency, 'Symbol:', symbol);
+      }
+    } catch (error) {
+      console.error('[RiderDashboard] Error fetching currency settings:', error);
+      setCurrencySymbol('$');
     }
   };
 
@@ -181,7 +332,7 @@ export function RiderDashboard() {
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ fontSize: '14px', color: '#666' }}>{delivery.items.join(', ')}</div>
-        <div style={{ fontSize: '18px', fontWeight: 600, color: '#1976d2' }}>${delivery.totalAmount.toFixed(2)}</div>
+        <div style={{ fontSize: '18px', fontWeight: 600, color: '#1976d2' }}>{currencySymbol}{delivery.totalAmount.toFixed(2)}</div>
       </div>
 
       {/* Action Buttons */}
@@ -341,7 +492,7 @@ export function RiderDashboard() {
               />
               <StatCard
                 title="Today's Earnings"
-                value={`$${stats.todayEarnings.toFixed(2)}`}
+                value={`${currencySymbol}${stats.todayEarnings.toFixed(2)}`}
                 change={15}
                 icon="💰"
                 color="success"
@@ -405,7 +556,7 @@ export function RiderDashboard() {
             }}>
               <div style={{ fontSize: '14px', color: '#666', marginBottom: '8px' }}>Total Earnings</div>
               <div style={{ fontSize: '36px', fontWeight: 700, color: '#1a1a2e' }}>
-                ${earnings?.totalEarnings?.toFixed(2) || '0.00'}
+                {currencySymbol}{earnings?.totalEarnings?.toFixed(2) || '0.00'}
               </div>
             </div>
             <div style={{
@@ -421,7 +572,7 @@ export function RiderDashboard() {
               }}>
                 <div style={{ fontSize: '14px', color: '#666' }}>This Week</div>
                 <div style={{ fontSize: '24px', fontWeight: 600, color: '#1a1a2e' }}>
-                  ${earnings?.thisWeekEarnings?.toFixed(2) || '0.00'}
+                  {currencySymbol}{earnings?.thisWeekEarnings?.toFixed(2) || '0.00'}
                 </div>
               </div>
               <div style={{
@@ -432,7 +583,7 @@ export function RiderDashboard() {
               }}>
                 <div style={{ fontSize: '14px', color: '#666' }}>This Month</div>
                 <div style={{ fontSize: '24px', fontWeight: 600, color: '#1a1a2e' }}>
-                  ${earnings?.thisMonthEarnings?.toFixed(2) || '0.00'}
+                  {currencySymbol}{earnings?.thisMonthEarnings?.toFixed(2) || '0.00'}
                 </div>
               </div>
               <div style={{
@@ -443,7 +594,7 @@ export function RiderDashboard() {
               }}>
                 <div style={{ fontSize: '14px', color: '#666' }}>Last Month</div>
                 <div style={{ fontSize: '24px', fontWeight: 600, color: '#1a1a2e' }}>
-                  ${earnings?.lastMonthEarnings?.toFixed(2) || '0.00'}
+                  {currencySymbol}{earnings?.lastMonthEarnings?.toFixed(2) || '0.00'}
                 </div>
               </div>
             </div>

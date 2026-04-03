@@ -9,11 +9,11 @@ const dealProductSchema = new Schema({
 }, { _id: false });
 
 const dealSchema = new Schema({
-  branch: {
+  branch: [{
     type: Schema.Types.ObjectId,
     ref: 'Branch',
-    // null means applicable to all branches
-  },
+    default: [],
+  }],
   title: {
     type: String,
     required: [true, 'Deal title is required'],
@@ -161,7 +161,7 @@ dealSchema.statics.findActive = function(branchId?: string, productId?: string) 
   if (branchId) {
     filter.$or = [
       { branch: branchId },
-      { branch: null }
+      { branch: { $size: 0 } }
     ];
   }
   
@@ -189,7 +189,7 @@ dealSchema.statics.findApplicableToProducts = function(productIds: string[], bra
   if (branchId) {
     filter.$or = [
       { branch: branchId },
-      { branch: null }
+      { branch: { $size: 0 } }
     ];
   }
   
@@ -214,10 +214,20 @@ dealSchema.statics.getBestDealForOrder = function(productIds: string[], orderAmo
   };
   
   if (branchId) {
-    filter.$or = [
-      { branch: branchId },
-      { branch: null }
-    ];
+    // Merge into existing $or if there is one, or create it.
+    if (filter.$or) {
+      const existingOr = filter.$or;
+      delete filter.$or;
+      filter.$and = [
+        { $or: existingOr },
+        { $or: [{ branch: branchId }, { branch: { $size: 0 } }] }
+      ];
+    } else {
+      filter.$or = [
+        { branch: branchId },
+        { branch: { $size: 0 } }
+      ];
+    }
   }
   
   return this.find(filter)

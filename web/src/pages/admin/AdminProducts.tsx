@@ -23,11 +23,11 @@ import {
   Alert,
   Switch,
   FormControlLabel,
+  InputLabel,
 } from '@mui/material';
 import {
   Add,
   Search,
-  FilterList,
   Edit,
   Visibility,
   MoreVert,
@@ -53,7 +53,7 @@ interface Product {
   tags?: string[];
   hasSizes?: boolean;
   sizes?: any[];
-  branchId?: string;
+  branchId?: string | string[];
   categoryId?: string;
 }
 
@@ -62,11 +62,10 @@ const AdminProducts: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
-  const [activeTab, setActiveTab] = useState('all');
-  const [categoryFilter, setCategoryFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
   const [categories, setCategories] = useState<any[]>([]);
+  const [branches, setBranches] = useState<any[]>([]);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [saving, setSaving] = useState(false);
@@ -77,29 +76,33 @@ const AdminProducts: React.FC = () => {
     price: '',
     originalPrice: '',
     categoryId: '',
-    branchId: '',
+    branchId: [] as string[],
     isAvailable: true,
     isActive: true,
     image: '',
   });
   const itemsPerPage = 6;
 
-  const tabs = [
-    { label: 'All', value: 'all' },
-    { label: 'Pending', value: 'pending' },
-    { label: 'Tandoor', value: 'tandoor' },
-    { label: 'Wings', value: 'wings' },
-    { label: 'Beverages', value: 'beverages' },
-  ];
-
   useEffect(() => {
     loadProducts();
     loadCategories();
+    loadBranches();
   }, []);
+
+  const loadBranches = async () => {
+    try {
+      const response: any = await api.getAllBranches();
+      if (response?.success) {
+        setBranches(response.data?.branches || response.data || []);
+      }
+    } catch (err) {
+      console.error('Error loading branches:', err);
+    }
+  };
 
   useEffect(() => {
     filterProducts();
-  }, [products, activeTab, categoryFilter, searchQuery]);
+  }, [products, searchQuery]);
 
   const loadProducts = async () => {
     try {
@@ -172,14 +175,6 @@ const AdminProducts: React.FC = () => {
   const filterProducts = () => {
     let filtered = [...products];
 
-    if (activeTab !== 'all') {
-      filtered = filtered.filter(p => p.category?.toLowerCase().includes(activeTab.toLowerCase()));
-    }
-
-    if (categoryFilter !== 'all') {
-      filtered = filtered.filter(p => p.category === categoryFilter.toLowerCase());
-    }
-
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(p =>
@@ -198,6 +193,23 @@ const AdminProducts: React.FC = () => {
     return Math.round(((originalPrice - price) / originalPrice) * 100);
   };
 
+  const handleOpenAddDialog = () => {
+    setEditingProduct(null);
+    setFormData({
+      name: '',
+      description: '',
+      price: '',
+      originalPrice: '',
+      categoryId: '',
+      branchId: [] as string[],
+      isAvailable: true,
+      isActive: true,
+      image: '',
+    });
+    setDialogError('');
+    setEditDialogOpen(true);
+  };
+
   const handleOpenEditDialog = (product: Product) => {
     setEditingProduct(product);
     setFormData({
@@ -206,7 +218,7 @@ const AdminProducts: React.FC = () => {
       price: String(product.price),
       originalPrice: String(product.originalPrice || ''),
       categoryId: product.categoryId || '',
-      branchId: product.branchId || '',
+      branchId: Array.isArray(product.branchId) ? product.branchId : (product.branchId ? [product.branchId] : []),
       isAvailable: product.isAvailable ?? true,
       isActive: product.isActive ?? true,
       image: product.image || '',
@@ -230,6 +242,10 @@ const AdminProducts: React.FC = () => {
       setDialogError('Valid price is required');
       return;
     }
+    if (!formData.categoryId) {
+      setDialogError('Category is required');
+      return;
+    }
 
     try {
       setSaving(true);
@@ -237,31 +253,41 @@ const AdminProducts: React.FC = () => {
       
       const updateData: any = {
         name: formData.name,
-        description: formData.description,
         price: parseFloat(formData.price),
         isAvailable: formData.isAvailable,
-        isActive: formData.isActive,
       };
-      
-      if (formData.originalPrice) {
-        updateData.originalPrice = parseFloat(formData.originalPrice);
+      if (formData.description !== undefined) {
+        updateData.description = formData.description.trim();
       }
+      
       if (formData.categoryId) {
         updateData.category = formData.categoryId;
+      }
+      if (formData.branchId && formData.branchId.length > 0) {
+        updateData.branchId = formData.branchId;
       }
       if (formData.image) {
         updateData.imageUrl = formData.image;
       }
 
       if (editingProduct) {
-        await api.updateProduct(editingProduct._id, updateData);
+        const response: any = await api.updateProduct(editingProduct._id, updateData);
+        if (!response?.success) {
+          throw new Error(response?.error || response?.message || 'Failed to update product');
+        }
+      } else {
+        // Create new product
+        const response: any = await api.post('/menu/admin/products', updateData);
+        if (!response?.success) {
+          throw new Error(response?.error || response?.message || 'Failed to create product');
+        }
       }
       
       handleCloseEditDialog();
       loadProducts();
     } catch (error: any) {
       console.error('Error saving product:', error);
-      setDialogError(error.response?.data?.message || 'Failed to save product');
+      setDialogError(error.response?.data?.message || error.message || 'Failed to save product');
     } finally {
       setSaving(false);
     }
@@ -277,7 +303,9 @@ const AdminProducts: React.FC = () => {
         const base64 = reader.result as string;
         const response: any = await api.uploadImage(base64, file.name);
         if (response?.success && response?.data?.url) {
-          setFormData({ ...formData, image: response.data.url });
+          setFormData((prev) => ({ ...prev, image: response.data.url }));
+        } else {
+          setDialogError(response?.error || response?.message || 'Failed to upload image');
         }
       };
       reader.readAsDataURL(file);
@@ -298,6 +326,7 @@ const AdminProducts: React.FC = () => {
         <Button
           variant="contained"
           startIcon={<Add />}
+          onClick={handleOpenAddDialog}
           sx={{
             bgcolor: '#FF6B35',
             '&:hover': { bgcolor: '#E55A24' },
@@ -309,58 +338,7 @@ const AdminProducts: React.FC = () => {
         </Button>
       </Box>
 
-      <Box sx={{ mb: 3, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-        {tabs.map((tab) => (
-          <Button
-            key={tab.value}
-            onClick={() => setActiveTab(tab.value)}
-            sx={{
-              bgcolor: activeTab === tab.value ? '#FF6B35' : 'white',
-              color: activeTab === tab.value ? 'white' : '#666',
-              borderRadius: 2,
-              px: 2,
-              py: 0.8,
-              textTransform: 'none',
-              fontSize: 14,
-              fontWeight: 500,
-              boxShadow: activeTab === tab.value ? '0 2px 8px rgba(255,107,53,0.3)' : '0 1px 3px rgba(0,0,0,0.08)',
-              '&:hover': {
-                bgcolor: activeTab === tab.value ? '#E55A24' : '#f5f5f5',
-              },
-            }}
-          >
-            {tab.label}
-          </Button>
-        ))}
-      </Box>
-
       <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap', alignItems: 'center' }}>
-        <FormControl size="small" sx={{ minWidth: 140 }}>
-          <Select
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
-            displayEmpty
-            sx={{
-              bgcolor: 'white',
-              borderRadius: 2,
-              '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
-              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-            }}
-          >
-            <MenuItem value="all">
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <FilterList sx={{ fontSize: 16, color: '#999' }} />
-                All Categories
-              </Box>
-            </MenuItem>
-            {categories.map((c) => (
-              <MenuItem key={c._id || c.id} value={(c.name || c.categoryName || '').toLowerCase()}>
-                {c.name || c.categoryName}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-
         <TextField
           size="small"
           placeholder="Search items..."
@@ -386,21 +364,6 @@ const AdminProducts: React.FC = () => {
             ),
           }}
         />
-
-        <Box sx={{ display: 'flex', gap: 1, ml: 'auto' }}>
-          <Chip
-            label="⏱️ Shortages"
-            sx={{ bgcolor: '#FFF3E0', color: '#FF9800', fontWeight: 500, cursor: 'pointer' }}
-          />
-          <Chip
-            label="⭐ Amla"
-            sx={{ bgcolor: '#E8F5E9', color: '#4CAF50', fontWeight: 500, cursor: 'pointer' }}
-          />
-          <Chip
-            label={`💰 Under ${currencySymbol}300`}
-            sx={{ bgcolor: '#E3F2FD', color: '#2196F3', fontWeight: 500, cursor: 'pointer' }}
-          />
-        </Box>
       </Box>
 
       {loading ? (
@@ -635,6 +598,40 @@ const AdminProducts: React.FC = () => {
               sx={{ flex: 1 }}
             />
           </Box>
+
+          <FormControl fullWidth margin="dense" sx={{ mt: 2 }}>
+            <InputLabel id="category-select-label">Category</InputLabel>
+            <Select
+              labelId="category-select-label"
+              value={formData.categoryId}
+              label="Category"
+              onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
+              required
+            >
+              {categories.map((cat) => (
+                <MenuItem key={cat._id} value={cat._id}>
+                  {cat.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <FormControl fullWidth margin="dense" sx={{ mt: 2 }}>
+            <InputLabel id="branch-select-label">Branches</InputLabel>
+            <Select
+              labelId="branch-select-label"
+              multiple
+              value={formData.branchId || []}
+              label="Branches"
+              onChange={(e) => setFormData({ ...formData, branchId: typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value })}
+            >
+              {branches.map((branch) => (
+                <MenuItem key={branch._id} value={branch._id}>
+                  {branch.branchName}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
           
           <Box sx={{ mt: 2 }}>
             <Typography variant="subtitle2" sx={{ mb: 1 }}>Product Image</Typography>

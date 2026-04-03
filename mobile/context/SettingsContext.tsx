@@ -214,15 +214,17 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
     };
   };
 
+  const refreshSettings = useCallback(() => loadSettings(true), [loadSettings]);
+
   const contextValue = useMemo(
     () => ({
       ...settings,
       isLoading,
-      refreshSettings: () => loadSettings(true),
+      refreshSettings,
       formatPrice,
       calculatePriceWithTax,
     }),
-    [settings, isLoading, loadSettings]
+    [settings, isLoading, refreshSettings, formatPrice, calculatePriceWithTax]
   );
 
   return <SettingsContext.Provider value={contextValue}>{children}</SettingsContext.Provider>;

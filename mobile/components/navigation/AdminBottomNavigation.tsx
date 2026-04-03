@@ -153,7 +153,10 @@ export default function AdminBottomNavigation({ onMorePress, currentRoute: propR
       console.log('[AdminBottomNav] Home/ManagerDashboard pressed');
       if (isInsideTabNavigator && tabNavigation) {
         console.log('[AdminBottomNav] Navigating to Home via tabNavigation');
-        tabNavigation.navigate('Home');
+        // When rendered inside ManagerTabsNavigator, there is no 'Home' tab.
+        // Route to the correct dashboard tab name.
+        const target = userRole === 'BRANCH_MANAGER' ? 'ManagerDashboard' : 'Home';
+        tabNavigation.navigate(target);
       } else {
         console.log('[AdminBottomNav] Resetting to role tabs');
         await resetToRoleTabs();
@@ -265,7 +268,8 @@ export default function AdminBottomNavigation({ onMorePress, currentRoute: propR
                         void resetToRoleTabs();
                       } else if (tabNavigation) {
                         // When inside tabs, use tabNavigation directly
-                        tabNavigation.navigate('Home');
+                        const target = userRole === 'BRANCH_MANAGER' ? 'ManagerDashboard' : 'Home';
+                        tabNavigation.navigate(target);
                       }
                       return;
                     }

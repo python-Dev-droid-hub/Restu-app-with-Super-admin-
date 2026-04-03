@@ -135,7 +135,7 @@ export class OrderRepository {
     const [orders, total] = await Promise.all([
       Order.find(filter)
         .populate('customer', 'displayName phoneNumber')
-        .populate('branch', 'branchName branchCode addressLine location lat lng')
+        .populate('branch', 'branchName branchCode addressLine city state country postalCode location lat lng')
         .populate('items.product', 'name imageUrl')
         .sort('-createdAt')
         .skip(skip)
@@ -187,7 +187,7 @@ export class OrderRepository {
       status: { $in: ['OUT_FOR_DELIVERY'] },
     })
       .populate('customer', 'displayName phoneNumber')
-      .populate('branch', 'branchName branchCode addressLine location lat lng')
+      .populate('branch', 'branchName branchCode addressLine city state country postalCode location lat lng')
       .populate('items.product', 'name imageUrl')
       .sort('createdAt');
   }
@@ -204,7 +204,7 @@ export class OrderRepository {
     const [orders, total] = await Promise.all([
       Order.find(filter)
         .populate('customer', 'displayName phoneNumber')
-        .populate('branch', 'branchName branchCode addressLine location lat lng')
+        .populate('branch', 'branchName branchCode addressLine city state country postalCode location lat lng')
         .populate('items.product', 'name imageUrl')
         .sort('-createdAt')
         .skip(skip)

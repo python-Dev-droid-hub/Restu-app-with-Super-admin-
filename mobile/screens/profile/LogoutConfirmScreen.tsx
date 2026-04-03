@@ -49,6 +49,7 @@ export default function LogoutConfirmScreen({ onBack, api }: LogoutConfirmScreen
       await AsyncStorage.removeItem('authToken');
       await AsyncStorage.removeItem('userRole');
       await AsyncStorage.removeItem('userData');
+      await AsyncStorage.removeItem('selectedBranchId'); // Clear saved branch on logout
 
       // Navigate to login
       navigation.dispatch(

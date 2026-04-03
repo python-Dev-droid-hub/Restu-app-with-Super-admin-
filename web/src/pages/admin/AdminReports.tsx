@@ -20,8 +20,6 @@ import {
   Chip,
 } from '@mui/material';
 import {
-  TrendingUp,
-  TrendingDown,
   AttachMoney,
   Receipt,
   People,
@@ -41,7 +39,7 @@ interface ReportStats {
 }
 
 const AdminReports: React.FC = () => {
-  const { formatPrice, defaultCurrency } = useSettings();
+  const { defaultCurrency } = useSettings();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<ReportStats | null>(null);
   const [dateRange, setDateRange] = useState('week');

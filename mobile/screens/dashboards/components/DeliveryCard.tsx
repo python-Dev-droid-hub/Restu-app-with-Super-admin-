@@ -45,6 +45,8 @@ interface DeliveryCardProps {
   onNavigateToPickup?: () => void;
   onNavigateToDelivery?: () => void;
   onCallCustomer?: () => void;
+  onReject?: () => void;
+  formatPrice?: (price: number) => string;
 }
 
 const DeliveryCard: React.FC<DeliveryCardProps> = ({
@@ -56,6 +58,8 @@ const DeliveryCard: React.FC<DeliveryCardProps> = ({
   onNavigateToPickup,
   onNavigateToDelivery,
   onCallCustomer,
+  onReject,
+  formatPrice = (p) => `$${p.toFixed(2)}`,
 }) => {
   // Status color mapping
   const getStatusColor = (status: string) => {
@@ -166,7 +170,7 @@ const DeliveryCard: React.FC<DeliveryCardProps> = ({
         <View style={styles.detailItem}>
           <Ionicons name="cash" size={16} color={COLORS.success} />
           <Text style={[styles.detailValue, { color: COLORS.success }]}>
-            ${Number(delivery.estimatedEarning || 0).toFixed(2)}
+            {formatPrice(delivery.estimatedEarning || 0)}
           </Text>
         </View>
       </View>
@@ -203,6 +207,12 @@ const DeliveryCard: React.FC<DeliveryCardProps> = ({
             <Ionicons name="call" size={20} color={COLORS.white} />
             <Text style={styles.actionButtonText}>Call</Text>
           </TouchableOpacity>
+          {delivery.status === 'assigned' && onReject && (
+            <TouchableOpacity onPress={onReject} style={styles.rejectButton} activeOpacity={0.8}>
+              <Ionicons name="close-circle" size={20} color={COLORS.white} />
+              <Text style={styles.actionButtonText}>Reject</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
     </TouchableOpacity>
@@ -364,6 +374,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: COLORS.warning,
+    paddingVertical: 10,
+    borderRadius: 10,
+    gap: 6,
+  },
+  rejectButton: {
+    flexGrow: 1,
+    flexBasis: '48%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.danger,
     paddingVertical: 10,
     borderRadius: 10,
     gap: 6,
