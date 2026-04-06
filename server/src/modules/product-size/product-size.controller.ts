@@ -3,6 +3,8 @@ import { ProductSize } from '@/models/ProductSize';
 import { Size } from '@/models/Size';
 import { Product } from '@/models/Product';
 
+const productSizeModel = ProductSize as any;
+
 export class ProductSizeController {
   private syncProductBasePriceFromSizes = async (productId: any): Promise<void> => {
     const sizes = await ProductSize.find({
@@ -74,7 +76,7 @@ export class ProductSizeController {
     try {
       console.log('🔵 [CREATE SIZE] Request received');
       console.log('🔵 [CREATE SIZE] Request body:', JSON.stringify(req.body, null, 2));
-      console.log('🔵 [CREATE SIZE] User:', req.user?.id || 'Unknown');
+      console.log('🔵 [CREATE SIZE] User:', (req as any).user?.id || 'Unknown');
       
       const sizeData = req.body;
 
@@ -121,9 +123,6 @@ export class ProductSizeController {
       if (updateData.size_name !== undefined) {
         size.size_name = updateData.size_name;
       }
-      if (updateData.description !== undefined) {
-        size.description = updateData.description;
-      }
       if (updateData.display_order !== undefined) {
         size.display_order = updateData.display_order;
       }
@@ -162,7 +161,7 @@ export class ProductSizeController {
         });
       }
 
-      const productSizes = await ProductSize.findByProduct(productId);
+      const productSizes = await productSizeModel.findByProduct(productId);
 
       return res.status(200).json({
         success: true,
@@ -187,7 +186,7 @@ export class ProductSizeController {
     try {
       const { productId } = req.params;
       
-      const productSize = await ProductSize.findDefaultByProduct(productId);
+      const productSize = await productSizeModel.findDefaultByProduct(productId);
 
       if (!productSize) {
         return res.status(404).json({
@@ -234,7 +233,7 @@ export class ProductSizeController {
               continue;
             }
             
-            const productSize = await ProductSize.createProductSize({
+            const productSize = await productSizeModel.createProductSize({
               product,
               size: sizeId,
               price: price || 0,
@@ -286,7 +285,7 @@ export class ProductSizeController {
         });
       }
 
-      const productSize = await ProductSize.createProductSize({
+      const productSize = await productSizeModel.createProductSize({
         product,
         size,
         price: price || 0,
@@ -331,7 +330,7 @@ export class ProductSizeController {
 
       // Handle setting as default
       if (updateData.isDefault === true) {
-        await productSize.setAsDefault();
+        await (productSize as any).setAsDefault();
       }
 
       // Update other fields
@@ -378,7 +377,7 @@ export class ProductSizeController {
         });
       }
 
-      await productSize.softDelete();
+      await (productSize as any).softDelete();
 
       await this.syncProductBasePriceFromSizes(productSize.product);
 
@@ -411,7 +410,7 @@ export class ProductSizeController {
 
       const productId = productSize.product;
 
-      await productSize.restore();
+      await (productSize as any).restore();
 
       await this.syncProductBasePriceFromSizes(productId);
 
@@ -464,7 +463,7 @@ export class ProductSizeController {
       }
 
       // Soft delete the size
-      await size.softDelete();
+      await (size as any).softDelete();
       console.log('✅ [DELETE SIZE] Size soft deleted successfully:', id);
 
       return res.status(200).json({
@@ -494,7 +493,7 @@ export class ProductSizeController {
         });
       }
 
-      await productSize.setAsDefault();
+      await (productSize as any).setAsDefault();
 
       const updatedProductSize = await ProductSize.findById(id)
         .populate('size')

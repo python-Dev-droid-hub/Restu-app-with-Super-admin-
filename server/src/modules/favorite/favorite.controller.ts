@@ -31,7 +31,7 @@ export class FavoriteController {
 
     await favorite.save();
 
-    sendSuccess(res, { favorite }, 'Restaurant added to favorites successfully', 201);
+    return sendSuccess(res, { favorite }, 'Restaurant added to favorites successfully', 201);
   });
 
   // Remove a restaurant from favorites
@@ -48,7 +48,7 @@ export class FavoriteController {
       return sendError(res, 'Favorite not found', 404);
     }
 
-    sendSuccess(res, null, 'Restaurant removed from favorites successfully');
+    return sendSuccess(res, null, 'Restaurant removed from favorites successfully');
   });
 
   // Get customer's favorite restaurants

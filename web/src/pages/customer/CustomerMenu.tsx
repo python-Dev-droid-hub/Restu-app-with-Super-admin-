@@ -31,6 +31,7 @@ interface Product {
   name: string;
   description?: string;
   price?: number;
+  displayOrder?: number;
   effectivePrice?: number;
   hasSizes?: boolean;
   productSizes?: ProductSize[];
@@ -42,6 +43,7 @@ interface Product {
 interface Category {
   _id: string;
   name: string;
+  displayOrder?: number;
   products: Product[];
 }
 
@@ -54,12 +56,16 @@ interface DealItem {
   originalPrice?: number;
   discount?: number;
   isActive?: boolean;
+  items?: Array<{ productId?: string; quantity?: number }>;
+  isOrderable?: boolean;
+  displayOrder?: number;
 }
 
 interface DealCampaign {
   _id: string;
   name: string;
   status: string;
+  displayOrder?: number;
   heroBanner?: { imageUrl?: string; title?: string; subtitle?: string };
   deals?: DealItem[];
 }
@@ -85,6 +91,19 @@ const getDisplayPrice = (product: Product): number => {
   }
 
   return typeof product.price === 'number' && Number.isFinite(product.price) ? product.price : 0;
+};
+
+const getSortOrder = (value: unknown): number => {
+  return Number.isFinite(Number(value)) ? Number(value) : Number.MAX_SAFE_INTEGER;
+};
+
+const compareByDisplayOrder = (a: { displayOrder?: number; name?: string; title?: string }, b: { displayOrder?: number; name?: string; title?: string }) => {
+  const displayOrderDifference = getSortOrder(a?.displayOrder) - getSortOrder(b?.displayOrder);
+  if (displayOrderDifference !== 0) {
+    return displayOrderDifference;
+  }
+
+  return String(a?.title || a?.name || '').localeCompare(String(b?.title || b?.name || ''));
 };
 
 const readCart = (): CartItem[] => {
@@ -144,10 +163,18 @@ export default function CustomerMenu() {
         const [menuRes, dealsRes] = await Promise.all([api.get<any>(menuUrl), api.get<any>(dealsUrl)]);
 
         if (menuRes.success) {
-          const nextCategories: Category[] = (menuRes.data?.categories || menuRes.data || []) as Category[];
-          setCategories(Array.isArray(nextCategories) ? nextCategories : []);
-          if (!selectedCategoryId && Array.isArray(nextCategories) && nextCategories.length > 0) {
-            setSelectedCategoryId(String(nextCategories[0]._id));
+          const nextCategories = Array.isArray(menuRes.data?.categories || menuRes.data)
+            ? ((menuRes.data?.categories || menuRes.data) as Category[])
+            : [];
+          const sortedCategories = nextCategories
+            .map((category) => ({
+              ...category,
+              products: Array.isArray(category?.products) ? [...category.products].sort(compareByDisplayOrder) : [],
+            }))
+            .sort(compareByDisplayOrder);
+          setCategories(sortedCategories);
+          if (!selectedCategoryId && sortedCategories.length > 0) {
+            setSelectedCategoryId(String(sortedCategories[0]._id));
           }
         } else {
           setCategories([]);
@@ -156,18 +183,29 @@ export default function CustomerMenu() {
         if (dealsRes.success) {
           const campaigns = (dealsRes.data as any)?.campaigns;
           const activeCampaigns = Array.isArray(campaigns)
-            ? campaigns.filter((c: DealCampaign) => c?.status === 'ACTIVE' || c?.status === undefined)
+            ? campaigns
+                .filter((c: DealCampaign) => c?.status === 'ACTIVE' || c?.status === undefined)
+                .sort(compareByDisplayOrder)
             : [];
 
           const allDeals: DealItem[] = [];
           for (const campaign of activeCampaigns) {
-            const list = Array.isArray(campaign?.deals) ? campaign.deals : [];
+            const list = Array.isArray(campaign?.deals) ? [...campaign.deals].sort(compareByDisplayOrder) : [];
             for (const deal of list) {
               if (deal?.isActive === false) continue;
-              allDeals.push(deal);
+              if (!deal?._id || !deal?.title) continue;
+              const configuredItems = Array.isArray(deal?.items)
+                ? deal.items.filter((item: any) => item?.productId)
+                : [];
+              allDeals.push({
+                ...deal,
+                displayOrder: Number.isFinite(Number(deal?.displayOrder)) ? Number(deal.displayOrder) : undefined,
+                isOrderable: configuredItems.length > 0,
+                items: configuredItems,
+              });
             }
           }
-          setDeals(allDeals);
+          setDeals(allDeals.sort(compareByDisplayOrder));
         } else {
           setDeals([]);
         }
@@ -293,6 +331,11 @@ export default function CustomerMenu() {
                     <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }} noWrap>
                       {d.description || ''}
                     </Typography>
+                    {d.isOrderable === false ? (
+                      <Typography variant="caption" sx={{ color: 'var(--text-secondary)', fontWeight: 700 }}>
+                        Available soon
+                      </Typography>
+                    ) : null}
                   </Box>
                 </Paper>
               );

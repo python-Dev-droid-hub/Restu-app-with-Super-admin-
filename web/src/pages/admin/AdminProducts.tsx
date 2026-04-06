@@ -57,12 +57,17 @@ interface Product {
   categoryId?: string;
 }
 
-const AdminProducts: React.FC = () => {
+interface AdminProductsProps {
+  pageTitle?: string;
+}
+
+const AdminProducts: React.FC<AdminProductsProps> = ({ pageTitle = 'Products' }) => {
   const { currencySymbol, formatPrice } = useSettings();
   const [loading, setLoading] = useState(true);
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategoryId, setSelectedCategoryId] = useState('all');
   const [page, setPage] = useState(1);
   const [categories, setCategories] = useState<any[]>([]);
   const [branches, setBranches] = useState<any[]>([]);
@@ -102,7 +107,7 @@ const AdminProducts: React.FC = () => {
 
   useEffect(() => {
     filterProducts();
-  }, [products, searchQuery]);
+  }, [products, searchQuery, selectedCategoryId]);
 
   const loadProducts = async () => {
     try {
@@ -175,9 +180,13 @@ const AdminProducts: React.FC = () => {
   const filterProducts = () => {
     let filtered = [...products];
 
+    if (selectedCategoryId !== 'all') {
+      filtered = filtered.filter((product) => product.categoryId === selectedCategoryId);
+    }
+
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(p =>
+      filtered = filtered.filter((p) =>
         p.name.toLowerCase().includes(query) ||
         p.categoryName?.toLowerCase().includes(query) ||
         p.branchName?.toLowerCase().includes(query)
@@ -321,7 +330,7 @@ const AdminProducts: React.FC = () => {
     <Box sx={{ p: 3, bgcolor: '#f8f5ff', minHeight: '100vh' }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#333' }}>
-          Menu
+          {pageTitle}
         </Typography>
         <Button
           variant="contained"
@@ -364,6 +373,34 @@ const AdminProducts: React.FC = () => {
             ),
           }}
         />
+        <FormControl
+          size="small"
+          sx={{
+            minWidth: 220,
+            bgcolor: 'white',
+            borderRadius: 2,
+            '& .MuiOutlinedInput-root': {
+              borderRadius: 2,
+              '& fieldset': { border: 'none' },
+              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+            },
+          }}
+        >
+          <InputLabel id="product-category-filter-label">Category</InputLabel>
+          <Select
+            labelId="product-category-filter-label"
+            value={selectedCategoryId}
+            label="Category"
+            onChange={(e) => setSelectedCategoryId(e.target.value)}
+          >
+            <MenuItem value="all">All Categories</MenuItem>
+            {categories.map((category) => (
+              <MenuItem key={category._id} value={category._id}>
+                {category.name}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
       </Box>
 
       {loading ? (

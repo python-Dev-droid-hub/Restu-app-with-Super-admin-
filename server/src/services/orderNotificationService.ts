@@ -2,6 +2,11 @@ import NotificationService from './notificationService';
 import { Order } from '../models/Order';
 import { User } from '../models/User';
 
+const getOrderTotal = (order: any) => order?.totalAmount ?? 0;
+const getUserDisplayName = (user: any) => user?.displayName || 'Unknown';
+const getUserPhone = (user: any) => user?.phoneNumber;
+const getOrderTableNumber = (order: any) => order?.table?.tableNumber;
+
 class OrderNotificationService {
   /**
    * Order placed - notify kitchen staff and customer
@@ -29,7 +34,7 @@ class OrderNotificationService {
           orderId: order._id,
           orderNumber: order.orderNumber,
           items: order.items.length,
-          total: order.total,
+          total: getOrderTotal(order),
         },
       });
 
@@ -39,12 +44,12 @@ class OrderNotificationService {
         branchId: order.branch._id.toString(),
         type: 'BRANCH_ORDER',
         title: 'New Order Received',
-        message: `Order #${order.orderNumber} - $${order.total} received`,
+        message: `Order #${order.orderNumber} - $${getOrderTotal(order)} received`,
         priority: 'MEDIUM',
         data: {
           orderId: order._id,
           orderNumber: order.orderNumber,
-          amount: order.total,
+          amount: getOrderTotal(order),
           items: order.items.length,
         },
       });
@@ -108,13 +113,14 @@ class OrderNotificationService {
       const order = await Order.findById(orderId)
         .populate('customer')
         .populate('rider')
-        .populate('branch');
+        .populate('branch')
+        .populate('table');
 
       if (!order) return;
 
       console.log('[Order Event] Order ready:', orderId);
 
-      const orderTypeText = order.orderType === 'delivery' ? 'delivery' : 'pickup';
+      const orderTypeText = order.orderType === 'DELIVERY' ? 'delivery' : 'pickup';
 
       // Notify customer
       if (order.customer) {
@@ -135,7 +141,7 @@ class OrderNotificationService {
       }
 
       // Notify assigned rider (if delivery)
-      if (order.rider && order.orderType === 'delivery') {
+      if (order.rider && order.orderType === 'DELIVERY') {
         await NotificationService.sendNotification({
           recipient: order.rider._id.toString(),
           recipientRole: 'RIDER',
@@ -153,7 +159,7 @@ class OrderNotificationService {
       }
 
       // Notify waiters for dine-in
-      if (order.orderType === 'dine_in' && order.branch) {
+      if (order.orderType === 'DINE_IN' && order.branch) {
         await NotificationService.notifyByRole({
           role: 'WAITER',
           branchId: order.branch._id.toString(),
@@ -164,7 +170,7 @@ class OrderNotificationService {
           data: {
             orderId: order._id,
             orderNumber: order.orderNumber,
-            tableNumber: order.tableNumber,
+            tableNumber: getOrderTableNumber(order),
           },
         });
       }
@@ -198,8 +204,8 @@ class OrderNotificationService {
             orderId: order._id,
             orderNumber: order.orderNumber,
             riderId: rider._id,
-            riderName: rider.displayName || rider.name,
-            riderPhone: rider.phone,
+            riderName: getUserDisplayName(rider),
+            riderPhone: getUserPhone(rider),
           },
           relatedOrder: order._id.toString(),
         });
@@ -216,7 +222,7 @@ class OrderNotificationService {
         data: {
           orderId: order._id,
           orderNumber: order.orderNumber,
-          customerAddress: order.deliveryAddress,
+          customerAddress: order.addressLine,
           estimatedEarning: order.deliveryFee,
         },
         relatedOrder: order._id.toString(),
@@ -249,8 +255,8 @@ class OrderNotificationService {
           orderId: order._id,
           orderNumber: order.orderNumber,
           riderId: rider._id,
-          riderName: rider.displayName || rider.name,
-          riderPhone: rider.phone,
+          riderName: getUserDisplayName(rider),
+          riderPhone: getUserPhone(rider),
         },
         relatedOrder: order._id.toString(),
       });
@@ -510,8 +516,8 @@ class OrderNotificationService {
           orderId: order._id,
           orderNumber: order.orderNumber,
           riderId: rider._id,
-          riderName: rider.displayName || rider.name,
-          riderPhone: rider.phone,
+          riderName: getUserDisplayName(rider),
+          riderPhone: getUserPhone(rider),
         },
         relatedOrder: order._id.toString(),
       });

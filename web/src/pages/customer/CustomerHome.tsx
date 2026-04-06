@@ -22,6 +22,7 @@ type HomeProduct = {
   rating?: number;
   reviews?: number;
   category?: string;
+  displayOrder?: number;
 };
 
 type CartItem = {
@@ -42,11 +43,15 @@ type DealItem = {
   originalPrice?: number;
   discount?: number;
   isActive?: boolean;
+  items?: Array<{ productId?: string; quantity?: number }>;
+  isOrderable?: boolean;
+  displayOrder?: number;
 };
 
 type DealCampaign = {
   _id: string;
   name: string;
+  displayOrder?: number;
   status?: string;
   heroBanner?: {
     imageUrl?: string;
@@ -60,6 +65,8 @@ type DealCampaign = {
 type CategorySection = {
   id: string;
   name: string;
+  imageUrl?: string;
+  displayOrder?: number;
   products: HomeProduct[];
 };
 
@@ -67,6 +74,7 @@ type MenuCategory = {
   _id?: string;
   id?: string;
   name?: string;
+  displayOrder?: number;
   icon?: string;
   image?: string;
   imageUrl?: string;
@@ -77,6 +85,10 @@ type MenuCategory = {
 type CustomerHomeResponse = {
   banners: HomeBanner[];
 };
+
+type SearchResultItem =
+  | ({ resultType: 'product'; categoryName?: string } & HomeProduct)
+  | ({ resultType: 'deal' } & DealItem);
 
 type ActiveBannerApiItem = {
   _id?: string;
@@ -130,6 +142,19 @@ const extractImagePath = (raw: any): string => {
     );
   }
   return '';
+};
+
+const getDisplayOrder = (value: unknown): number => {
+  return Number.isFinite(Number(value)) ? Number(value) : Number.MAX_SAFE_INTEGER;
+};
+
+const compareByDisplayOrder = (a: { displayOrder?: number; name?: string; title?: string }, b: { displayOrder?: number; name?: string; title?: string }) => {
+  const displayOrderDifference = getDisplayOrder(a?.displayOrder) - getDisplayOrder(b?.displayOrder);
+  if (displayOrderDifference !== 0) {
+    return displayOrderDifference;
+  }
+
+  return String(a?.title || a?.name || '').localeCompare(String(b?.title || b?.name || ''));
 };
 
 export default function CustomerHome() {
@@ -223,23 +248,30 @@ export default function CustomerHome() {
             (menuRes.data as any)?.data?.categories ||
             [];
 
-          const sections: CategorySection[] = apiCategories.map((cat, catIndex) => {
+          const sections: CategorySection[] = [...apiCategories]
+            .sort(compareByDisplayOrder)
+            .map((cat, catIndex) => {
             const categoryProducts = Array.isArray(cat.products) ? cat.products : (Array.isArray(cat.items) ? cat.items : []);
-            const mappedProducts: HomeProduct[] = categoryProducts.map((p: any, productIndex: number) => ({
+            const mappedProducts: HomeProduct[] = [...categoryProducts]
+              .sort(compareByDisplayOrder)
+              .map((p: any, productIndex: number) => ({
                 id: String(p?._id || p?.id || `${catIndex}-${productIndex}`),
                 name: String(p?.name || 'Product'),
                 description: p?.description || '',
                 price: Number(p?.effectivePrice ?? p?.price ?? 0),
                 originalPrice: Number(p?.originalPrice ?? p?.effectivePrice ?? p?.price ?? 0),
-                image: extractImagePath([p?.images, p?.image, p?.imageUrl, p?.thumbnail, p?.media, p?.category?.imageUrl]),
+                image: extractImagePath([p?.images, p?.image, p?.imageUrl, p?.thumbnail, p?.media]),
                 rating: Number(p?.rating || 0),
                 reviews: Number(p?.reviews || 0),
                 category: String(cat?.name || 'Food'),
+                displayOrder: Number.isFinite(Number(p?.displayOrder)) ? Number(p.displayOrder) : undefined,
               }));
 
             return {
               id: String(cat._id || cat.id || `cat-${catIndex}`),
               name: String(cat.name || 'Category'),
+              imageUrl: extractImagePath(cat.imageUrl),
+              displayOrder: Number.isFinite(Number(cat?.displayOrder)) ? Number(cat.displayOrder) : undefined,
               products: mappedProducts,
             };
           });
@@ -257,16 +289,21 @@ export default function CustomerHome() {
         if (mounted && dealsRes.success) {
           const campaigns = (dealsRes.data as any)?.campaigns;
           const activeCampaigns = Array.isArray(campaigns)
-            ? campaigns.filter((c: any) => c?.status === 'ACTIVE' || c?.status === undefined)
+            ? campaigns
+                .filter((c: any) => c?.status === 'ACTIVE' || c?.status === undefined)
+                .sort(compareByDisplayOrder)
             : [];
 
           const normalizedCampaigns: DealCampaign[] = [];
           for (const campaign of activeCampaigns) {
-            const dealList = Array.isArray(campaign?.deals) ? campaign.deals : [];
+            const dealList = Array.isArray(campaign?.deals) ? [...campaign.deals].sort(compareByDisplayOrder) : [];
             const normalizedDeals: DealItem[] = [];
             for (const deal of dealList) {
               if (deal?.isActive === false) continue;
               if (!deal?._id || !deal?.title) continue;
+              const configuredItems = Array.isArray(deal?.items)
+                ? deal.items.filter((item: any) => item?.productId)
+                : [];
               normalizedDeals.push({
                 _id: String(deal._id),
                 title: String(deal.title),
@@ -276,12 +313,19 @@ export default function CustomerHome() {
                 originalPrice: Number(deal.originalPrice || 0) || undefined,
                 discount: Number(deal.discount || 0) || undefined,
                 isActive: deal.isActive,
+                isOrderable: configuredItems.length > 0,
+                displayOrder: Number.isFinite(Number(deal?.displayOrder)) ? Number(deal.displayOrder) : undefined,
+                items: configuredItems.map((item: any) => ({
+                  productId: item?.productId ? String(item.productId) : undefined,
+                  quantity: Number(item?.quantity || 1),
+                })),
               });
             }
             if (normalizedDeals.length === 0) continue;
             normalizedCampaigns.push({
               _id: String(campaign?._id || campaign?.id || `campaign-${normalizedCampaigns.length}`),
               name: String(campaign?.name || 'Campaign'),
+              displayOrder: Number.isFinite(Number(campaign?.displayOrder)) ? Number(campaign.displayOrder) : undefined,
               status: campaign?.status,
               heroBanner: campaign?.heroBanner
                 ? {
@@ -360,6 +404,42 @@ export default function CustomerHome() {
   const hasAnyProducts = useMemo(() => {
     return filteredCategorySections.some((section) => section.products.length > 0);
   }, [filteredCategorySections]);
+
+  const searchResults = useMemo<SearchResultItem[]>(() => {
+    if (!normalizedSearch) return [];
+
+    const q = normalizedSearch.toLowerCase();
+    const productResults: SearchResultItem[] = categorySections.flatMap((section) =>
+      section.products
+        .filter((product) => {
+          const name = String(product.name || '').toLowerCase();
+          const description = String(product.description || '').toLowerCase();
+          const category = String(section.name || product.category || '').toLowerCase();
+          return name.includes(q) || description.includes(q) || category.includes(q);
+        })
+        .map((product) => ({
+          ...product,
+          resultType: 'product' as const,
+          categoryName: section.name,
+        }))
+    );
+
+    const dealResults: SearchResultItem[] = dealCampaigns.flatMap((campaign) =>
+      (campaign.deals || [])
+        .filter((deal) => {
+          const title = String(deal.title || '').toLowerCase();
+          const description = String(deal.description || '').toLowerCase();
+          const campaignName = String(campaign.name || '').toLowerCase();
+          return title.includes(q) || description.includes(q) || campaignName.includes(q);
+        })
+        .map((deal) => ({
+          ...deal,
+          resultType: 'deal' as const,
+        }))
+    );
+
+    return [...dealResults, ...productResults];
+  }, [categorySections, dealCampaigns, normalizedSearch]);
 
   const pickProductImage = (prod: any): string => {
     return api.getImageUrl(extractImagePath([prod?.images, prod?.image, prod?.imageUrl, prod?.thumbnail, prod?.media]));
@@ -602,7 +682,118 @@ export default function CustomerHome() {
         }}
       />
 
-      {dealCampaigns.map((campaign) => {
+      {normalizedSearch ? (
+        <Box>
+          {searchResults.length > 0 ? (
+            <Grid container spacing={2}>
+              {searchResults.map((result) => {
+                if (result.resultType === 'deal') {
+                  const id = String(result._id);
+                  const img = api.getImageUrl((result as any).imageUrl);
+                  const title = result.title || 'Deal';
+                  const description = result.description || '';
+                  const badgeText = typeof result.discount === 'number' ? `${result.discount}% OFF` : '';
+                  const originalPrice = Number(result.originalPrice || 0);
+                  const calculatedPrice = originalPrice > 0 && Number(result.discount || 0) > 0
+                    ? Math.max(0, originalPrice - (originalPrice * Number(result.discount || 0)) / 100)
+                    : 0;
+                  const displayPrice = Number(result.price || 0) > 0 ? Number(result.price) : calculatedPrice;
+                  const canAddToCart = result.isOrderable !== false;
+
+                  return (
+                    <Grid key={`deal-${id}`} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
+                      <Card
+                        sx={{
+                          borderRadius: 3,
+                          overflow: 'hidden',
+                          border: '1px solid var(--border-color)',
+                          boxShadow: 'var(--shadow-sm)',
+                          bgcolor: 'var(--bg-card)',
+                          height: '100%',
+                        }}
+                      >
+                        <CardActionArea component="div" sx={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
+                          {img ? (
+                            <CardMedia
+                              component="img"
+                              image={img}
+                              alt={title}
+                              sx={{
+                                height: { xs: 210, md: 230 },
+                                objectFit: 'contain',
+                                bgcolor: '#fff',
+                                p: 1,
+                              }}
+                            />
+                          ) : null}
+                          <CardContent sx={{ flex: 1 }}>
+                            <Typography sx={{ fontWeight: 900, color: 'var(--text-primary)' }}>
+                              {title}
+                            </Typography>
+                            {description ? (
+                              <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mt: 0.5 }} noWrap>
+                                {description}
+                              </Typography>
+                            ) : null}
+                            <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mt: 1 }}>
+                              <Typography sx={{ color: 'var(--primary)', fontWeight: 900 }}>
+                                ₨{displayPrice > 0 ? displayPrice.toFixed(0) : '0'}
+                              </Typography>
+                              {originalPrice > displayPrice && displayPrice > 0 ? (
+                                <Typography sx={{ color: 'var(--text-hint)', textDecoration: 'line-through', fontWeight: 700 }}>
+                                  ₨{originalPrice.toFixed(0)}
+                                </Typography>
+                              ) : (
+                                <Box />
+                              )}
+                            </Stack>
+                            {badgeText ? (
+                              <Typography sx={{ color: 'var(--primary)', fontWeight: 800, mt: 0.5 }}>
+                                {badgeText}
+                              </Typography>
+                            ) : null}
+                            <Button
+                              fullWidth
+                              variant="contained"
+                              disabled={!canAddToCart}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setPendingItem({
+                                  id,
+                                  name: title,
+                                  description,
+                                  price: displayPrice > 0 ? displayPrice : 0,
+                                  image: (result as any).imageUrl,
+                                });
+                                setPendingQty(1);
+                                setPendingNote('');
+                                setAddDialogOpen(true);
+                              }}
+                              sx={{ mt: 1.25, bgcolor: 'var(--primary)', '&:hover': { bgcolor: 'var(--primary-hover)' } }}
+                            >
+                              {canAddToCart ? 'Add to cart' : 'Unavailable'}
+                            </Button>
+                          </CardContent>
+                        </CardActionArea>
+                      </Card>
+                    </Grid>
+                  );
+                }
+
+                return renderProductCard(result);
+              })}
+            </Grid>
+          ) : (
+            <Paper sx={{ p: 2, mt: 1, borderRadius: 3, border: '1px solid var(--border-color)', bgcolor: 'var(--bg-card)' }}>
+              <Typography sx={{ color: 'var(--text-secondary)', fontWeight: 700 }}>
+                No matching items found.
+              </Typography>
+            </Paper>
+          )}
+        </Box>
+      ) : null}
+
+      {!normalizedSearch && dealCampaigns.map((campaign) => {
         const heroImage = api.getImageUrl(campaign.heroBanner?.imageUrl);
         return (
           <Box key={campaign._id}>
@@ -637,6 +828,7 @@ export default function CustomerHome() {
                   ? Math.max(0, originalPrice - (originalPrice * Number(d.discount || 0)) / 100)
                   : 0;
                 const displayPrice = Number(d.price || 0) > 0 ? Number(d.price) : calculatedPrice;
+                const canAddToCart = d.isOrderable !== false;
                 return (
                   <Grid key={id} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
                     <Card
@@ -689,9 +881,15 @@ export default function CustomerHome() {
                               {badgeText}
                             </Typography>
                           ) : null}
+                          {!canAddToCart ? (
+                            <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mt: 0.5, fontWeight: 700 }}>
+                              Available soon
+                            </Typography>
+                          ) : null}
                           <Button
                             fullWidth
                             variant="contained"
+                            disabled={!canAddToCart}
                             onClick={(e) => {
                               e.stopPropagation();
                               setPendingItem({
@@ -707,7 +905,7 @@ export default function CustomerHome() {
                             }}
                             sx={{ mt: 1.25, bgcolor: 'var(--primary)', '&:hover': { bgcolor: 'var(--primary-hover)' } }}
                           >
-                            Add to cart
+                            {canAddToCart ? 'Add to cart' : 'Unavailable'}
                           </Button>
                         </CardContent>
                       </CardActionArea>
@@ -720,18 +918,38 @@ export default function CustomerHome() {
         );
       })}
 
-      {filteredCategorySections.map((section) => (
+      {!normalizedSearch && filteredCategorySections.map((section) => (
         <Box key={section.id} sx={{ mb: 3 }}>
-          <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
-            {section.name}
-          </Typography>
+          {section.imageUrl ? (
+            <Paper
+              sx={{
+                width: '100%',
+                height: { xs: 170, sm: 210, md: 240 },
+                borderRadius: 3,
+                overflow: 'hidden',
+                mb: 1.5,
+                bgcolor: 'var(--bg-card)',
+              }}
+            >
+              <Box
+                component="img"
+                src={api.getImageUrl(section.imageUrl)}
+                alt={section.name}
+                sx={{ width: '100%', height: '100%', objectFit: 'contain', objectPosition: 'center', display: 'block' }}
+              />
+            </Paper>
+          ) : (
+            <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
+              {section.name}
+            </Typography>
+          )}
           <Grid container spacing={2}>
             {section.products.map((product) => renderProductCard(product))}
           </Grid>
         </Box>
       ))}
 
-      {!loading && dealCampaigns.length === 0 ? (
+      {!normalizedSearch && !loading && dealCampaigns.length === 0 ? (
         <Paper sx={{ p: 2, mt: 1, borderRadius: 3, border: '1px solid var(--border-color)', bgcolor: 'var(--bg-card)' }}>
           <Typography sx={{ color: 'var(--text-secondary)', fontWeight: 700 }}>
             No active campaign deals right now.
@@ -739,7 +957,7 @@ export default function CustomerHome() {
         </Paper>
       ) : null}
 
-      {!loading && !hasAnyProducts ? (
+      {!normalizedSearch && !loading && !hasAnyProducts ? (
         <Paper sx={{ p: 2, mt: 1, borderRadius: 3, border: '1px solid var(--border-color)', bgcolor: 'var(--bg-card)' }}>
           <Typography sx={{ color: 'var(--text-secondary)', fontWeight: 700 }}>
             No products available right now.

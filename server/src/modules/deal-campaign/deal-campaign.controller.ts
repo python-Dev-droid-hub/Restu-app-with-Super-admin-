@@ -16,6 +16,53 @@ function getUserBranchId(req: Request): string | null {
   );
 }
 
+function normalizeBranchIds(value: unknown): mongoose.Types.ObjectId[] {
+  const rawBranchIds = Array.isArray(value) ? value : value ? [value] : [];
+  return rawBranchIds
+    .filter((branchId): branchId is string => typeof branchId === 'string' && mongoose.Types.ObjectId.isValid(branchId))
+    .map((branchId) => new mongoose.Types.ObjectId(branchId));
+}
+
+function hasBranchAccess(campaign: any, branchId: string | null): boolean {
+  if (!branchId) {
+    return false;
+  }
+
+  const assignedBranches = Array.isArray(campaign?.branch) ? campaign.branch : [];
+  return assignedBranches.some((assignedBranch: any) => assignedBranch?.toString() === branchId.toString());
+}
+
+function getDisplayOrder(value: unknown): number {
+  return Number.isFinite(Number(value)) ? Number(value) : Number.MAX_SAFE_INTEGER;
+}
+
+function sortDealsByDisplayOrder<T extends { displayOrder?: number; title?: string }>(deals: T[] = []): T[] {
+  return [...deals].sort((a, b) => {
+    const displayOrderDifference = getDisplayOrder(a?.displayOrder) - getDisplayOrder(b?.displayOrder);
+    if (displayOrderDifference !== 0) {
+      return displayOrderDifference;
+    }
+
+    return String(a?.title || '').localeCompare(String(b?.title || ''));
+  });
+}
+
+function sortCampaignsByDisplayOrder<T extends { displayOrder?: number; name?: string; deals?: any[] }>(campaigns: T[] = []): T[] {
+  return [...campaigns]
+    .map((campaign) => ({
+      ...campaign,
+      deals: sortDealsByDisplayOrder(Array.isArray(campaign?.deals) ? campaign.deals : []),
+    }))
+    .sort((a, b) => {
+      const displayOrderDifference = getDisplayOrder(a?.displayOrder) - getDisplayOrder(b?.displayOrder);
+      if (displayOrderDifference !== 0) {
+        return displayOrderDifference;
+      }
+
+      return String(a?.name || '').localeCompare(String(b?.name || ''));
+    });
+}
+
 export class DealCampaignController {
   async createCampaign(req: Request, res: Response) {
     try {
@@ -26,16 +73,14 @@ export class DealCampaignController {
       // Branch scoping:
       // - BRANCH_MANAGER must create under their branch
       // - ADMIN/SUPER_ADMIN can create branch-specific or global (null)
-      let branch: mongoose.Types.ObjectId | null = null;
+      let branch: mongoose.Types.ObjectId[] = [];
       if (role === 'BRANCH_MANAGER') {
         if (!userBranchId) {
           return res.status(400).json({ success: false, message: 'Branch manager branch is missing' });
         }
-        branch = new mongoose.Types.ObjectId(userBranchId);
+        branch = [new mongoose.Types.ObjectId(userBranchId)];
       } else {
-        // Accept branch from body; null means global
-        const branchId = req.body?.branch || null;
-        branch = branchId ? new mongoose.Types.ObjectId(branchId) : null;
+        branch = normalizeBranchIds(req.body?.branch);
       }
 
       const categories = Array.isArray(req.body?.categories)
@@ -82,18 +127,19 @@ export class DealCampaignController {
         if (!userBranchId) {
           return res.status(400).json({ success: false, message: 'Branch manager branch is missing' });
         }
-        filter.branch = userBranchId;
+        filter.branch = { $in: [new mongoose.Types.ObjectId(String(userBranchId))] };
       } else if (queryBranchId) {
         if (queryBranchId === 'global') {
           filter.branch = { $size: 0 };
         } else if (queryBranchId !== 'all') {
-          filter.branch = new mongoose.Types.ObjectId(queryBranchId);
+          filter.branch = { $in: [new mongoose.Types.ObjectId(queryBranchId)] };
         }
       }
 
-      const campaigns = await DealCampaign.find(filter)
+      const campaigns = sortCampaignsByDisplayOrder(await DealCampaign.find(filter)
+        .populate('branch', 'branchName branchCode')
         .sort({ displayOrder: 1, createdAt: -1 })
-        .lean();
+        .lean());
 
       return res.status(200).json({ success: true, data: { campaigns } });
     } catch (error: any) {
@@ -124,15 +170,16 @@ export class DealCampaignController {
       if (branchId) {
         // Only show campaigns specifically assigned to this branch
         // Do NOT show global campaigns (branch: null) when a specific branch is selected
-        filter.branch = new mongoose.Types.ObjectId(branchId);
+        filter.branch = { $in: [new mongoose.Types.ObjectId(branchId)] };
       } else {
         // No branch specified - only show global campaigns (no branch assigned)
         filter.branch = { $size: 0 };
       }
 
-      const campaigns = await DealCampaign.find(filter)
+      const campaigns = sortCampaignsByDisplayOrder(await DealCampaign.find(filter)
+        .populate('branch', 'branchName branchCode')
         .sort({ displayOrder: 1, createdAt: -1 })
-        .lean();
+        .lean());
 
       console.log('🔥 [getActiveCampaigns] found campaigns:', campaigns.length);
       campaigns.forEach((c: any) => {
@@ -173,7 +220,7 @@ export class DealCampaignController {
         if (!userBranchId) {
           return res.status(400).json({ success: false, message: 'Branch manager branch is missing' });
         }
-        if (existing.branch?.toString() !== userBranchId.toString()) {
+        if (!hasBranchAccess(existing, userBranchId)) {
           return res.status(403).json({ success: false, message: 'Not allowed to update this campaign' });
         }
       }
@@ -184,6 +231,13 @@ export class DealCampaignController {
         update.categories = req.body.categories
           .filter(Boolean)
           .map((id: string) => new mongoose.Types.ObjectId(id));
+      }
+      if (Array.isArray(req.body?.branch) || typeof req.body?.branch === 'string') {
+        update.branch = role === 'BRANCH_MANAGER'
+          ? userBranchId
+            ? [new mongoose.Types.ObjectId(userBranchId)]
+            : []
+          : normalizeBranchIds(req.body.branch);
       }
       if (role === 'BRANCH_MANAGER') {
         delete update.branch;
@@ -215,7 +269,7 @@ export class DealCampaignController {
         if (!userBranchId) {
           return res.status(400).json({ success: false, message: 'Branch manager branch is missing' });
         }
-        if (existing.branch?.toString() !== userBranchId.toString()) {
+        if (!hasBranchAccess(existing, userBranchId)) {
           return res.status(403).json({ success: false, message: 'Not allowed to delete this campaign' });
         }
       }
@@ -247,7 +301,7 @@ export class DealCampaignController {
         if (!userBranchId) {
           return res.status(400).json({ success: false, message: 'Branch manager branch is missing' });
         }
-        if (campaign.branch?.toString() !== userBranchId.toString()) {
+        if (!hasBranchAccess(campaign, userBranchId)) {
           return res.status(403).json({ success: false, message: 'Not allowed to modify this campaign' });
         }
       }
@@ -309,7 +363,7 @@ export class DealCampaignController {
         if (!userBranchId) {
           return res.status(400).json({ success: false, message: 'Branch manager branch is missing' });
         }
-        if (campaign.branch?.toString() !== userBranchId.toString()) {
+        if (!hasBranchAccess(campaign, userBranchId)) {
           return res.status(403).json({ success: false, message: 'Not allowed to modify this campaign' });
         }
       }
@@ -363,7 +417,7 @@ export class DealCampaignController {
         if (!userBranchId) {
           return res.status(400).json({ success: false, message: 'Branch manager branch is missing' });
         }
-        if (campaign.branch?.toString() !== userBranchId.toString()) {
+        if (!hasBranchAccess(campaign, userBranchId)) {
           return res.status(403).json({ success: false, message: 'Not allowed to modify this campaign' });
         }
       }
@@ -398,7 +452,7 @@ export class DealCampaignController {
         if (!userBranchId) {
           return res.status(400).json({ success: false, message: 'Branch manager branch is missing' });
         }
-        if (campaign.branch?.toString() !== userBranchId.toString()) {
+        if (!hasBranchAccess(campaign, userBranchId)) {
           return res.status(403).json({ success: false, message: 'Not allowed to modify this campaign' });
         }
       }

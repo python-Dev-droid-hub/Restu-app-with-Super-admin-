@@ -1,0 +1,29 @@
+services:
+  server:
+    container_name: restaurant-app-server
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      PORT: 3000
+      TS_NODE_BASEURL: ./dist
+    ports:
+      - "3101:3000"
+    volumes:
+      - ./uploads:/app/dist/uploads
+      - ./logs:/app/logs
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/health').then((res)=>process.exit(res.ok?0:1)).catch(()=>process.exit(1))"
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s

@@ -24,13 +24,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 0;
 
-const API_BASE_URL = __DEV__ ? 'http://192.168.0.140:3000' : 'https://your-production-api.com';
-
 const getFullImageUrl = (url?: string) => {
   if (!url) return '';
-  if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  if (url.startsWith('/')) return `${API_BASE_URL}${url}`;
-  return url;
+  const normalized = url.replace(/\\/g, '/');
+  if (normalized.startsWith('http://') || normalized.startsWith('https://')) return normalized;
+  const baseUrl = api.getBaseURL().replace(/\/?api\/?$/, '');
+  if (normalized.startsWith('/')) return `${baseUrl}${normalized}`;
+  return `${baseUrl}/${normalized.replace(/^\/+/, '')}`;
 };
 
 interface Product {

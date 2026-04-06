@@ -46,7 +46,7 @@ router.post('/upload', async (req: Request, res: Response) => {
     const fileUrl = `/uploads/${finalFilename}`;
     console.log('🔍 [UPLOAD DEBUG] Base64 file saved successfully:', fileUrl);
 
-    sendSuccess(res, {
+    return sendSuccess(res, {
       url: fileUrl,
       filename: finalFilename,
       size: buffer.length
@@ -54,7 +54,7 @@ router.post('/upload', async (req: Request, res: Response) => {
   } catch (error) {
     console.log('🔍 [UPLOAD DEBUG] Base64 upload error:', error);
     logger.error('Upload error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Upload failed'
     });

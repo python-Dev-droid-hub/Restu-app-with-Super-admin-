@@ -188,8 +188,9 @@ export default function CheckoutPage() {
       return;
     }
     const authToken = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
+    const storedUserRole = String(localStorage.getItem('userRole') || '').trim().toUpperCase();
     const selectedBranchId = localStorage.getItem('selectedBranchId');
-    if (!selectedBranchId) {
+    if (!selectedBranchId || selectedBranchId === 'all') {
       setSubmitError('Please select a branch before placing your order.');
       navigate('/customer/menu');
       return;
@@ -202,27 +203,35 @@ export default function CheckoutPage() {
     setLoading(true);
     try {
       let fallbackName = formData.fullName.trim();
+      let effectiveUserRole = storedUserRole;
       if (!fallbackName) {
         try {
           const rawUser = localStorage.getItem('userData');
           const parsedUser = rawUser ? JSON.parse(rawUser) : null;
           fallbackName = String(parsedUser?.displayName || parsedUser?.name || parsedUser?.display_name || '').trim();
+          if (!effectiveUserRole) {
+            effectiveUserRole = String(parsedUser?.role || '').trim().toUpperCase();
+          }
         } catch {
           fallbackName = '';
         }
       }
+
+      const deliveryInstructions = (formData.deliveryInstructions || formData.nearestLandmark || '').trim();
+      const specialInstructions = (formData.deliveryInstructions || '').trim();
+      const phoneNumber = formData.mobileNumber.trim();
+      const alternatePhoneNumber = formData.alternateNumber.trim();
+      const street = formData.deliveryAddress.trim();
 
       const payload = {
         restaurantId: selectedBranchId,
         customerName: fallbackName || 'Customer',
         orderType: 'DELIVERY',
         paymentMethod: formData.paymentMethod === 'cod' ? 'cash' : 'card',
-        deliveryInstructions: formData.deliveryInstructions || formData.nearestLandmark || '',
-        specialInstructions: formData.deliveryInstructions || '',
-        phoneNumber: formData.mobileNumber,
-        alternatePhoneNumber: formData.alternateNumber || '',
+        phoneNumber,
+        alternatePhoneNumber,
         deliveryAddress: {
-          street: formData.deliveryAddress,
+          street,
           city: branchCity || 'City',
           state: branchState || 'State',
           zipCode: branchZip || '00000',
@@ -232,9 +241,12 @@ export default function CheckoutPage() {
           quantity: Math.max(1, Number(item.quantity || 1)),
           customizations: [],
         })),
+        ...(deliveryInstructions ? { deliveryInstructions } : {}),
+        ...(specialInstructions ? { specialInstructions } : {}),
       };
 
-      const orderRes: any = authToken
+      const canPlaceAuthenticatedOrder = !!authToken && ['CUSTOMER', 'WAITER'].includes(effectiveUserRole);
+      const orderRes: any = canPlaceAuthenticatedOrder
         ? await api.post('/orders', payload)
         : await api.post('/orders/guest', payload);
       if (!orderRes?.success) {

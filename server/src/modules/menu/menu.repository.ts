@@ -189,7 +189,7 @@ export class MenuRepository {
   async updateCategory(id: string | Types.ObjectId, updateData: any): Promise<any | null> {
     return await Category.findByIdAndUpdate(
       id,
-      updateData,
+      { ...updateData, updatedAt: new Date() },
       { new: true, runValidators: true }
     );
   }
@@ -242,7 +242,7 @@ export class MenuRepository {
           isAvailable: true,
         })
           .populate({ path: 'productSizes', populate: { path: 'size' } })
-          .sort('name');
+          .sort({ displayOrder: 1, name: 1, createdAt: -1 });
 
         return {
           ...category.toObject(),
@@ -261,7 +261,7 @@ export class MenuRepository {
     return await MenuItem.find(filter)
       .populate('category', 'name description')
       .populate({ path: 'productSizes', populate: { path: 'size' } })
-      .sort({ createdAt: -1 })
+      .sort({ displayOrder: 1, name: 1, createdAt: -1 })
       .skip(skip)
       .limit(limit);
   }
@@ -273,21 +273,10 @@ export class MenuRepository {
   async findAllCategories(): Promise<any[]> {
     console.log('🔍 findAllCategories: Starting query');
     const categories = await Category.find()
-      .sort({ name: 1 });
+      .sort({ displayOrder: 1, name: 1 });
     console.log('🔍 findAllCategories: Found', categories.length, 'categories');
     console.log('🔍 findAllCategories: Sample:', categories.slice(0, 2).map(c => ({ name: c.name, id: c._id })));
     return categories;
   }
 
-  async updateCategory(id: string, categoryData: any): Promise<any> {
-    const updatedCategory = await Category.findByIdAndUpdate(
-      id,
-      { ...categoryData, updatedAt: new Date() },
-      { new: true, runValidators: true }
-    );
-    if (!updatedCategory) {
-      throw new Error('Category not found');
-    }
-    return updatedCategory;
-  }
 }

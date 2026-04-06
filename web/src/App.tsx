@@ -128,7 +128,8 @@ function App() {
         <Route path="/admin/customers" element={<RequireAdminAuth><AdminLayout><AdminCustomers /></AdminLayout></RequireAdminAuth>} />
         <Route path="/admin/notifications" element={<RequireAdminAuth><AdminLayout><AdminNotifications /></AdminLayout></RequireAdminAuth>} />
         <Route path="/admin/categories" element={<RequireAdminAuth><AdminLayout><AdminCategories /></AdminLayout></RequireAdminAuth>} />
-        <Route path="/admin/products" element={<RequireAdminAuth><AdminLayout><AdminProducts /></AdminLayout></RequireAdminAuth>} />
+        <Route path="/admin/products" element={<RequireAdminAuth><AdminLayout><AdminProducts pageTitle="Products" /></AdminLayout></RequireAdminAuth>} />
+        <Route path="/admin/menu" element={<RequireAdminAuth><AdminLayout><AdminProducts pageTitle="Menu" /></AdminLayout></RequireAdminAuth>} />
         <Route path="/admin/coupons" element={<RequireAdminAuth><AdminLayout><AdminCoupons /></AdminLayout></RequireAdminAuth>} />
         <Route path="/admin/deals" element={<RequireAdminAuth><AdminLayout><AdminDealCampaigns /></AdminLayout></RequireAdminAuth>} />
         <Route path="/admin/deal-campaigns" element={<RequireAdminAuth><AdminLayout><AdminDealCampaigns /></AdminLayout></RequireAdminAuth>} />

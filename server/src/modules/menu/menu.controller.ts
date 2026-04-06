@@ -8,6 +8,8 @@ import { logger } from '@/utils/logger';
 import { ProductSize } from '@/models/ProductSize';
 import { Product } from '@/models/Product';
 
+const branchProductModel = BranchProduct as any;
+
 console.log('✅ MenuController file LOADED');
 
 export class MenuController {
@@ -341,8 +343,25 @@ export class MenuController {
 
     console.log('🔍 [SERVER MENU DEBUG] Getting system-wide menu...');
 
+    const branchFilter = (branchId || branch) as string | undefined;
+
     // If no restaurantId (system-wide menu), get all categories with products
-    const categories = await this.menuRepository.findAllCategories();
+    const allCategories = await this.menuRepository.findAllCategories();
+    const categories = allCategories.filter((category: any) => {
+      if (category?.isActive === false) {
+        return false;
+      }
+
+      if (!branchFilter || branchFilter === 'all') {
+        return true;
+      }
+
+      const categoryBranchIds = Array.isArray((category as any)?.branchId)
+        ? (category as any).branchId.map((branchId: any) => String(branchId))
+        : [];
+
+      return categoryBranchIds.length === 0 || categoryBranchIds.includes(String(branchFilter));
+    });
     console.log('🔍 [SERVER MENU DEBUG] Found categories:', categories.length);
     console.log('🔍 [SERVER MENU DEBUG] Categories details:', categories.map(c => ({ id: c._id, name: c.name })));
 
@@ -352,7 +371,6 @@ export class MenuController {
       return;
     }
 
-    const branchFilter = (branchId || branch) as string | undefined;
     console.log('🔍 [SERVER MENU DEBUG] branchId param:', branchId, 'branch param:', branch, 'resolved branchFilter:', branchFilter);
 
     // If a branch is selected, get activated product IDs for that branch
@@ -453,6 +471,7 @@ export class MenuController {
           name: category.name,
           description: category.description,
           imageUrl: (category as any).imageUrl,
+          displayOrder: (category as any).displayOrder,
           products: products.filter(p => !p.deletedAt) // Exclude soft-deleted products
         };
       })
@@ -606,7 +625,7 @@ export class MenuController {
 
     // Auto-activate product for the branch manager's branch
     if (req.user?.role === 'BRANCH_MANAGER' && assignedBranchId && product?._id) {
-      await BranchProduct.activateProductForBranch(
+      await branchProductModel.activateProductForBranch(
         assignedBranchId,
         String(product._id),
         String(req.user._id)
@@ -686,7 +705,7 @@ export class MenuController {
       throw createError('Branch ID is required', 400);
     }
 
-    const activation = await BranchProduct.activateProductForBranch(branchId, productId, String(userId));
+    const activation = await branchProductModel.activateProductForBranch(branchId, productId, String(userId));
 
     sendSuccess(res, activation, 'Product activated for branch successfully', 200);
   });
@@ -710,7 +729,7 @@ export class MenuController {
       throw createError('Branch ID is required', 400);
     }
 
-    const deactivation = await BranchProduct.deactivateProductForBranch(branchId, productId, String(userId));
+    const deactivation = await branchProductModel.deactivateProductForBranch(branchId, productId, String(userId));
 
     sendSuccess(res, deactivation, 'Product deactivated for branch successfully', 200);
   });
@@ -739,9 +758,9 @@ export class MenuController {
 
     let result;
     if (currentActivation?.isActive) {
-      result = await BranchProduct.deactivateProductForBranch(branchId, productId, String(userId));
+      result = await branchProductModel.deactivateProductForBranch(branchId, productId, String(userId));
     } else {
-      result = await BranchProduct.activateProductForBranch(branchId, productId, String(userId));
+      result = await branchProductModel.activateProductForBranch(branchId, productId, String(userId));
     }
 
     sendSuccess(res, result, `Product ${currentActivation?.isActive ? 'deactivated' : 'activated'} for branch successfully`, 200);

@@ -39,6 +39,12 @@ import { api } from '../../services/api';
 import { useSettings } from '../../context/SettingsContext';
 
 
+interface DealProductItem {
+  productId?: string;
+  productName?: string;
+  quantity?: number;
+  price?: number;
+}
 
 interface DealItem {
   _id: string;
@@ -51,12 +57,7 @@ interface DealItem {
   discount?: number;
   isActive?: boolean;
   displayOrder?: number;
-  items?: Array<{
-    productId?: string;
-    productName?: string;
-    quantity?: number;
-    price?: number;
-  }>;
+  items?: DealProductItem[];
 }
 
 interface Campaign {
@@ -76,13 +77,20 @@ interface Campaign {
   displayOrder?: number;
   category?: string;
   categories?: any[];
-  branch?: string;
+  branch?: Array<string | { _id?: string; branchName?: string }>;
 }
 
 interface MenuCategory {
   _id: string;
   name: string;
   isActive?: boolean;
+}
+
+interface DealProductOption {
+  _id: string;
+  name: string;
+  price?: number;
+  categoryName?: string;
 }
 
 const AdminDealCampaigns: React.FC = () => {
@@ -97,6 +105,9 @@ const AdminDealCampaigns: React.FC = () => {
   const [selectedDealCategoryIds, setSelectedDealCategoryIds] = useState<string[]>([]);
   const [branches, setBranches] = useState<any[]>([]);
   const [selectedBranchFilter, setSelectedBranchFilter] = useState<string>('all');
+  const [dealProductOptions, setDealProductOptions] = useState<DealProductOption[]>([]);
+  const [selectedDealItems, setSelectedDealItems] = useState<DealProductItem[]>([]);
+  const [selectedProductId, setSelectedProductId] = useState<string>('');
 
   // Campaign Dialog
   const [campaignDialogOpen, setCampaignDialogOpen] = useState(false);
@@ -130,11 +141,65 @@ const AdminDealCampaigns: React.FC = () => {
     isActive: true,
   });
 
+  const getBranchIds = (campaign: Campaign): string[] => {
+    if (!Array.isArray(campaign.branch)) {
+      return [];
+    }
+
+    return campaign.branch
+      .map((branch) => {
+        if (typeof branch === 'string') {
+          return branch;
+        }
+
+        return String(branch?._id || '').trim();
+      })
+      .filter(Boolean);
+  };
+
+  const normalizeDealItems = (items: any[] | undefined): DealProductItem[] => (
+    Array.isArray(items) ? items : []
+  )
+    .map((item: any) => ({
+      productId: String(item?.productId?._id || item?.productId || '').trim(),
+      productName: String(item?.productName || item?.productId?.name || '').trim(),
+      quantity: Math.max(1, Number(item?.quantity || 1)),
+      price: item?.price !== undefined && item?.price !== null ? Number(item.price) : undefined,
+    }))
+    .filter((item) => Boolean(item.productId));
+
+  const normalizeCampaign = (campaign: any): Campaign => ({
+    ...campaign,
+    deals: Array.isArray(campaign?.deals)
+      ? campaign.deals.map((deal: any) => ({
+          ...deal,
+          items: normalizeDealItems(deal?.items),
+        }))
+      : [],
+    branch: Array.isArray(campaign?.branch)
+      ? campaign.branch.map((branch: any) => (typeof branch === 'string' ? branch : String(branch?._id || branch)))
+      : [],
+  });
+
+  const filteredCampaigns = campaigns.filter((campaign) => {
+    const branchIds = getBranchIds(campaign);
+
+    if (selectedBranchFilter === 'all') {
+      return true;
+    }
+
+    if (selectedBranchFilter === 'global') {
+      return branchIds.length === 0;
+    }
+
+    return branchIds.includes(selectedBranchFilter);
+  });
+
   useEffect(() => {
     loadCampaigns();
     loadCategories();
     loadBranches();
-  }, [selectedBranchFilter]);
+  }, []);
 
   const loadBranches = async () => {
     try {
@@ -150,12 +215,9 @@ const AdminDealCampaigns: React.FC = () => {
   const loadCampaigns = async () => {
     try {
       setLoading(true);
-      const url = selectedBranchFilter === 'all' 
-        ? '/deals/campaigns' 
-        : `/deals/campaigns?branchId=${selectedBranchFilter}`;
-      const response: any = await api.get(url);
+      const response: any = await api.get('/deals/campaigns');
       if (response?.success) {
-        setCampaigns(response.data?.campaigns || []);
+        setCampaigns((response.data?.campaigns || []).map((campaign: any) => normalizeCampaign(campaign)));
       }
     } catch (err) {
       console.error('Error loading campaigns:', err);
@@ -174,6 +236,40 @@ const AdminDealCampaigns: React.FC = () => {
     } catch (err) {
       console.error('Error loading categories:', err);
     }
+  };
+
+  const loadDealProductOptions = async () => {
+    try {
+      const response: any = await api.get('/menu/admin/products?limit=500');
+      const products = response?.data?.products || response?.data?.data?.products || [];
+
+      setDealProductOptions(
+        (Array.isArray(products) ? products : [])
+          .map((product: any) => ({
+            _id: String(product?._id || ''),
+            name: String(product?.name || 'Unnamed product'),
+            price: product?.price !== undefined && product?.price !== null ? Number(product.price) : undefined,
+            categoryName: String(product?.category?.name || '').trim() || undefined,
+          }))
+          .filter((product: DealProductOption) => Boolean(product._id))
+      );
+    } catch (err) {
+      console.error('Error loading deal product options:', err);
+      setDealProductOptions([]);
+    }
+  };
+
+  const loadCampaignDetails = async (campaignId: string): Promise<Campaign | null> => {
+    try {
+      const response: any = await api.get(`/deals/campaigns/${campaignId}`);
+      if (response?.success && response.data?.campaign) {
+        return normalizeCampaign(response.data.campaign);
+      }
+    } catch (err) {
+      console.error('Error loading campaign details:', err);
+    }
+
+    return null;
   };
 
   const uploadBase64Image = async (file: File) => {
@@ -200,7 +296,7 @@ const AdminDealCampaigns: React.FC = () => {
         endDate: campaign.endDate ? campaign.endDate.split('T')[0] : '',
         displayOrder: campaign.displayOrder || 0,
         category: campaign.category || '',
-        branch: Array.isArray(campaign.branch) ? campaign.branch : (campaign.branch ? [campaign.branch] : []),
+        branch: getBranchIds(campaign),
       });
       setSelectedCampaignCategoryIds(
         Array.isArray(campaign.categories)
@@ -306,8 +402,9 @@ const AdminDealCampaigns: React.FC = () => {
     }
   };
 
-  const handleViewCampaign = (campaign: Campaign) => {
-    setSelectedCampaign(campaign);
+  const handleViewCampaign = async (campaign: Campaign) => {
+    const fullCampaign = await loadCampaignDetails(campaign._id);
+    setSelectedCampaign(fullCampaign || campaign);
     setViewMode('detail');
   };
 
@@ -317,21 +414,35 @@ const AdminDealCampaigns: React.FC = () => {
   };
 
   // Deal Item Handlers
-  const handleOpenDealDialog = (deal?: DealItem) => {
-    if (deal) {
-      setEditingDeal(deal);
+  const handleOpenDealDialog = async (deal?: DealItem) => {
+    if (!selectedCampaign) {
+      return;
+    }
+
+    const fullCampaign = await loadCampaignDetails(selectedCampaign._id);
+    const campaignForDialog = fullCampaign || selectedCampaign;
+    const dealForDialog = deal
+      ? campaignForDialog.deals.find((candidate) => candidate._id === deal._id) || deal
+      : undefined;
+
+    setSelectedCampaign(campaignForDialog);
+    loadDealProductOptions();
+
+    if (dealForDialog) {
+      setEditingDeal(dealForDialog);
       setDealForm({
-        title: deal.title,
-        description: deal.description || '',
-        imageUrl: deal.imageUrl || '',
-        price: deal.price,
-        originalPrice: deal.originalPrice || 0,
-        displayOrder: deal.displayOrder || 0,
-        isActive: deal.isActive !== false,
+        title: dealForDialog.title,
+        description: dealForDialog.description || '',
+        imageUrl: dealForDialog.imageUrl || '',
+        price: dealForDialog.price,
+        originalPrice: dealForDialog.originalPrice || 0,
+        displayOrder: dealForDialog.displayOrder || 0,
+        isActive: dealForDialog.isActive !== false,
       });
       setSelectedDealCategoryIds(
-        Array.isArray(deal.categories) ? deal.categories.map((c: any) => String(c?._id || c)) : []
+        Array.isArray(dealForDialog.categories) ? dealForDialog.categories.map((c: any) => String(c?._id || c)) : []
       );
+      setSelectedDealItems(normalizeDealItems(dealForDialog.items));
     } else {
       setEditingDeal(null);
       setDealForm({
@@ -344,13 +455,63 @@ const AdminDealCampaigns: React.FC = () => {
         isActive: true,
       });
       setSelectedDealCategoryIds([]);
+      setSelectedDealItems([]);
     }
+    setSelectedProductId('');
     setDealDialogOpen(true);
   };
 
   const handleCloseDealDialog = () => {
     setDealDialogOpen(false);
     setEditingDeal(null);
+    setSelectedProductId('');
+  };
+
+  const handleAddProductToDeal = () => {
+    if (!selectedProductId) {
+      return;
+    }
+
+    const product = dealProductOptions.find((option) => option._id === selectedProductId);
+    if (!product) {
+      return;
+    }
+
+    setSelectedDealItems((current) => {
+      const existing = current.find((item) => item.productId === product._id);
+      if (existing) {
+        return current.map((item) =>
+          item.productId === product._id
+            ? { ...item, quantity: Math.max(1, Number(item.quantity || 1) + 1) }
+            : item
+        );
+      }
+
+      return [
+        ...current,
+        {
+          productId: product._id,
+          productName: product.name,
+          quantity: 1,
+          price: product.price,
+        },
+      ];
+    });
+    setSelectedProductId('');
+  };
+
+  const handleChangeDealItemQuantity = (productId: string, quantity: number) => {
+    setSelectedDealItems((current) =>
+      current.map((item) =>
+        item.productId === productId
+          ? { ...item, quantity: Math.max(1, Number(quantity) || 1) }
+          : item
+      )
+    );
+  };
+
+  const handleRemoveDealItem = (productId: string) => {
+    setSelectedDealItems((current) => current.filter((item) => item.productId !== productId));
   };
 
   const handleSaveDeal = async () => {
@@ -363,9 +524,19 @@ const AdminDealCampaigns: React.FC = () => {
       alert('Price must be greater than 0');
       return;
     }
+    if (selectedDealItems.length === 0) {
+      alert('Add at least one product to make this deal available for customers');
+      return;
+    }
 
     try {
       setSavingDeal(true);
+      const normalizedItems = normalizeDealItems(selectedDealItems);
+      if (normalizedItems.length === 0) {
+        alert('Add at least one valid product to make this deal available for customers');
+        return;
+      }
+
       const data: any = {
         title: dealForm.title,
         description: dealForm.description || undefined,
@@ -375,6 +546,7 @@ const AdminDealCampaigns: React.FC = () => {
         displayOrder: dealForm.displayOrder,
         isActive: dealForm.isActive,
         categories: selectedDealCategoryIds.length > 0 ? selectedDealCategoryIds : undefined,
+        items: normalizedItems,
       };
 
       let response;
@@ -390,12 +562,9 @@ const AdminDealCampaigns: React.FC = () => {
       if (response?.success) {
         alert(`Deal ${editingDeal ? 'updated' : 'added'} successfully`);
         handleCloseDealDialog();
-        // Reload campaign data
-        const campaignResponse = await api.get<{ campaign: Campaign }>(
-          `/deals/campaigns/${selectedCampaign._id}`
-        );
-        if (campaignResponse?.success && campaignResponse.data?.campaign) {
-          setSelectedCampaign(campaignResponse.data.campaign);
+        const refreshedCampaign = await loadCampaignDetails(selectedCampaign._id);
+        if (refreshedCampaign) {
+          setSelectedCampaign(refreshedCampaign);
         }
         loadCampaigns();
       } else {
@@ -508,7 +677,7 @@ const AdminDealCampaigns: React.FC = () => {
           <Grid size={{ xs: 12, sm: 4 }} sx={{ pl: '0 !important' }}>
             <Paper sx={{ p: 2, bgcolor: '#E87E35', color: 'white', borderRadius: 2, height: '100%' }}>
               <Typography variant="h3" sx={{ fontWeight: 'bold', color: 'white' }}>
-                {campaigns.length}
+                {filteredCampaigns.length}
               </Typography>
               <Typography variant="body2" sx={{ opacity: 0.9, color: 'white' }}>
                 Total Campaigns
@@ -518,7 +687,7 @@ const AdminDealCampaigns: React.FC = () => {
           <Grid size={{ xs: 12, sm: 4 }} sx={{ pl: '0 !important' }}>
             <Paper sx={{ p: 2, bgcolor: '#4CAF50', color: 'white', borderRadius: 2, height: '100%' }}>
               <Typography variant="h3" sx={{ fontWeight: 'bold', color: 'white' }}>
-                {campaigns.filter((c) => c.status === 'ACTIVE').length}
+                {filteredCampaigns.filter((c) => c.status === 'ACTIVE').length}
               </Typography>
               <Typography variant="body2" sx={{ opacity: 0.9, color: 'white' }}>
                 Active Campaigns
@@ -528,7 +697,7 @@ const AdminDealCampaigns: React.FC = () => {
           <Grid size={{ xs: 12, sm: 4 }} sx={{ pl: '0 !important' }}>
             <Paper sx={{ p: 2, bgcolor: '#9C27B0', color: 'white', borderRadius: 2, height: '100%' }}>
               <Typography variant="h3" sx={{ fontWeight: 'bold', color: 'white' }}>
-                {campaigns.reduce((sum, c) => sum + (c.deals?.length || 0), 0)}
+                {filteredCampaigns.reduce((sum, c) => sum + (c.deals?.length || 0), 0)}
               </Typography>
               <Typography variant="body2" sx={{ opacity: 0.9, color: 'white' }}>
                 Total Deals
@@ -547,7 +716,7 @@ const AdminDealCampaigns: React.FC = () => {
                 </Grid>
               ))}
             </Grid>
-          ) : campaigns.length === 0 ? (
+          ) : filteredCampaigns.length === 0 ? (
             <Paper sx={{ p: 6, textAlign: 'center', borderRadius: 2, width: '100%' }}>
               <LocalOffer sx={{ fontSize: 64, color: '#ddd', mb: 2 }} />
               <Typography variant="h6" color="textSecondary">
@@ -567,7 +736,7 @@ const AdminDealCampaigns: React.FC = () => {
             </Paper>
           ) : (
             <Grid container spacing={3} sx={{ width: '100%', m: 0 }}>
-              {campaigns.map((campaign) => (
+              {filteredCampaigns.map((campaign) => (
                 <Grid key={campaign._id} size={{ xs: 12, sm: 6, md: 6, lg: 4, xl: 3 }} sx={{ pl: '0 !important' }}>
                   <Card
                   sx={{
@@ -1048,7 +1217,7 @@ const AdminDealCampaigns: React.FC = () => {
                   </Box>
                   {deal.items && deal.items.length > 0 && (
                     <Typography variant="caption" color="textSecondary">
-                      Includes: {deal.items.map((i) => i.productName).join(', ')}
+                      Includes: {deal.items.map((i) => i.productName || 'Item').join(', ')}
                     </Typography>
                   )}
                 </CardContent>
@@ -1139,6 +1308,80 @@ const AdminDealCampaigns: React.FC = () => {
                     sx={{ width: 72, height: 48 }}
                   />
                 ) : null}
+              </Box>
+            </Grid>
+            <Grid size={{ xs: 12 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
+                Deal Products
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1, alignItems: 'stretch', flexWrap: 'wrap' }}>
+                <FormControl fullWidth sx={{ flex: '1 1 320px' }}>
+                  <InputLabel>Add Product</InputLabel>
+                  <Select
+                    value={selectedProductId}
+                    label="Add Product"
+                    onChange={(e) => setSelectedProductId(String(e.target.value))}
+                  >
+                    {dealProductOptions.map((product) => (
+                      <MenuItem key={product._id} value={product._id}>
+                        {product.name}
+                        {product.categoryName ? ` - ${product.categoryName}` : ''}
+                        {product.price !== undefined ? ` - ${formatPrice(product.price)}` : ''}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                <Button
+                  variant="outlined"
+                  onClick={handleAddProductToDeal}
+                  disabled={!selectedProductId}
+                  sx={{ minWidth: 120 }}
+                >
+                  Add Product
+                </Button>
+              </Box>
+              <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>
+                Customers can only order deals that have at least one linked product.
+              </Typography>
+              <Box sx={{ mt: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                {selectedDealItems.length === 0 ? (
+                  <Paper variant="outlined" sx={{ p: 2, color: 'text.secondary' }}>
+                    No products linked yet.
+                  </Paper>
+                ) : (
+                  selectedDealItems.map((item) => (
+                    <Paper
+                      key={item.productId}
+                      variant="outlined"
+                      sx={{ p: 1.5, display: 'flex', gap: 1.5, alignItems: 'center', justifyContent: 'space-between' }}
+                    >
+                      <Box sx={{ minWidth: 0, flex: 1 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                          {item.productName || 'Unnamed product'}
+                        </Typography>
+                        <Typography variant="caption" color="textSecondary">
+                          {item.price !== undefined ? formatPrice(Number(item.price || 0)) : 'No product price'}
+                        </Typography>
+                      </Box>
+                      <TextField
+                        label="Qty"
+                        type="number"
+                        size="small"
+                        value={Number(item.quantity || 1)}
+                        onChange={(e) => handleChangeDealItemQuantity(String(item.productId || ''), Number(e.target.value))}
+                        inputProps={{ min: 1 }}
+                        sx={{ width: 96 }}
+                      />
+                      <IconButton
+                        size="small"
+                        onClick={() => handleRemoveDealItem(String(item.productId || ''))}
+                        sx={{ color: '#F44336' }}
+                      >
+                        <Delete fontSize="small" />
+                      </IconButton>
+                    </Paper>
+                  ))
+                )}
               </Box>
             </Grid>
             <Grid size={{ xs: 12 }}>

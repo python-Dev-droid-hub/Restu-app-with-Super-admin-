@@ -8,14 +8,11 @@ import {
   RefreshControl,
   StatusBar,
   Image,
-  Dimensions,
   Modal,
-  Platform,
   FlatList,
-  Switch,
   Alert,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '../../components/api/client';
 import { Ionicons } from '@expo/vector-icons';
@@ -29,15 +26,19 @@ import { useLocalization } from '../../context/LocalizationContext';
 import { useUserData } from '../../hooks/useUserData';
 import { COLORS } from '../../constants/colors';
 
-const { width } = Dimensions.get('window');
-const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 0;
-
 interface Category {
   _id: string;
   name: string;
   description?: string;
   imageUrl?: string;
   products: Product[];
+}
+
+interface CategoryOption {
+  _id: string;
+  name: string;
+  productCount?: number;
+  displayOrder?: number;
 }
 
 interface Product {
@@ -57,6 +58,7 @@ interface Product {
     };
   }>;
   category?: {
+    _id?: string;
     name: string;
   };
   // Branch activation fields
@@ -88,40 +90,13 @@ export default function ManagerMenuScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [categoryOptions, setCategoryOptions] = useState<CategoryOption[]>([]);
+  const [selectedCategoryId, setSelectedCategoryId] = useState('all');
   const [assignedBranch, setAssignedBranch] = useState<{_id?: string; name?: string}>({});
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
 
-  useEffect(() => {
-    console.log('🚀 MANAGER MENU SCREEN LOADED (cards+toggle build)');
-    loadBranchAndMenu();
-  }, []);
-
-  const loadBranchAndMenu = async () => {
-    try {
-      // Load branch from storage
-      const stored = await AsyncStorage.getItem('userData');
-      let branchId = '';
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        const branchData = parsed.assignedBranch || parsed.branch;
-        if (branchData) {
-          branchId = branchData._id || branchData.branchId || parsed.branchId || '';
-          setAssignedBranch({
-            _id: branchId,
-            name: branchData.name || branchData.branchName || 'My Branch'
-          });
-        }
-      }
-
-      // Load all products with activation status for this branch (same as Products page)
-      await loadMenu();
-    } catch (error) {
-      console.error('Error loading branch:', error);
-    }
-  };
-
-  const loadMenu = async () => {
+  const loadMenu = useCallback(async () => {
     try {
       setLoading(true);
 
@@ -129,31 +104,68 @@ export default function ManagerMenuScreen() {
       params.append('page', '1');
       params.append('limit', '1000');
 
-      const response = await api.get(`/menu/admin/products?${params.toString()}`);
-      console.log('[ManagerMenu] Admin products response:', response);
+      const [productsResponse, categoriesResponse] = await Promise.all([
+        api.get(`/menu/admin/products?${params.toString()}`),
+        api.get('/menu/admin/categories'),
+      ]);
+      console.log('[ManagerMenu] Admin products response:', productsResponse);
 
-      if (response.success) {
-        const products: Product[] = response.data?.products || [];
-        const activeProducts = products.filter((p) => p?.isActivatedForBranch);
+      if (categoriesResponse.success) {
+        const categoryList = categoriesResponse.data?.categories || categoriesResponse.data || [];
+        const normalizedCategories = (Array.isArray(categoryList) ? categoryList : [])
+          .map((category: any) => ({
+            _id: String(category?._id || ''),
+            name: String(category?.name || 'Uncategorized'),
+            productCount:
+              typeof category?.productCount === 'number' ? category.productCount : undefined,
+            displayOrder:
+              typeof category?.displayOrder === 'number' ? category.displayOrder : undefined,
+          }))
+          .filter((category: CategoryOption) => category._id);
+
+        normalizedCategories.sort((a, b) => {
+          const orderA = typeof a.displayOrder === 'number' ? a.displayOrder : Number.MAX_SAFE_INTEGER;
+          const orderB = typeof b.displayOrder === 'number' ? b.displayOrder : Number.MAX_SAFE_INTEGER;
+          if (orderA !== orderB) {
+            return orderA - orderB;
+          }
+          return a.name.localeCompare(b.name);
+        });
+
+        setCategoryOptions(normalizedCategories);
+      }
+
+      if (productsResponse.success) {
+        const products: Product[] = productsResponse.data?.products || [];
+        const activeProducts = products.filter((product) => product?.isActivatedForBranch);
 
         const byCategory = new Map<string, Category>();
-        for (const p of activeProducts) {
-          const catObj: any = (p as any).category;
-          const catId = typeof catObj === 'string' ? catObj : (catObj?._id || 'uncategorized');
-          const catName = typeof catObj === 'string' ? 'Category' : (catObj?.name || 'Uncategorized');
+        for (const product of activeProducts) {
+          const categoryData: any = product?.category;
+          const categoryId =
+            typeof categoryData === 'string'
+              ? categoryData
+              : categoryData?._id || 'uncategorized';
+          const categoryName =
+            typeof categoryData === 'string'
+              ? 'Category'
+              : categoryData?.name || 'Uncategorized';
 
-          if (!byCategory.has(catId)) {
-            byCategory.set(catId, {
-              _id: String(catId),
-              name: catName,
+          if (!byCategory.has(categoryId)) {
+            byCategory.set(categoryId, {
+              _id: String(categoryId),
+              name: categoryName,
               products: [],
             });
           }
-          byCategory.get(catId)!.products.push(p);
+          byCategory.get(categoryId)!.products.push(product);
         }
 
         const grouped = Array.from(byCategory.values())
-          .map((c) => ({ ...c, products: c.products.filter((p) => !!p && !!p._id) }))
+          .map((category) => ({
+            ...category,
+            products: category.products.filter((product) => !!product && !!product._id),
+          }))
           .sort((a, b) => a.name.localeCompare(b.name));
 
         setCategories(grouped);
@@ -164,12 +176,46 @@ export default function ManagerMenuScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, []);
+
+  const loadBranchAndMenu = useCallback(async () => {
+    try {
+      const stored = await AsyncStorage.getItem('userData');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        const branchData = parsed.assignedBranch || parsed.branch;
+        if (branchData) {
+          const branchId = branchData._id || branchData.branchId || parsed.branchId || '';
+          setAssignedBranch({
+            _id: branchId,
+            name: branchData.name || branchData.branchName || 'My Branch'
+          });
+        }
+      }
+
+      await loadMenu();
+    } catch (error) {
+      console.error('Error loading branch:', error);
+    }
+  }, [loadMenu]);
+
+  useFocusEffect(
+    useCallback(() => {
+      console.log('🚀 MANAGER MENU SCREEN LOADED (cards+toggle build)');
+      loadBranchAndMenu();
+    }, [loadBranchAndMenu])
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadMenu();
+    await loadBranchAndMenu();
   };
+
+  useEffect(() => {
+    if (selectedCategoryId !== 'all' && !categoryOptions.some((category) => category._id === selectedCategoryId)) {
+      setSelectedCategoryId('all');
+    }
+  }, [categoryOptions, selectedCategoryId]);
 
   // Toggle branch activation for branch managers
   const toggleBranchActivation = async (productId: string, currentStatus: boolean) => {
@@ -207,6 +253,10 @@ export default function ManagerMenuScreen() {
   };
 
   const totalProducts = categories.reduce((sum, cat) => sum + cat.products.length, 0);
+  const visibleCategories =
+    selectedCategoryId === 'all'
+      ? categories
+      : categories.filter((category) => category._id === selectedCategoryId);
 
   // Get parent tab navigation for bottom nav
   const tabNavigation = navigation.getParent();
@@ -309,6 +359,51 @@ export default function ManagerMenuScreen() {
         </View>
       )}
 
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.filterScroll}
+        contentContainerStyle={styles.filterContent}
+      >
+        <TouchableOpacity
+          style={[
+            styles.filterChip,
+            selectedCategoryId === 'all' && styles.filterChipActive,
+          ]}
+          onPress={() => setSelectedCategoryId('all')}
+          activeOpacity={0.8}
+        >
+          <Text
+            style={[
+              styles.filterChipText,
+              selectedCategoryId === 'all' && styles.filterChipTextActive,
+            ]}
+          >
+            All
+          </Text>
+        </TouchableOpacity>
+        {categoryOptions.map((category) => (
+          <TouchableOpacity
+            key={category._id}
+            style={[
+              styles.filterChip,
+              selectedCategoryId === category._id && styles.filterChipActive,
+            ]}
+            onPress={() => setSelectedCategoryId(category._id)}
+            activeOpacity={0.8}
+          >
+            <Text
+              style={[
+                styles.filterChipText,
+                selectedCategoryId === category._id && styles.filterChipTextActive,
+              ]}
+            >
+              {category.name}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
       {loading ? (
         <View style={styles.loadingContainer}>
           <Text style={styles.loadingText}>Loading menu...</Text>
@@ -330,9 +425,17 @@ export default function ManagerMenuScreen() {
             <Text style={styles.activateButtonText}>Go to Products</Text>
           </TouchableOpacity>
         </View>
+      ) : visibleCategories.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="options-outline" size={64} color={COLORS.border} />
+          <Text style={styles.emptyText}>No products found</Text>
+          <Text style={styles.emptySubtext}>
+            This category does not have any activated products right now
+          </Text>
+        </View>
       ) : (
         <FlatList
-          data={categories}
+          data={visibleCategories}
           renderItem={renderCategory}
           keyExtractor={(category) => category._id}
           contentContainerStyle={[styles.scrollContent, { paddingBottom: getSpacing(25) + insets.bottom }]}
@@ -417,6 +520,32 @@ const styles = StyleSheet.create({
   productTotal: {
     fontSize: 12,
     color: COLORS.lightText,
+  },
+  filterScroll: {
+    marginTop: getSpacing(1),
+  },
+  filterContent: {
+    paddingHorizontal: getSpacing(4),
+    paddingVertical: getSpacing(3),
+    gap: getSpacing(2),
+  },
+  filterChip: {
+    paddingHorizontal: getSpacing(3),
+    paddingVertical: getSpacing(1.75),
+    borderRadius: 20,
+    backgroundColor: COLORS.lightGray,
+  },
+  filterChipActive: {
+    backgroundColor: COLORS.orange,
+  },
+  filterChipText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: COLORS.lightText,
+  },
+  filterChipTextActive: {
+    color: COLORS.white,
+    fontWeight: '600',
   },
   scrollContent: {
     paddingHorizontal: getSpacing(4),

@@ -33,9 +33,9 @@ const createOrderSchema = Joi.object({
   }).required(),
   orderType: Joi.string().valid('DELIVERY', 'DINE_IN', 'TAKEAWAY').required(),
   paymentMethod: Joi.string().valid('cash', 'card', 'digital_wallet').required(),
-  deliveryInstructions: Joi.string().max(500).optional(),
+  deliveryInstructions: Joi.string().max(500).optional().allow(''),
   tableId: Joi.string().optional(),
-  specialInstructions: Joi.string().max(1000).optional(),
+  specialInstructions: Joi.string().max(1000).optional().allow(''),
 });
 
 const updateStatusSchema = Joi.object({
@@ -100,9 +100,9 @@ const createGuestOrderSchema = Joi.object({
   }).required(),
   orderType: Joi.string().valid('DELIVERY', 'DINE_IN', 'TAKEAWAY').required(),
   paymentMethod: Joi.string().valid('cash', 'card', 'digital_wallet').required(),
-  deliveryInstructions: Joi.string().max(500).optional(),
+  deliveryInstructions: Joi.string().max(500).optional().allow(''),
   tableId: Joi.string().optional(),
-  specialInstructions: Joi.string().max(1000).optional(),
+  specialInstructions: Joi.string().max(1000).optional().allow(''),
 });
 
 router.post('/guest', validate(createGuestOrderSchema), orderController.createOrder);

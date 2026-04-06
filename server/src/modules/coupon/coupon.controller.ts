@@ -2,6 +2,8 @@ import { Request, Response } from 'express';
 import { Coupon } from '@/models/Coupon';
 import { Branch } from '@/models/Branch';
 
+const couponModel = Coupon as any;
+
 export class CouponController {
   // Get all coupons (with optional filters)
   async getAllCoupons(req: Request, res: Response) {
@@ -59,7 +61,7 @@ export class CouponController {
   async getActiveCoupons(req: Request, res: Response) {
     try {
       const { branch } = req.query;
-      const coupons = await Coupon.findActive(branch as string);
+      const coupons = await couponModel.findActive(branch as string);
       
       return res.status(200).json({
         success: true,
@@ -221,7 +223,7 @@ export class CouponController {
         });
       }
 
-      await coupon.softDelete();
+      await (coupon as any).softDelete();
 
       return res.status(200).json({
         success: true,
@@ -250,7 +252,7 @@ export class CouponController {
         });
       }
 
-      await coupon.restore();
+      await (coupon as any).restore();
 
       const restoredCoupon = await Coupon.findById(id)
         .populate('branch', 'branchName branchCode')
@@ -278,7 +280,7 @@ export class CouponController {
       const customerId = (req as any).user._id;
 
       try {
-        const result = await Coupon.validateForCustomer(
+        const result = await couponModel.validateForCustomer(
           code,
           customerId,
           orderAmount,

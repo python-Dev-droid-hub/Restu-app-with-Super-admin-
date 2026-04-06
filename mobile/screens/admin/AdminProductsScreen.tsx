@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,7 @@ import {
   Dimensions,
   Modal,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '../../components/api/client';
 import { Ionicons } from '@expo/vector-icons';
@@ -31,8 +31,6 @@ import AdminBottomNavigation from '../../components/navigation/AdminBottomNaviga
 // Utils & Constants
 import { getSpacing } from '../../utils/responsive';
 import { COLORS } from '../../constants/colors';
-
-type CategoryTab = 'all' | 'food' | 'drinks' | 'desserts';
 
 interface MenuItem {
   _id: string;
@@ -60,6 +58,13 @@ interface MenuItem {
   branchActivationId?: string | null;
 }
 
+interface ProductCategory {
+  _id: string;
+  name: string;
+  productCount?: number;
+  displayOrder?: number;
+}
+
 const getDisplayPrice = (item: MenuItem): number => {
   if (typeof item.effectivePrice === 'number' && !Number.isNaN(item.effectivePrice)) {
     return item.effectivePrice;
@@ -83,7 +88,8 @@ export default function AdminProductsScreen() {
   const { userRole, profileImage } = useUserData();
   const [loading, setLoading] = useState(true);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
-  const [activeTab, setActiveTab] = useState<CategoryTab>('all');
+  const [categoryOptions, setCategoryOptions] = useState<ProductCategory[]>([]);
+  const [activeCategoryId, setActiveCategoryId] = useState('all');
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -122,11 +128,39 @@ export default function AdminProductsScreen() {
     { name: 'Settings', icon: 'settings-outline', screen: 'AdminSettings' },
   ];
 
-  useEffect(() => {
-    loadMenuItems();
+  const loadCategories = useCallback(async () => {
+    try {
+      const response = await api.get('/menu/admin/categories');
+      if (response.success) {
+        const categoryList = response.data?.categories || response.data || [];
+        const normalized = (Array.isArray(categoryList) ? categoryList : [])
+          .map((category: any) => ({
+            _id: String(category?._id || ''),
+            name: String(category?.name || 'Uncategorized'),
+            productCount:
+              typeof category?.productCount === 'number' ? category.productCount : undefined,
+            displayOrder:
+              typeof category?.displayOrder === 'number' ? category.displayOrder : undefined,
+          }))
+          .filter((category: ProductCategory) => category._id);
+
+        normalized.sort((a, b) => {
+          const orderA = typeof a.displayOrder === 'number' ? a.displayOrder : Number.MAX_SAFE_INTEGER;
+          const orderB = typeof b.displayOrder === 'number' ? b.displayOrder : Number.MAX_SAFE_INTEGER;
+          if (orderA !== orderB) {
+            return orderA - orderB;
+          }
+          return a.name.localeCompare(b.name);
+        });
+
+        setCategoryOptions(normalized);
+      }
+    } catch (error) {
+      console.error('🔍 [ADMIN PRODUCTS] Error loading categories:', error);
+    }
   }, []);
 
-  const loadMenuItems = async () => {
+  const loadMenuItems = useCallback(async () => {
     try {
       setLoading(true);
       console.log('🔍 [ADMIN PRODUCTS] Loading products...');
@@ -160,7 +194,17 @@ export default function AdminProductsScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  const refreshData = useCallback(async () => {
+    await Promise.all([loadMenuItems(), loadCategories()]);
+  }, [loadCategories, loadMenuItems]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshData();
+    }, [refreshData])
+  );
 
   const toggleItemAvailability = async (itemId: string, currentStatus: boolean) => {
     try {
@@ -238,26 +282,32 @@ export default function AdminProductsScreen() {
     return category?.name || 'Uncategorized';
   };
 
-  const getFilteredItems = () => {
-    if (activeTab === 'all') return menuItems;
-    return menuItems.filter(item => {
-      const categoryName = getCategoryName(item.category).toLowerCase();
-      if (activeTab === 'food') return categoryName.includes('food') || categoryName.includes('burger') || categoryName.includes('pasta') || categoryName.includes('main') || categoryName.includes('meal');
-      if (activeTab === 'drinks') return categoryName.includes('drink') || categoryName.includes('beverage') || categoryName.includes('juice') || categoryName.includes('soda');
-      if (activeTab === 'desserts') return categoryName.includes('dessert') || categoryName.includes('sweet') || categoryName.includes('cake') || categoryName.includes('ice cream');
-      return true;
-    });
+  const getCategoryId = (category: string | { _id: string; name: string } | undefined) => {
+    if (!category) return 'uncategorized';
+    if (typeof category === 'string') return category;
+    return category?._id || 'uncategorized';
   };
 
-  const renderTab = (tab: CategoryTab, label: string) => {
-    const isActive = activeTab === tab;
+  useEffect(() => {
+    if (activeCategoryId !== 'all' && !categoryOptions.some((category) => category._id === activeCategoryId)) {
+      setActiveCategoryId('all');
+    }
+  }, [activeCategoryId, categoryOptions]);
+
+  const getFilteredItems = () => {
+    if (activeCategoryId === 'all') return menuItems;
+    return menuItems.filter((item) => getCategoryId(item.category) === activeCategoryId);
+  };
+
+  const renderTab = (categoryId: string, label: string) => {
+    const isActive = activeCategoryId === categoryId;
     return (
       <TouchableOpacity
         style={[
           styles.tab, 
           isActive ? styles.tabActive : styles.tabInactive
         ]}
-        onPress={() => setActiveTab(tab)}
+        onPress={() => setActiveCategoryId(categoryId)}
       >
         <Text style={[styles.tabText, isActive && styles.tabTextActive]}>
           {label}
@@ -310,12 +360,15 @@ export default function AdminProductsScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Category Tabs */}
-        <View style={styles.tabsContainer}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.tabsContainer}
+          contentContainerStyle={styles.tabsContent}
+        >
           {renderTab('all', 'All')}
-          {renderTab('food', 'Food')}
-          {renderTab('drinks', 'Drinks')}
-          {renderTab('desserts', 'Desserts')}
-        </View>
+          {categoryOptions.map((category) => renderTab(category._id, category.name))}
+        </ScrollView>
 
         <View style={styles.menuContainer}>
           {filteredItems.length > 0 ? (
@@ -471,7 +524,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: getSpacing(4),
   },
   tabsContainer: {
-    flexDirection: 'row',
+    marginTop: getSpacing(1),
+  },
+  tabsContent: {
     paddingHorizontal: getSpacing(4),
     paddingVertical: getSpacing(3),
     gap: getSpacing(2),

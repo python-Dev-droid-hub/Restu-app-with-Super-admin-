@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { Order } from './src/models/Order';
+import { Order } from '../models/Order';
 
 async function createTestOrder() {
   try {

@@ -3,6 +3,11 @@ import { Deal } from '@/models/Deal';
 import { Branch } from '@/models/Branch';
 import { Product } from '@/models/Product';
 
+function normalizeBranchIds(value: unknown): string[] {
+  const rawBranchIds = Array.isArray(value) ? value : value ? [value] : [];
+  return rawBranchIds.filter((branchId): branchId is string => typeof branchId === 'string' && branchId.trim().length > 0);
+}
+
 export class DealController {
   // Get all deals (with optional filters)
   async getAllDeals(req: Request, res: Response) {
@@ -60,7 +65,25 @@ export class DealController {
   async getActiveDeals(req: Request, res: Response) {
     try {
       const { branch } = req.query;
-      const deals = await Deal.findActive(branch as string);
+      const now = new Date();
+      const filter: any = {
+        isActive: true,
+        deletedAt: null,
+        startDate: { $lte: now },
+        expiryDate: { $gte: now },
+      };
+
+      if (branch) {
+        filter.$or = [
+          { branch },
+          { branch: { $size: 0 } },
+        ];
+      }
+
+      const deals = await Deal.find(filter)
+        .populate('branch', 'branchName branchCode')
+        .populate('products.product', 'name imageUrl')
+        .sort({ expiryDate: 1 });
       
       return res.status(200).json({
         success: true,
@@ -112,14 +135,18 @@ export class DealController {
       const dealData = req.body;
       
       // Validate branch if provided
-      if (dealData.branch) {
-        const branch = await Branch.findById(dealData.branch);
-        if (!branch) {
+      const branchIds = normalizeBranchIds(dealData.branch);
+      if (branchIds.length > 0) {
+        const branches = await Branch.find({ _id: { $in: branchIds } }).select('_id').lean();
+        if (branches.length !== branchIds.length) {
           return res.status(400).json({
             success: false,
             message: 'Branch not found'
           });
         }
+        dealData.branch = branchIds;
+      } else {
+        dealData.branch = [];
       }
 
       // Validate products if provided
@@ -178,13 +205,19 @@ export class DealController {
       }
 
       // Validate branch if provided
-      if (updateData.branch) {
-        const branch = await Branch.findById(updateData.branch);
-        if (!branch) {
-          return res.status(400).json({
-            success: false,
-            message: 'Branch not found'
-          });
+      if (Object.prototype.hasOwnProperty.call(updateData, 'branch')) {
+        const branchIds = normalizeBranchIds(updateData.branch);
+        if (branchIds.length > 0) {
+          const branches = await Branch.find({ _id: { $in: branchIds } }).select('_id').lean();
+          if (branches.length !== branchIds.length) {
+            return res.status(400).json({
+              success: false,
+              message: 'Branch not found'
+            });
+          }
+          updateData.branch = branchIds;
+        } else {
+          updateData.branch = [];
         }
       }
 
@@ -245,7 +278,9 @@ export class DealController {
         });
       }
 
-      await deal.softDelete();
+      deal.deletedAt = new Date();
+      deal.isActive = false;
+      await deal.save();
 
       return res.status(200).json({
         success: true,
@@ -274,7 +309,8 @@ export class DealController {
         });
       }
 
-      await deal.restore();
+      deal.deletedAt = null;
+      await deal.save();
 
       const restoredDeal = await Deal.findById(id)
         .populate('branch', 'branchName branchCode')

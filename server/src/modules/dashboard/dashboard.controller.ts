@@ -15,7 +15,7 @@ export class DashboardController {
   }
 
   // Super Admin Dashboard Stats
-  getSuperAdminStats = asyncHandler(async (req: Request, res: Response) => {
+  getSuperAdminStats = asyncHandler(async (req: IAuthRequest, res: Response) => {
     logger.info('📊 [SUPER_ADMIN STATS] Request received', {
       user: req.user?.email,
       role: req.user?.role,
@@ -25,17 +25,17 @@ export class DashboardController {
     const stats = await this.dashboardService.getSuperAdminStats();
 
     logger.info('📊 [SUPER_ADMIN STATS] Stats retrieved successfully', {
-      totalOrdersToday: stats.totalOrdersToday,
+      ordersToday: stats.ordersToday,
       totalRevenue: stats.totalRevenue,
-      activeRiders: stats.activeRiders,
-      activeTables: stats.activeTables
+      totalBranches: stats.totalBranches,
+      totalUsers: stats.totalUsers
     });
 
     sendSuccess(res, stats, 'Super Admin stats retrieved successfully');
   });
 
   // Super Admin Branches
-  getSuperAdminBranches = asyncHandler(async (req: Request, res: Response) => {
+  getSuperAdminBranches = asyncHandler(async (req: IAuthRequest, res: Response) => {
     logger.info('🏢 [SUPER_ADMIN BRANCHES] Request received', {
       user: req.user?.email,
       role: req.user?.role,
@@ -46,14 +46,14 @@ export class DashboardController {
 
     logger.info('🏢 [SUPER_ADMIN BRANCHES] Branches retrieved successfully', {
       totalBranches: branches.length,
-      branches: branches.map(b => ({ id: b._id, name: b.branchName, code: b.branchCode, status: b.isActive }))
+      branches: branches.map(b => ({ id: b.id, name: b.name, status: b.status }))
     });
 
     sendSuccess(res, branches, 'Branches retrieved successfully');
   });
 
   // Super Admin Revenue
-  getSuperAdminRevenue = asyncHandler(async (req: Request, res: Response) => {
+  getSuperAdminRevenue = asyncHandler(async (req: IAuthRequest, res: Response) => {
     const { range = '30d' } = req.query;
 
     logger.info('💰 [SUPER_ADMIN REVENUE] Request received', {
@@ -68,14 +68,14 @@ export class DashboardController {
     logger.info('💰 [SUPER_ADMIN REVENUE] Revenue data retrieved successfully', {
       range,
       totalRevenue: revenue.totalRevenue,
-      periodCount: revenue.data?.length || 0
+      periodCount: revenue.monthlyReport.length
     });
 
     sendSuccess(res, revenue, 'Revenue data retrieved successfully');
   });
 
   // Admin Dashboard Stats
-  getAdminStats = asyncHandler(async (req: Request, res: Response) => {
+  getAdminStats = asyncHandler(async (req: IAuthRequest, res: Response) => {
     const { period, branchId } = req.query as { period?: string; branchId?: string };
     logger.info('📊 [ADMIN STATS] Request received', {
       user: req.user?.email,
@@ -94,13 +94,13 @@ export class DashboardController {
       totalOrdersToday: stats.totalOrdersToday,
       totalRevenue: stats.totalRevenue,
       activeRiders: stats.activeRiders,
-      activeTables: stats.activeTables
+      activeOrders: stats.activeOrders
     });
 
     sendSuccess(res, stats, 'Admin stats retrieved successfully');
   });
 
-  getAdminWaitersPerformance = asyncHandler(async (req: Request, res: Response) => {
+  getAdminWaitersPerformance = asyncHandler(async (req: IAuthRequest, res: Response) => {
     const { period, branchId } = req.query as { period?: string; branchId?: string };
 
     const data = await this.dashboardService.getAdminWaitersPerformance({
@@ -111,7 +111,7 @@ export class DashboardController {
     sendSuccess(res, data, 'Admin waiters performance retrieved successfully');
   });
 
-  getAdminRidersPerformance = asyncHandler(async (req: Request, res: Response) => {
+  getAdminRidersPerformance = asyncHandler(async (req: IAuthRequest, res: Response) => {
     const { period, branchId } = req.query as { period?: string; branchId?: string };
 
     const data = await this.dashboardService.getAdminRidersPerformance({
@@ -122,7 +122,7 @@ export class DashboardController {
     sendSuccess(res, data, 'Admin riders performance retrieved successfully');
   });
 
-  getAdminBranchesPerformance = asyncHandler(async (req: Request, res: Response) => {
+  getAdminBranchesPerformance = asyncHandler(async (req: IAuthRequest, res: Response) => {
     const { period } = req.query as { period?: string };
 
     const data = await this.dashboardService.getAdminBranchesPerformance({
@@ -133,7 +133,7 @@ export class DashboardController {
   });
 
   // Admin Analytics with time range filtering
-  getAdminAnalytics = asyncHandler(async (req: Request, res: Response) => {
+  getAdminAnalytics = asyncHandler(async (req: IAuthRequest, res: Response) => {
     const { range = '30d' } = req.query;
 
     logger.info('📈 [ADMIN ANALYTICS] Request received', {

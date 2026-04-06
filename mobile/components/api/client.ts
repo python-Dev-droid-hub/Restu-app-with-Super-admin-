@@ -1,5 +1,8 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { NativeModules, Platform } from 'react-native';
+
+const appConfig = require('../../app.json');
 
 interface ApiResponse<T = any> {
   success: boolean;
@@ -10,15 +13,75 @@ interface ApiResponse<T = any> {
 class ApiClient {
   private instance: AxiosInstance;
   private baseURL: string;
+  private baseURLSource: string;
 
   constructor() {
-    // Use environment variable for API URL, fallback to development defaults
-    const devApiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.18.179:3000/api';
-    const prodApiUrl = process.env.EXPO_PUBLIC_API_URL_PRODUCTION || 'https://your-production-api.com/api';
+    const normalizeApiUrl = (value?: string | null): string | null => {
+      const trimmedValue = String(value || '').trim();
+      if (!trimmedValue) {
+        return null;
+      }
 
-    this.baseURL = __DEV__ ? devApiUrl : prodApiUrl;
+      return trimmedValue.endsWith('/api')
+        ? trimmedValue
+        : `${trimmedValue.replace(/\/+$/, '')}/api`;
+    };
+
+    const getMetroHost = (): string | null => {
+      const scriptURL = (NativeModules as any)?.SourceCode?.scriptURL as string | undefined;
+      if (!scriptURL) {
+        return null;
+      }
+
+      try {
+        return new URL(scriptURL).hostname || null;
+      } catch {
+        const match = scriptURL.match(/https?:\/\/([^/:]+)/i);
+        return match?.[1] || null;
+      }
+    };
+
+    const getConfiguredAppApiUrl = (): string | null => {
+      return normalizeApiUrl(appConfig?.expo?.extra?.apiUrl);
+    };
+
+    const resolveDevelopmentApiConfig = (): { url: string; source: string } => {
+      const configuredUrl = normalizeApiUrl(process.env.EXPO_PUBLIC_API_URL);
+      if (configuredUrl) {
+        return { url: configuredUrl, source: 'EXPO_PUBLIC_API_URL' };
+      }
+
+      const appConfigUrl = getConfiguredAppApiUrl();
+      if (appConfigUrl) {
+        return { url: appConfigUrl, source: 'app.json extra.apiUrl' };
+      }
+
+      const metroHost = getMetroHost();
+      if (metroHost) {
+        return { url: `http://${metroHost}:3000/api`, source: 'NativeModules.SourceCode.scriptURL' };
+      }
+
+      if (Platform.OS === 'android') {
+        return { url: 'http://10.0.2.2:3000/api', source: 'android emulator fallback' };
+      }
+
+      return { url: 'http://localhost:3000/api', source: 'ios localhost fallback' };
+    };
+
+    const prodApiUrl =
+      normalizeApiUrl(process.env.EXPO_PUBLIC_API_URL_PRODUCTION) || 'https://your-production-api.com/api';
+
+    const devConfig = resolveDevelopmentApiConfig();
+    this.baseURL = __DEV__ ? devConfig.url : prodApiUrl;
+    this.baseURLSource = __DEV__ ? devConfig.source : 'EXPO_PUBLIC_API_URL_PRODUCTION';
 
     console.log('[API] Base URL:', this.baseURL);
+    console.log('[API] Base URL source:', this.baseURLSource);
+    console.log('[API] Host sources:', {
+      env: process.env.EXPO_PUBLIC_API_URL || null,
+      appConfig: appConfig?.expo?.extra?.apiUrl || null,
+      sourceCode: (NativeModules as any)?.SourceCode?.scriptURL || null,
+    });
     console.log('[API] Environment:', __DEV__ ? 'development' : 'production');
 
     this.instance = axios.create({
@@ -49,7 +112,13 @@ class ApiClient {
         return response;
       },
       async (error: any) => {
-        console.error('[API Error]', error.message, error.code);
+        console.error(
+          '[API Error]',
+          error.message,
+          error.code,
+          '| baseURL:',
+          error.config?.baseURL || this.baseURL
+        );
         if (error.response?.status === 401) {
           await AsyncStorage.removeItem('authToken');
           await AsyncStorage.removeItem('userRole');

@@ -5,7 +5,6 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   Platform,
   Alert,
@@ -21,6 +20,7 @@ import { api } from '../../components/api/client';
 import { Ionicons } from '@expo/vector-icons';
 import { initializeSocket } from '../../services/realtimeService';
 import Toast from 'react-native-toast-message';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const { width, height } = Dimensions.get('window');
 const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 0;
@@ -63,7 +63,7 @@ export default function LoginScreen() {
             type: 'success',
             text1: 'Welcome back!',
             text2: 'Real-time notifications enabled',
-            duration: 2000,
+            visibilityTime: 2000,
           });
         }
 

@@ -233,21 +233,19 @@ router.post('/send', authenticate, async (req: IAuthRequest, res: Response) => {
     const notification = await NotificationService.sendNotification(req.body);
 
     if (notification) {
-      res.json({
+      return res.json({
         success: true,
         notification,
       });
-      return;
     } else {
-      res.status(400).json({
+      return res.status(400).json({
         success: false,
         message: 'Failed to send notification',
       });
-      return;
     }
   } catch (error: any) {
     console.error('[API] Send notification error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message,
     });
@@ -270,14 +268,13 @@ router.post('/send-bulk', authenticate, async (req: IAuthRequest, res: Response)
     const { userIds, ...notificationData } = req.body;
     const notifications = await NotificationService.sendBulkNotification(userIds, notificationData);
 
-    res.json({
+    return res.json({
       success: true,
       sent: notifications.length,
     });
-    return;
   } catch (error: any) {
     console.error('[API] Bulk send error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message,
     });
@@ -308,14 +305,13 @@ router.post('/notify-role', authenticate, async (req: IAuthRequest, res: Respons
       priority,
     });
 
-    res.json({
+    return res.json({
       success: true,
       sent: notifications.length,
     });
-    return;
   } catch (error: any) {
     console.error('[API] Notify role error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message,
     });
@@ -345,13 +341,13 @@ router.delete('/admin/:notificationId', authenticate, async (req: IAuthRequest, 
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       message: 'Notification deleted',
     });
   } catch (error: any) {
     console.error('[API] Admin delete notification error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message,
     });
@@ -385,13 +381,13 @@ router.put('/admin/:notificationId/read', authenticate, async (req: IAuthRequest
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       notification,
     });
   } catch (error: any) {
     console.error('[API] Admin mark read error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message,
     });
