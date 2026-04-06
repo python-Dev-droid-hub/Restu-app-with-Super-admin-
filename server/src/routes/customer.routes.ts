@@ -9,7 +9,7 @@ import { Favorite } from '../models/Favorite';
 import { ProductSize } from '../models/ProductSize';
 import { sendSuccess, sendError, asyncHandler } from '../utils/response';
 
-const router = Router();
+const router: Router = Router();
 const DEFAULT_BANNER_IMAGE = 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=600&h=400&fit=crop';
 const DEFAULT_PRODUCT_IMAGE = 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=300&h=200&fit=crop';
 

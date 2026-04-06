@@ -6,7 +6,7 @@ import { User } from '../../models/User';
 import { authenticate, authorize } from '../../middleware/auth';
 import { IAuthRequest } from '../../types';
 
-const router = Router();
+const router: Router = Router();
 
 // Initialize Stripe
 // NOTE: Stripe's type definitions constrain apiVersion; we omit it and let the library default.

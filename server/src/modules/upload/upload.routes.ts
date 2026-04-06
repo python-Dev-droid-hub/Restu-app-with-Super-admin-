@@ -1,11 +1,11 @@
-import express, { Request, Response } from 'express';
+import express, { Request, Response, Router } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { sendSuccess } from '@/utils/response';
 import { logger } from '@/utils/logger';
 
-const router = express.Router();
+const router: Router = express.Router();
 
 // Upload base64 image
 router.post('/upload', async (req: Request, res: Response) => {

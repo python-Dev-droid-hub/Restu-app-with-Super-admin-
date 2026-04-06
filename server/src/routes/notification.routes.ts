@@ -4,7 +4,7 @@ import { Notification } from '../models/Notification';
 import { authenticate } from '../middleware/auth';
 import { IAuthRequest } from '../types';
 
-const router = Router();
+const router: Router = Router();
 
 // ============================================
 // GET NOTIFICATIONS

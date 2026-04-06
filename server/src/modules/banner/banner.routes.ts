@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { BannerController } from './banner.controller';
 import { authenticate, authorize } from '@/middleware/auth';
 
-const router = Router();
+const router: Router = Router();
 const bannerController = new BannerController();
 
 // Public routes - Get active banners for customer display
