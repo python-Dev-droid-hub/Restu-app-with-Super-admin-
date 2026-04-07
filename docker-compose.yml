@@ -34,11 +34,13 @@ services:
 
   web:
     container_name: restaurant-app-web
+    env_file:
+      - ./.env
     build:
       context: .
       dockerfile: ./web/Dockerfile
       args:
-        VITE_API_URL: ${VITE_API_URL:-http://localhost:3101/api}
+        VITE_API_URL: ${VITE_API_URL}
     restart: unless-stopped
     depends_on:
       - server
