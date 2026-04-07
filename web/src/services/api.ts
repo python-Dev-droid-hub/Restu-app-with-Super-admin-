@@ -7,12 +7,23 @@ interface ApiResponse<T = any> {
   error?: string;
 }
 
+const resolveApiBaseUrl = (): string => {
+  const envUrl = import.meta.env.VITE_API_URL?.trim();
+  const fallbackUrl =
+    typeof window !== 'undefined'
+      ? `${window.location.protocol}//${window.location.hostname}:3101/api`
+      : 'http://localhost:3101/api';
+  return (envUrl || fallbackUrl).replace(/\/$/, '');
+};
+
+const API_BASE_URL = resolveApiBaseUrl();
+
 class ApiClient {
   private instance: AxiosInstance;
 
   constructor() {
     this.instance = axios.create({
-      baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3101/api',
+      baseURL: API_BASE_URL,
       timeout: 10000,
       headers: {
         'Content-Type': 'application/json',
@@ -526,8 +537,7 @@ class ApiClient {
       return imagePath;
     }
     // Get base URL without /api suffix
-    const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3101/api';
-    const serverBase = baseURL.replace('/api', '');
+    const serverBase = API_BASE_URL.replace('/api', '');
     // Ensure path starts with /
     const path = imagePath.startsWith('/') ? imagePath : `/${imagePath}`;
     const finalUrl = `${serverBase}${path}`;

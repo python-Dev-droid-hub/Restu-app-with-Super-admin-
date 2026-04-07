@@ -1,9 +1,18 @@
 // API Configuration - works in both Node and browser environments
 declare const process: { env?: { REACT_APP_API_URL?: string } } | undefined;
 
-const API_BASE_URL = (typeof process !== 'undefined' && process?.env?.REACT_APP_API_URL) 
-  || (typeof window !== 'undefined' && (window as any).REACT_APP_API_URL)
-  || 'http://localhost:3101/api';
+const resolveApiBaseUrl = (): string => {
+  const envUrl =
+    (typeof process !== 'undefined' && process?.env?.REACT_APP_API_URL?.trim()) ||
+    (typeof window !== 'undefined' && (window as any).REACT_APP_API_URL?.trim());
+  const fallbackUrl =
+    typeof window !== 'undefined'
+      ? `${window.location.protocol}//${window.location.hostname}:3101/api`
+      : 'http://localhost:3101/api';
+  return (envUrl || fallbackUrl).replace(/\/$/, '');
+};
+
+const API_BASE_URL = resolveApiBaseUrl();
 
 // API Response types
 export interface ApiResponse<T = unknown> {
