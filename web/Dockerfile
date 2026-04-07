@@ -11,6 +11,7 @@ ARG VITE_API_URL
 ENV VITE_API_URL=$VITE_API_URL
 
 RUN npm install
+RUN ln -s /app/web/node_modules /app/node_modules
 RUN npm run build
 
 FROM node:20-alpine AS runtime
