@@ -22,8 +22,6 @@ import {
   FormControl,
   Grid,
   TextField,
-  Drawer,
-  Switch,
 } from '@mui/material';
 import {
   ExpandLess,
@@ -43,7 +41,6 @@ import {
   ShoppingBag,
   ShoppingCart,
   ArrowForward,
-  Menu as MenuIcon,
   Close,
   CheckCircle,
 } from '@mui/icons-material';
@@ -853,7 +850,6 @@ export default function CustomerLayout({ children }: { children: ReactNode }) {
                   <ShoppingCart sx={{ fontSize: 24 }} />
                 </Badge>
               </IconButton>
-              <HeaderQuickMenu compact />
             </Paper>
           </Toolbar>
         </Container>
@@ -1186,105 +1182,5 @@ export default function CustomerLayout({ children }: { children: ReactNode }) {
       </Container>
       <Footer />
     </Box>
-  );
-}
-
-function HeaderQuickMenu({ compact = false }: { compact?: boolean }) {
-  const navigate = useNavigate();
-  const [open, setOpen] = useState(false);
-  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('customer_dark_mode') === 'true');
-
-  useEffect(() => {
-    localStorage.setItem('customer_dark_mode', String(darkMode));
-    document.body.dataset.customerTheme = darkMode ? 'dark' : 'light';
-  }, [darkMode]);
-
-  const menuButtons = [
-    { label: 'Submit Your Complaint', path: '/customer' },
-    { label: 'Our Locations', path: '/customer' },
-    { label: 'Blog', path: '/customer' },
-    { label: 'Bank Discounts', path: '/customer' },
-    { label: 'Track Orders', path: '/customer/orders' },
-  ];
-
-  return (
-    <>
-      <IconButton
-        onClick={() => setOpen(true)}
-        sx={{
-          color: compact ? '#ff6f1f' : '#333',
-          bgcolor: compact ? 'transparent' : 'var(--primary-light)',
-          borderRadius: compact ? 999 : 2,
-          p: compact ? 0.85 : 1,
-          '&:hover': { bgcolor: compact ? 'rgba(255,111,31,0.08)' : 'var(--primary-light)' },
-        }}
-      >
-        <MenuIcon sx={{ fontSize: 24, color: compact ? '#ff6f1f' : 'var(--primary)' }} />
-      </IconButton>
-      <Drawer
-        anchor="right"
-        open={open}
-        onClose={() => setOpen(false)}
-        PaperProps={{
-          sx: {
-            width: { xs: 300, sm: 340 },
-            bgcolor: '#ef1f27',
-            color: '#fff',
-            px: 2,
-            pt: 2,
-            pb: 2.5,
-            display: 'flex',
-          },
-        }}
-      >
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
-          <IconButton onClick={() => setOpen(false)} sx={{ color: '#fff' }}>
-            <Close />
-          </IconButton>
-        </Box>
-
-        <Stack spacing={1.2} sx={{ mt: 0.5 }}>
-          {menuButtons.map((item) => (
-            <Button
-              key={item.label}
-              onClick={() => {
-                setOpen(false);
-                navigate(item.path);
-              }}
-              sx={{
-                justifyContent: 'flex-start',
-                textTransform: 'none',
-                bgcolor: '#fff',
-                color: '#ef1f27',
-                borderRadius: 2,
-                px: 2,
-                py: 1.2,
-                fontWeight: 800,
-                '&:hover': { bgcolor: '#ffe8e8' },
-              }}
-            >
-              {item.label}
-            </Button>
-          ))}
-        </Stack>
-
-        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mt: 2.5, px: 0.5 }}>
-          <Typography sx={{ fontWeight: 800, fontSize: 29, lineHeight: 1 }}>Dark Mode</Typography>
-          <Switch
-            checked={darkMode}
-            onChange={(e) => setDarkMode(e.target.checked)}
-            sx={{
-              '& .MuiSwitch-switchBase.Mui-checked': { color: '#fff' },
-              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: '#fff', opacity: 0.5 },
-              '& .MuiSwitch-track': { bgcolor: '#fff', opacity: 0.35 },
-            }}
-          />
-        </Stack>
-
-        <Typography sx={{ mt: 'auto', textAlign: 'center', fontWeight: 800, opacity: 0.95 }}>
-          Powered by Indolj
-        </Typography>
-      </Drawer>
-    </>
   );
 }

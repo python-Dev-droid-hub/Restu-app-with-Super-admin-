@@ -497,7 +497,17 @@ export class MenuController {
 
   // Admin methods for system-wide menu management
   getAllProducts = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
-    const { search, category, page = '1', limit = '10', branchId, branch } = req.query;
+    const {
+      search,
+      category,
+      page = '1',
+      limit = '10',
+      branchId,
+      branch,
+      activationBranchId,
+      menuBranchId,
+      onlyActivated,
+    } = req.query as any;
     const pageNum = parseInt(page as string, 10);
     const limitNum = parseInt(limit as string, 10);
 
@@ -505,6 +515,7 @@ export class MenuController {
     const userRole = req.user?.role;
     const userBranch = req.user?.assignedBranch as any;
     const assignedBranchId = userBranch?._id?.toString() || userBranch?.toString?.() || '';
+    const onlyActivatedBool = String(onlyActivated || '').toLowerCase() === 'true' || String(onlyActivated || '') === '1';
 
     // Global products: no branchId filter by default
     // Branch managers see ALL products globally, but with activation status for their branch
@@ -527,11 +538,19 @@ export class MenuController {
     const products = await this.menuRepository.findAllProducts(filter, pageNum, limitNum);
     const total = await this.menuRepository.countProducts(filter);
 
-    // For branch managers, attach activation status for their branch
+    const requestedActivationBranchId = (activationBranchId || menuBranchId) as string | undefined;
+    const effectiveActivationBranchId =
+      userRole === 'BRANCH_MANAGER'
+        ? assignedBranchId
+        : requestedActivationBranchId && requestedActivationBranchId !== 'all'
+          ? String(requestedActivationBranchId)
+          : '';
+
+    // Attach activation status for a target branch (manager assigned branch, or admin-selected branch)
     let productsWithActivation = products;
-    if (userRole === 'BRANCH_MANAGER' && assignedBranchId) {
+    if (effectiveActivationBranchId) {
       const activations = await BranchProduct.find({
-        branchId: assignedBranchId,
+        branchId: effectiveActivationBranchId,
         productId: { $in: products.map(p => p._id) }
       }).lean();
 
@@ -547,6 +566,10 @@ export class MenuController {
       });
     }
 
+    if (onlyActivatedBool && effectiveActivationBranchId) {
+      productsWithActivation = productsWithActivation.filter((p: any) => !!p?.isActivatedForBranch);
+    }
+
     const response = {
       products: productsWithActivation,
       pagination: {
@@ -556,6 +579,7 @@ export class MenuController {
         pages: Math.ceil(total / limitNum),
       },
       branchId: assignedBranchId || null,
+      activationBranchId: effectiveActivationBranchId || null,
     };
 
     sendSuccess(res, response, 'Products retrieved successfully');

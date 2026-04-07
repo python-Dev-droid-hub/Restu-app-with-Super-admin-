@@ -50,6 +50,8 @@ interface Product {
   branchName?: string;
   isAvailable?: boolean;
   isActive?: boolean;
+  isActivatedForBranch?: boolean;
+  branchActivationId?: string | null;
   tags?: string[];
   hasSizes?: boolean;
   sizes?: any[];
@@ -63,14 +65,17 @@ interface AdminProductsProps {
 
 const AdminProducts: React.FC<AdminProductsProps> = ({ pageTitle = 'Products' }) => {
   const { currencySymbol, formatPrice } = useSettings();
+  const isMenuPage = pageTitle === 'Menu';
   const [loading, setLoading] = useState(true);
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategoryId, setSelectedCategoryId] = useState('all');
+  const [selectedBranchId, setSelectedBranchId] = useState('all');
   const [page, setPage] = useState(1);
   const [categories, setCategories] = useState<any[]>([]);
   const [branches, setBranches] = useState<any[]>([]);
+  const [activationUpdating, setActivationUpdating] = useState<Record<string, boolean>>({});
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [saving, setSaving] = useState(false);
@@ -86,13 +91,13 @@ const AdminProducts: React.FC<AdminProductsProps> = ({ pageTitle = 'Products' })
     isActive: true,
     image: '',
   });
-  const itemsPerPage = 6;
+  const itemsPerPage = 20;
 
   useEffect(() => {
     loadProducts();
     loadCategories();
     loadBranches();
-  }, []);
+  }, [selectedBranchId, isMenuPage]);
 
   const loadBranches = async () => {
     try {
@@ -112,7 +117,15 @@ const AdminProducts: React.FC<AdminProductsProps> = ({ pageTitle = 'Products' })
   const loadProducts = async () => {
     try {
       setLoading(true);
-      const response: any = await api.getAdminProducts({ limit: 100 });
+      if (isMenuPage && selectedBranchId === 'all') {
+        setProducts([]);
+        return;
+      }
+      const response: any = await api.getAdminProducts({
+        limit: isMenuPage ? 1000 : 100,
+        activationBranchId: selectedBranchId !== 'all' ? selectedBranchId : undefined,
+        onlyActivated: isMenuPage ? true : undefined,
+      });
       console.log('[Products] API Response:', response);
       if (response?.success && response?.data) {
         const rawProducts = response.data.products || response.data.data?.products || response.data.data || response.data;
@@ -152,6 +165,8 @@ const AdminProducts: React.FC<AdminProductsProps> = ({ pageTitle = 'Products' })
             branchName: doc?.branch?.branchName || doc?.branch?.name || p?.branch?.branchName || p?.branch?.name || doc?.branchName || p?.branchName || 'Unknown Branch',
             isAvailable: doc?.isAvailable ?? p?.isAvailable ?? true,
             isActive: doc?.isActive ?? p?.isActive ?? true,
+            isActivatedForBranch: doc?.isActivatedForBranch ?? p?.isActivatedForBranch ?? undefined,
+            branchActivationId: doc?.branchActivationId ?? p?.branchActivationId ?? null,
             tags: doc?.tags || p?.tags || [],
           };
         });
@@ -162,6 +177,25 @@ const AdminProducts: React.FC<AdminProductsProps> = ({ pageTitle = 'Products' })
       console.error('Error loading products:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const toggleActivationForBranch = async (productId: string) => {
+    if (selectedBranchId === 'all') {
+      return;
+    }
+    try {
+      setActivationUpdating((prev) => ({ ...prev, [productId]: true }));
+      const response: any = await api.post(`/menu/admin/products/${productId}/toggle-activation`, {
+        branchId: selectedBranchId,
+      });
+      if (response?.success) {
+        await loadProducts();
+      }
+    } catch (error) {
+      console.error('Error toggling activation:', error);
+    } finally {
+      setActivationUpdating((prev) => ({ ...prev, [productId]: false }));
     }
   };
 
@@ -332,19 +366,21 @@ const AdminProducts: React.FC<AdminProductsProps> = ({ pageTitle = 'Products' })
         <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#333' }}>
           {pageTitle}
         </Typography>
-        <Button
-          variant="contained"
-          startIcon={<Add />}
-          onClick={handleOpenAddDialog}
-          sx={{
-            bgcolor: '#FF6B35',
-            '&:hover': { bgcolor: '#E55A24' },
-            borderRadius: 2,
-            textTransform: 'none',
-          }}
-        >
-          Add Product
-        </Button>
+        {!isMenuPage && (
+          <Button
+            variant="contained"
+            startIcon={<Add />}
+            onClick={handleOpenAddDialog}
+            sx={{
+              bgcolor: '#FF6B35',
+              '&:hover': { bgcolor: '#E55A24' },
+              borderRadius: 2,
+              textTransform: 'none',
+            }}
+          >
+            Add Product
+          </Button>
+        )}
       </Box>
 
       <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -397,6 +433,34 @@ const AdminProducts: React.FC<AdminProductsProps> = ({ pageTitle = 'Products' })
             {categories.map((category) => (
               <MenuItem key={category._id} value={category._id}>
                 {category.name}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+        <FormControl
+          size="small"
+          sx={{
+            minWidth: 220,
+            bgcolor: 'white',
+            borderRadius: 2,
+            '& .MuiOutlinedInput-root': {
+              borderRadius: 2,
+              '& fieldset': { border: 'none' },
+              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+            },
+          }}
+        >
+          <InputLabel id="product-branch-filter-label">Branch</InputLabel>
+          <Select
+            labelId="product-branch-filter-label"
+            value={selectedBranchId}
+            label="Branch"
+            onChange={(e) => setSelectedBranchId(e.target.value)}
+          >
+            <MenuItem value="all">{isMenuPage ? 'Select Branch' : 'All Branches'}</MenuItem>
+            {branches.map((branch) => (
+              <MenuItem key={branch._id} value={branch._id}>
+                {branch.branchName}
               </MenuItem>
             ))}
           </Select>
@@ -515,6 +579,28 @@ const AdminProducts: React.FC<AdminProductsProps> = ({ pageTitle = 'Products' })
                     />
                   </Box>
 
+                  {!isMenuPage && selectedBranchId !== 'all' && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                      <Chip
+                        label={product.isActivatedForBranch ? '✓ Activated' : '○ Not Activated'}
+                        size="small"
+                        sx={{
+                          bgcolor: product.isActivatedForBranch ? '#E8F5E9' : '#FFF3E0',
+                          color: product.isActivatedForBranch ? '#2E7D32' : '#EF6C00',
+                          fontSize: 11,
+                          fontWeight: 500,
+                          height: 24,
+                        }}
+                      />
+                      <Switch
+                        checked={!!product.isActivatedForBranch}
+                        onChange={() => toggleActivationForBranch(product._id)}
+                        disabled={!!activationUpdating[product._id]}
+                        color="success"
+                      />
+                    </Box>
+                  )}
+
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <Typography sx={{ fontWeight: 'bold', fontSize: 18, color: '#FF6B35' }}>
@@ -562,7 +648,11 @@ const AdminProducts: React.FC<AdminProductsProps> = ({ pageTitle = 'Products' })
       ) : (
         <Box sx={{ textAlign: 'center', py: 8 }}>
           <Typography color="#999" sx={{ fontSize: 16 }}>
-            No products found
+            {isMenuPage && selectedBranchId === 'all'
+              ? 'Select a branch to view its menu products'
+              : isMenuPage
+                ? 'No menu products found for the selected branch'
+                : 'No products found'}
           </Typography>
         </Box>
       )}

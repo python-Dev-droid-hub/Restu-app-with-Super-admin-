@@ -4,6 +4,7 @@ import {
   Container,
   Card,
   CardContent,
+  Avatar,
   Typography,
   Table,
   TableBody,
@@ -29,8 +30,9 @@ import {
   Skeleton,
   Tooltip,
   Alert,
+  CircularProgress,
 } from '@mui/material';
-import { Add, Edit, Delete, Refresh } from '@mui/icons-material';
+import { Add, Edit, Delete, Refresh, CloudUpload } from '@mui/icons-material';
 import { api } from '../../services/api';
 import { useSettings } from '../../context/SettingsContext';
 
@@ -55,14 +57,24 @@ interface Branch {
   branchName: string;
 }
 
+interface ProductOption {
+  _id: string;
+  name: string;
+  branchName?: string;
+  isAvailable?: boolean;
+}
+
 const AdminDeals: React.FC = () => {
   const { currencySymbol } = useSettings();
   const [deals, setDeals] = useState<Deal[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [products, setProducts] = useState<ProductOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingDeal, setEditingDeal] = useState<Deal | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [dialogError, setDialogError] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   const [formData, setFormData] = useState<{
     title: string;
@@ -73,8 +85,11 @@ const AdminDeals: React.FC = () => {
     minOrderAmount: string;
     startDate: string;
     expiryDate: string;
+    imageUrl: string;
     branch: string[];
+    products: string[];
     isActive: boolean;
+    excludeCoupons: boolean;
   }>({
     title: '',
     description: '',
@@ -84,8 +99,11 @@ const AdminDeals: React.FC = () => {
     minOrderAmount: '0',
     startDate: new Date().toISOString().split('T')[0],
     expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    imageUrl: '',
     branch: [],
+    products: [],
     isActive: true,
+    excludeCoupons: true,
   });
 
   useEffect(() => {
@@ -96,9 +114,10 @@ const AdminDeals: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      const [dealsRes, branchesRes]: [any, any] = await Promise.all([
+      const [dealsRes, branchesRes, productsRes]: [any, any, any] = await Promise.all([
         api.getDeals(),
         api.getAllBranches().catch(() => ({ success: false, data: [] })),
+        api.getAdminProducts({ limit: 500 }).catch(() => ({ success: false, data: [] })),
       ]);
 
       if (dealsRes?.success) {
@@ -108,6 +127,20 @@ const AdminDeals: React.FC = () => {
       if (branchesRes?.success) {
         const rawList = branchesRes?.data?.branches || branchesRes?.data?.data?.branches || branchesRes?.data || [];
         setBranches(Array.isArray(rawList) ? rawList : []);
+      }
+
+      if (productsRes?.success) {
+        const rawProducts = productsRes?.data?.products || productsRes?.data?.data?.products || productsRes?.data || [];
+        const normalizedProducts = (Array.isArray(rawProducts) ? rawProducts : []).map((product: any) => {
+          const doc = product?._doc || product;
+          return {
+            _id: String(doc?._id || product?._id || ''),
+            name: String(doc?.name || product?.name || 'Unnamed product'),
+            branchName: doc?.branch?.branchName || product?.branch?.branchName || doc?.branchName || product?.branchName || '',
+            isAvailable: doc?.isAvailable ?? product?.isAvailable ?? true,
+          };
+        });
+        setProducts(normalizedProducts);
       }
     } catch (err: any) {
       console.error('Error loading deals:', err);
@@ -120,6 +153,7 @@ const AdminDeals: React.FC = () => {
   const handleOpenDialog = (deal?: Deal) => {
     if (deal) {
       setEditingDeal(deal);
+      setDialogError(null);
       setFormData({
         title: deal.title,
         description: deal.description || '',
@@ -129,11 +163,15 @@ const AdminDeals: React.FC = () => {
         minOrderAmount: deal.minOrderAmount?.toString() || '0',
         startDate: new Date(deal.startDate).toISOString().split('T')[0],
         expiryDate: new Date(deal.expiryDate).toISOString().split('T')[0],
+        imageUrl: deal.imageUrl || '',
         branch: Array.isArray(deal.branch) ? deal.branch.map((b: any) => b._id || b) : (deal.branch ? [(deal.branch as any)._id || deal.branch] : []),
+        products: Array.isArray(deal.products) ? deal.products.map((item: any) => item?.product?._id || item?.product).filter(Boolean) : [],
         isActive: deal.isActive,
+        excludeCoupons: true,
       });
     } else {
       setEditingDeal(null);
+      setDialogError(null);
       setFormData({
         title: '',
         description: '',
@@ -143,8 +181,11 @@ const AdminDeals: React.FC = () => {
         minOrderAmount: '0',
         startDate: new Date().toISOString().split('T')[0],
         expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        imageUrl: '',
         branch: [],
+        products: [],
         isActive: true,
+        excludeCoupons: true,
       });
     }
     setDialogOpen(true);
@@ -153,20 +194,55 @@ const AdminDeals: React.FC = () => {
   const handleCloseDialog = () => {
     setDialogOpen(false);
     setEditingDeal(null);
+    setDialogError(null);
   };
 
   const handleSave = async () => {
+    if (!formData.title.trim()) {
+      setDialogError('Deal title is required');
+      return;
+    }
+
+    if (formData.discountValue <= 0) {
+      setDialogError('Discount value must be greater than 0');
+      return;
+    }
+
+    if (formData.discountType === 'PERCENTAGE' && formData.discountValue > 100) {
+      setDialogError('Percentage discount cannot exceed 100');
+      return;
+    }
+
+    if (Number(formData.minOrderAmount) < 0) {
+      setDialogError('Minimum order amount cannot be negative');
+      return;
+    }
+
+    if (formData.maxDiscountAmount && Number(formData.maxDiscountAmount) < 0) {
+      setDialogError('Maximum discount amount cannot be negative');
+      return;
+    }
+
+    if (new Date(formData.startDate) >= new Date(formData.expiryDate)) {
+      setDialogError('Expiry date must be after start date');
+      return;
+    }
+
     try {
+      setDialogError(null);
       const data: any = {
-        title: formData.title,
-        description: formData.description,
+        title: formData.title.trim(),
+        description: formData.description.trim(),
         discountType: formData.discountType,
         discountValue: Number(formData.discountValue),
         minOrderAmount: Number(formData.minOrderAmount) || 0,
         startDate: new Date(formData.startDate),
         expiryDate: new Date(formData.expiryDate),
         isActive: formData.isActive,
+        excludeCoupons: formData.excludeCoupons,
+        imageUrl: formData.imageUrl || undefined,
         branch: formData.branch && formData.branch.length > 0 ? formData.branch : undefined,
+        products: formData.products,
       };
 
       if (formData.maxDiscountAmount) {
@@ -210,6 +286,35 @@ const AdminDeals: React.FC = () => {
 
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString();
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setUploadingImage(true);
+      setDialogError(null);
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(new Error('Failed to read image'));
+        reader.readAsDataURL(file);
+      });
+
+      const response: any = await api.uploadImage(base64, file.name);
+      if (response?.success && response?.data?.url) {
+        setFormData((prev) => ({ ...prev, imageUrl: response.data.url }));
+      } else {
+        setDialogError(response?.message || response?.error || 'Failed to upload image');
+      }
+    } catch (uploadError: any) {
+      console.error('Error uploading deal image:', uploadError);
+      setDialogError(uploadError?.message || 'Failed to upload image');
+    } finally {
+      setUploadingImage(false);
+      e.target.value = '';
+    }
   };
 
   const formatDiscount = (deal: Deal) => {
@@ -289,6 +394,7 @@ const AdminDeals: React.FC = () => {
                 <TableRow>
                   <TableCell sx={{ fontWeight: 600 }}>Title</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>Discount</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>Products</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>Branch</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>Valid Period</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
@@ -301,6 +407,7 @@ const AdminDeals: React.FC = () => {
                     <TableRow key={i}>
                       <TableCell><Skeleton /></TableCell>
                       <TableCell><Skeleton width={80} /></TableCell>
+                      <TableCell><Skeleton width={120} /></TableCell>
                       <TableCell><Skeleton width={100} /></TableCell>
                       <TableCell><Skeleton width={150} /></TableCell>
                       <TableCell><Skeleton width={60} /></TableCell>
@@ -309,7 +416,7 @@ const AdminDeals: React.FC = () => {
                   ))
                 ) : deals.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                    <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
                       <Typography color="textSecondary">No deals found. Create your first deal!</Typography>
                     </TableCell>
                   </TableRow>
@@ -332,6 +439,31 @@ const AdminDeals: React.FC = () => {
                           size="small"
                           sx={{ bgcolor: '#FF6B35', color: 'white', fontWeight: 600 }}
                         />
+                      </TableCell>
+                      <TableCell>
+                        {deal.products && deal.products.length > 0 ? (
+                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                            {deal.products.slice(0, 2).map((item) => (
+                              <Chip
+                                key={item.product._id}
+                                label={item.product.name}
+                                size="small"
+                                variant="outlined"
+                              />
+                            ))}
+                            {deal.products.length > 2 && (
+                              <Chip
+                                label={`+${deal.products.length - 2} more`}
+                                size="small"
+                                variant="outlined"
+                              />
+                            )}
+                          </Box>
+                        ) : (
+                          <Typography variant="body2" color="textSecondary">
+                            All products
+                          </Typography>
+                        )}
                       </TableCell>
                       <TableCell>
                         {deal.branch && deal.branch.length > 0 ? deal.branch.map(b => b.branchName).join(', ') : 'All Branches'}
@@ -375,6 +507,7 @@ const AdminDeals: React.FC = () => {
         <DialogTitle>{editingDeal ? 'Edit Deal' : 'Add New Deal'}</DialogTitle>
         <DialogContent>
           <Box sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {dialogError && <Alert severity="error">{dialogError}</Alert>}
             <TextField
               label="Title"
               fullWidth
@@ -390,6 +523,33 @@ const AdminDeals: React.FC = () => {
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
             />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+              <Button
+                component="label"
+                variant="outlined"
+                startIcon={uploadingImage ? <CircularProgress size={16} /> : <CloudUpload />}
+                disabled={uploadingImage}
+              >
+                {uploadingImage ? 'Uploading...' : 'Upload Image'}
+                <input hidden type="file" accept="image/*" onChange={handleImageUpload} />
+              </Button>
+              {formData.imageUrl ? (
+                <>
+                  <Avatar
+                    variant="rounded"
+                    src={api.getImageUrl(formData.imageUrl)}
+                    sx={{ width: 72, height: 48 }}
+                  />
+                  <Button color="inherit" onClick={() => setFormData({ ...formData, imageUrl: '' })}>
+                    Remove Image
+                  </Button>
+                </>
+              ) : (
+                <Typography variant="body2" color="textSecondary">
+                  No image selected
+                </Typography>
+              )}
+            </Box>
             <Box sx={{ display: 'flex', gap: 2 }}>
               <FormControl sx={{ minWidth: 150 }}>
                 <InputLabel>Discount Type</InputLabel>
@@ -429,6 +589,43 @@ const AdminDeals: React.FC = () => {
                 helperText="Minimum order to qualify"
               />
             </Box>
+            <FormControl fullWidth>
+              <InputLabel>Products</InputLabel>
+              <Select
+                multiple
+                value={formData.products}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    products: typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value,
+                  })
+                }
+                label="Products"
+                renderValue={(selected) => (
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                    {(selected as string[]).length === 0 ? (
+                      <Chip label="All products" size="small" />
+                    ) : (
+                      (selected as string[]).map((id) => {
+                        const product = products.find((item) => item._id === id);
+                        return <Chip key={id} label={product?.name || id} size="small" />;
+                      })
+                    )}
+                  </Box>
+                )}
+              >
+                {products.map((product) => (
+                  <MenuItem key={product._id} value={product._id}>
+                    {product.name}
+                    {product.branchName ? ` (${product.branchName})` : ''}
+                    {product.isAvailable === false ? ' • Unavailable' : ''}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Typography variant="caption" color="textSecondary" sx={{ mt: -1 }}>
+              Select one or more products, or leave empty to make the deal available for all products.
+            </Typography>
             <FormControl fullWidth>
               <InputLabel>Branches</InputLabel>
               <Select
@@ -470,6 +667,16 @@ const AdminDeals: React.FC = () => {
                 InputLabelProps={{ shrink: true }}
               />
             </Box>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={formData.excludeCoupons}
+                  onChange={(e) => setFormData({ ...formData, excludeCoupons: e.target.checked })}
+                  color="success"
+                />
+              }
+              label="Exclude coupons when this deal applies"
+            />
             <FormControlLabel
               control={
                 <Switch

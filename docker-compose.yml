@@ -1,0 +1,49 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: restaurant-app-mongo
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+
+  server:
+    container_name: restaurant-app-server
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    environment:
+      NODE_ENV: production
+      PORT: "3101"
+      MONGODB_URI: mongodb://mongo:27017/restaurant_app
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5175}
+      JWT_SECRET: ${JWT_SECRET:-}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE:-none}
+    ports:
+      - "3101:3101"
+    volumes:
+      - ./server/uploads:/app/dist/uploads
+      - ./server/logs:/app/logs
+
+  web:
+    container_name: restaurant-app-web
+    build:
+      context: .
+      dockerfile: ./web/Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:3101/api}
+    restart: unless-stopped
+    depends_on:
+      - server
+    ports:
+      - "5175:5175"
+
+volumes:
+  mongo_data:

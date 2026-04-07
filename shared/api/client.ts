@@ -3,7 +3,7 @@ declare const process: { env?: { REACT_APP_API_URL?: string } } | undefined;
 
 const API_BASE_URL = (typeof process !== 'undefined' && process?.env?.REACT_APP_API_URL) 
   || (typeof window !== 'undefined' && (window as any).REACT_APP_API_URL)
-  || 'http://localhost:3000/api';
+  || 'http://localhost:3101/api';
 
 // API Response types
 export interface ApiResponse<T = unknown> {

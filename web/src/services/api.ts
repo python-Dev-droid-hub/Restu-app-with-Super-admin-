@@ -12,7 +12,7 @@ class ApiClient {
 
   constructor() {
     this.instance = axios.create({
-      baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3000/api',
+      baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3101/api',
       timeout: 10000,
       headers: {
         'Content-Type': 'application/json',
@@ -238,10 +238,12 @@ class ApiClient {
     return this.request('GET', `/orders${queryString}`);
   }
 
-  async getAdminProducts(params?: { limit?: number; branchId?: string }) {
+  async getAdminProducts(params?: { limit?: number; branchId?: string; activationBranchId?: string; onlyActivated?: boolean }) {
     const queryParams = new URLSearchParams();
     if (params?.limit) queryParams.append('limit', params.limit.toString());
     if (params?.branchId && params.branchId !== 'all') queryParams.append('branchId', params.branchId);
+    if (params?.activationBranchId && params.activationBranchId !== 'all') queryParams.append('activationBranchId', params.activationBranchId);
+    if (params?.onlyActivated) queryParams.append('onlyActivated', 'true');
     const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
     return this.request('GET', `/menu/admin/products${queryString}`);
   }
@@ -524,7 +526,7 @@ class ApiClient {
       return imagePath;
     }
     // Get base URL without /api suffix
-    const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+    const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3101/api';
     const serverBase = baseURL.replace('/api', '');
     // Ensure path starts with /
     const path = imagePath.startsWith('/') ? imagePath : `/${imagePath}`;

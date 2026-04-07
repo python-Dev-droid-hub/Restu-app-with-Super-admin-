@@ -67,10 +67,12 @@ app.use(limiter);
 app.use(cors({
   origin: [
     'http://localhost:5173',  // Vite dev server
+    'http://localhost:5175',
     'http://localhost:3001',  // Original dev server
     'http://localhost:3000',  // Another common port
     'http://127.0.0.1:5173',  // Browser preview
     'http://127.0.0.1:5174',  // Browser preview alternate
+    'http://127.0.0.1:5175',
     'http://127.0.0.1:55245', // Cascade browser preview
     ...(process.env.CORS_ORIGIN ? [process.env.CORS_ORIGIN] : [])
   ],
