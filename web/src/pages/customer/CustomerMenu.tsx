@@ -224,9 +224,10 @@ export default function CustomerMenu() {
   const products = selectedCategory?.products || [];
 
   const addToCart = (product: Product) => {
-    const productId = String(product._id);
+    const productId = String((product as any)._id || (product as any).id || '').trim();
+    if (!productId) return;
     const price = getDisplayPrice(product);
-    const image = api.getImageUrl(product.imageUrl || product.image);
+    const image = product.imageUrl || product.image;
 
     const existing = readCart();
     const idx = existing.findIndex((i) => i.productId === productId);

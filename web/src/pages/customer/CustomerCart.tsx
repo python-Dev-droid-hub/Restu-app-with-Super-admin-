@@ -10,21 +10,76 @@ type CartItem = {
   price: number;
   image?: string;
   quantity: number;
+  cartKey: string;
+};
+
+const extractCartArray = (parsed: any): any[] => {
+  if (Array.isArray(parsed)) return parsed;
+  if (!parsed || typeof parsed !== 'object') return [];
+  const nestedCandidates = [
+    parsed?.items,
+    parsed?.cartItems,
+    parsed?.cart,
+    parsed?.data?.items,
+    parsed?.data?.cartItems,
+    parsed?.data?.cart,
+  ];
+  for (const candidate of nestedCandidates) {
+    if (Array.isArray(candidate)) return candidate;
+  }
+  const values = Object.values(parsed);
+  if (values.length > 0 && values.every((v) => v && typeof v === 'object')) {
+    return values as any[];
+  }
+  return [];
+};
+
+const normalizeCartItems = (parsed: any): CartItem[] => {
+  const items = extractCartArray(parsed);
+  const aggregated = new Map<string, CartItem>();
+  for (const item of items) {
+    const productId = String(item?.productId || item?.id || item?._id || item?.menuItemId || item?.product?._id || item?.product?.id || '').trim();
+    const note = String(item?.specialInstructions || item?.note || '').trim();
+    const quantity = Number(item?.quantity ?? item?.qty ?? item?.count ?? item?.itemQty ?? item?.productQuantity ?? item?.product?.quantity ?? 1);
+    if (!quantity || quantity <= 0) continue;
+    const fallbackKey = String(item?.name || item?.title || item?.productName || item?.product?.name || 'item').trim().toLowerCase();
+    const cartKey = `${productId || fallbackKey}::${note}`;
+    const existing = aggregated.get(cartKey);
+    if (existing) {
+      existing.quantity = Number(existing.quantity || 0) + quantity;
+      continue;
+    }
+    const fallbackPrice = Number(item?.totalPrice ?? item?.lineTotal ?? 0);
+    const derivedUnitPrice = fallbackPrice > 0 && quantity > 0 ? fallbackPrice / quantity : 0;
+    aggregated.set(cartKey, {
+      productId: productId || fallbackKey,
+      name: String(item?.name || item?.title || item?.productName || item?.product?.name || 'Item'),
+      price: Number(item?.price ?? item?.unitPrice ?? item?.amount ?? item?.product?.price ?? derivedUnitPrice ?? 0),
+      image: item?.image || item?.imageUrl || item?.thumbnail || item?.product?.image || item?.product?.imageUrl,
+      quantity,
+      cartKey,
+    });
+  }
+  return Array.from(aggregated.values());
 };
 
 const readCart = (): CartItem[] => {
   try {
     const raw = localStorage.getItem('customer_cart');
     if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    return normalizeCartItems(JSON.parse(raw));
   } catch {
     return [];
   }
 };
 
 const writeCart = (items: CartItem[]) => {
-  localStorage.setItem('customer_cart', JSON.stringify(items));
+  const normalized = items.map((item) => {
+    const next = { ...item } as any;
+    delete next.cartKey;
+    return next;
+  });
+  localStorage.setItem('customer_cart', JSON.stringify(normalized));
   window.dispatchEvent(new Event('customer_cart_updated'));
 };
 
@@ -51,18 +106,24 @@ export default function CustomerCart() {
 
   const total = useMemo(() => items.reduce((sum, i) => sum + (Number(i.price) || 0) * (Number(i.quantity) || 0), 0), [items]);
 
-  const changeQty = (productId: string, delta: number) => {
+  const changeQty = (cartKey: string, delta: number) => {
     const next = items
-      .map((i) => (i.productId === productId ? { ...i, quantity: (Number(i.quantity) || 0) + delta } : i))
+      .map((i) => (i.cartKey === cartKey ? { ...i, quantity: (Number(i.quantity) || 0) + delta } : i))
       .filter((i) => (Number(i.quantity) || 0) > 0);
     writeCart(next);
+    setItems(next);
   };
 
-  const removeItem = (productId: string) => {
-    writeCart(items.filter((i) => i.productId !== productId));
+  const removeItem = (cartKey: string) => {
+    const next = items.filter((i) => i.cartKey !== cartKey);
+    writeCart(next);
+    setItems(next);
   };
 
-  const clearCart = () => writeCart([]);
+  const clearCart = () => {
+    writeCart([]);
+    setItems([]);
+  };
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -94,7 +155,7 @@ export default function CustomerCart() {
             {items.map((i) => {
               const img = api.getImageUrl(i.image);
               return (
-                <Box key={i.productId}>
+                <Box key={i.cartKey}>
                   <Stack direction="row" spacing={2} alignItems="center">
                     {img ? (
                       <Box
@@ -132,14 +193,14 @@ export default function CustomerCart() {
                     </Box>
 
                     <Stack direction="row" alignItems="center" spacing={1}>
-                      <IconButton onClick={() => changeQty(i.productId, -1)} size="small">
+                      <IconButton onClick={() => changeQty(i.cartKey, -1)} size="small">
                         <Remove />
                       </IconButton>
                       <Typography sx={{ fontWeight: 900, minWidth: 24, textAlign: 'center' }}>{i.quantity}</Typography>
-                      <IconButton onClick={() => changeQty(i.productId, 1)} size="small">
+                      <IconButton onClick={() => changeQty(i.cartKey, 1)} size="small">
                         <Add />
                       </IconButton>
-                      <IconButton onClick={() => removeItem(i.productId)} size="small" color="error">
+                      <IconButton onClick={() => removeItem(i.cartKey)} size="small" color="error">
                         <Delete />
                       </IconButton>
                     </Stack>

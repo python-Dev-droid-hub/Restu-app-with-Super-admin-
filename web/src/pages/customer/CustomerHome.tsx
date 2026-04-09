@@ -503,7 +503,13 @@ export default function CustomerHome() {
                 fullWidth
                 variant="contained"
                 onClick={() => {
-                  setPendingItem({ id: String(p.id), name: p.name, description: p.description, price: Number(p.price || 0), image: (p as any).image });
+                  setPendingItem({
+                    id: String((p as any).id || (p as any)._id || ''),
+                    name: p.name,
+                    description: p.description,
+                    price: Number(p.price || 0),
+                    image: (p as any).image,
+                  });
                   setPendingQty(1);
                   setPendingNote('');
                   setAddDialogOpen(true);
@@ -1027,10 +1033,18 @@ export default function CustomerHome() {
             onClick={() => {
               if (!pendingItem) return;
               const existing = readCart();
-              const idx = existing.findIndex((i) => i.productId === pendingItem.id && (i as any).specialInstructions === pendingNote);
+              const normalizedNote = pendingNote.trim();
+              const idx = existing.findIndex((i) => {
+                const note = String((i as any).specialInstructions || '').trim();
+                return i.productId === pendingItem.id && note === normalizedNote;
+              });
               if (idx >= 0) {
                 const next = [...existing];
-                next[idx] = { ...next[idx], quantity: (next[idx].quantity || 0) + pendingQty };
+                next[idx] = {
+                  ...next[idx],
+                  quantity: (next[idx].quantity || 0) + pendingQty,
+                  specialInstructions: normalizedNote || undefined,
+                };
                 writeCart(next);
               } else {
                 existing.push({
@@ -1039,7 +1053,7 @@ export default function CustomerHome() {
                   price: Number(pendingItem.price || 0),
                   image: pendingItem.image,
                   quantity: pendingQty,
-                  specialInstructions: pendingNote || undefined,
+                  specialInstructions: normalizedNote || undefined,
                 });
                 writeCart(existing);
               }

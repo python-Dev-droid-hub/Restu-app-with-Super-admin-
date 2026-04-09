@@ -11,6 +11,7 @@ import App from './App.tsx'
 const resolveSharedApiUrl = () => {
   const envUrl = import.meta.env.VITE_API_URL?.trim();
   if (!envUrl) return;
+  if (!/^https?:\/\/[^/\s]+/i.test(envUrl)) return;
   (window as any).REACT_APP_API_URL = envUrl.replace(/\/$/, '');
 }
 

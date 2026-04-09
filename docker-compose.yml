@@ -17,6 +17,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: "3101"
+      UPLOAD_PATH: /app/uploads
       MONGODB_URI: mongodb://mongo:27017/restaurant_app
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5175}
       JWT_SECRET: ${JWT_SECRET:-}
@@ -29,7 +30,7 @@ services:
     ports:
       - "3101:3101"
     volumes:
-      - ./server/uploads:/app/dist/uploads
+      - ./server/uploads:/app/uploads
       - ./server/logs:/app/logs
 
   web:

@@ -168,15 +168,6 @@ export default function CheckoutPage() {
     return Object.keys(nextErrors).length === 0;
   };
 
-  const handleNext = () => {
-    if (!validateStep(activeStep)) return;
-    setActiveStep((prev) => Math.min(prev + 1, steps.length - 1));
-  };
-
-  const handleBack = () => {
-    setActiveStep((prev) => Math.max(prev - 1, 0));
-  };
-
   const handlePlaceOrder = async () => {
     setSubmitError('');
     if (!validateStep(0) || !validateStep(1)) {
@@ -384,14 +375,6 @@ export default function CheckoutPage() {
                 {/* Promo section removed as requested */}
               </Stack>
 
-              <Stack direction="row" justifyContent="space-between" sx={{ mt: 2 }}>
-                <Button variant="text" disabled={activeStep === 0} onClick={handleBack} sx={{ color: '#666' }}>
-                  Back
-                </Button>
-                <Button variant="contained" onClick={handleNext} sx={{ bgcolor: '#E55A2B', fontWeight: 800, px: 3, '&:hover': { bgcolor: '#cc4f24' } }}>
-                  Next
-                </Button>
-              </Stack>
             </Grid>
 
             <Grid size={{ xs: 12, md: 5 }}>

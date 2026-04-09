@@ -7,19 +7,32 @@ interface ApiResponse<T = any> {
   error?: string;
 }
 
+const sanitizeApiBaseUrl = (rawUrl?: string): string | null => {
+  const value = rawUrl?.trim();
+  if (!value) return null;
+  const normalized = value.replace(/\/$/, '');
+  return /^https?:\/\/[^/\s]+/i.test(normalized) ? normalized : null;
+};
+
 const resolveApiBaseUrl = (): string => {
-  const envUrl = import.meta.env.VITE_API_URL?.trim();
-  const fallbackUrl =
-    typeof window !== 'undefined'
-      ? `${window.location.protocol}//${window.location.hostname}:3101/api`
-      : 'http://localhost:3101/api';
-  return (envUrl || fallbackUrl).replace(/\/$/, '');
+  const envUrl = sanitizeApiBaseUrl(import.meta.env.VITE_API_URL);
+  if (envUrl) return envUrl;
+  if (import.meta.env.DEV) {
+    return '/api';
+  }
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    const isLocal = host === 'localhost' || host === '127.0.0.1';
+    return isLocal ? 'http://localhost:3101/api' : `${window.location.protocol}//${host}:3101/api`;
+  }
+  return 'http://localhost:3101/api';
 };
 
 const API_BASE_URL = resolveApiBaseUrl();
 
 class ApiClient {
   private instance: AxiosInstance;
+  private hasHandledUnauthorized = false;
 
   constructor() {
     this.instance = axios.create({
@@ -34,13 +47,8 @@ class ApiClient {
     this.instance.interceptors.request.use(
       async (config: InternalAxiosRequestConfig) => {
         const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
-        const isGuestOrderEndpoint = String(config.url || '').includes('/orders/guest');
-        console.log(`API Request to ${config.url} - Token exists:`, !!token);
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
-          console.log('Token preview:', token.substring(0, 20) + '...');
-        } else if (!isGuestOrderEndpoint) {
-          console.warn('No auth token found in localStorage!');
         }
         return config;
       },
@@ -52,11 +60,20 @@ class ApiClient {
       (response: AxiosResponse) => response,
       async (error: AxiosError) => {
         if (error.response?.status === 401) {
-          // Token expired, clear storage and redirect to login
+          // Token expired/invalid: clear storage and force re-auth
           localStorage.removeItem('auth_token');
+          localStorage.removeItem('authToken');
           localStorage.removeItem('userRole');
           localStorage.removeItem('userData');
-          // Navigation would be handled by the app
+          delete this.instance.defaults.headers.common.Authorization;
+
+          if (!this.hasHandledUnauthorized && typeof window !== 'undefined') {
+            this.hasHandledUnauthorized = true;
+            const currentPath = window.location.pathname || '';
+            if (!currentPath.startsWith('/login')) {
+              window.location.replace('/login');
+            }
+          }
         }
         return Promise.reject(error);
       }
@@ -65,16 +82,13 @@ class ApiClient {
 
   private async request<T>(method: string, url: string, data?: any): Promise<ApiResponse<T>> {
     try {
-      console.log(`API Request: ${method} ${url}`, data);
       const response: AxiosResponse<ApiResponse<T>> = await this.instance.request({
         method,
         url,
         data,
       });
-      console.log(`API Response: ${method} ${url}`, response.data);
       return response.data;
     } catch (error: any) {
-      console.error(`API Error: ${method} ${url}`, error);
       if (error.response) {
         const responseData = error.response.data || {};
         const details = Array.isArray(responseData?.details)
@@ -527,6 +541,8 @@ class ApiClient {
   // Helper function to get full image URL
   getImageUrl(imagePath: string | undefined): string {
     if (!imagePath) return '';
+    const lower = imagePath.trim().toLowerCase();
+    if (lower.startsWith('file:')) return '';
     // If already a full URL, return as-is
     if (
       imagePath.startsWith('http://') ||
@@ -541,7 +557,6 @@ class ApiClient {
     // Ensure path starts with /
     const path = imagePath.startsWith('/') ? imagePath : `/${imagePath}`;
     const finalUrl = `${serverBase}${path}`;
-    console.log('[getImageUrl] Input:', imagePath, 'Output:', finalUrl);
     return finalUrl;
   }
 }

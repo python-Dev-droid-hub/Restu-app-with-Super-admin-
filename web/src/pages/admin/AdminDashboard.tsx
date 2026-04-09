@@ -157,6 +157,10 @@ const AdminDashboard: React.FC = () => {
   const normalizeMediaUrl = (uri?: string): string => {
     if (!uri) return '';
     const value = String(uri);
+    const lower = value.trim().toLowerCase();
+    if (lower.startsWith('file:') || lower.includes('var/mobile') || lower.includes('imagepicker')) {
+      return '';
+    }
     if (value.startsWith('http://') || value.startsWith('https://') || value.startsWith('data:')) {
       return value;
     }

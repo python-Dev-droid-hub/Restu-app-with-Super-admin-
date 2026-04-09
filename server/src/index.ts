@@ -39,7 +39,10 @@ import { initWebSocket } from '@/config/websocket';
 dotenv.config();
 
 const app: Express = express();
-const PORT = parseInt(process.env.PORT || '3000', 10);
+const PORT = parseInt(process.env.PORT || '3101', 10);
+const uploadsPath = path.isAbsolute(process.env.UPLOAD_PATH || '')
+  ? (process.env.UPLOAD_PATH as string)
+  : path.join(process.cwd(), process.env.UPLOAD_PATH || 'uploads');
 
 const ws = initWebSocket(app);
 
@@ -86,7 +89,6 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Serve uploaded images (public)
 // In dev mode with ts-node, __dirname is the src folder
-const uploadsPath = path.join(__dirname, 'uploads');
 app.use('/uploads', (req, res, next) => {
   // Set CORS headers for images
   res.setHeader('Access-Control-Allow-Origin', '*');

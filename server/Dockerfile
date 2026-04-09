@@ -20,7 +20,7 @@ RUN npm ci --omit=dev
 
 COPY --from=build /app/dist ./dist
 
-RUN mkdir -p /app/dist/uploads /app/logs
+RUN mkdir -p /app/uploads /app/logs
 
 ENV NODE_ENV=production
 ENV PORT=3101

@@ -5,11 +5,14 @@ const resolveApiBaseUrl = (): string => {
   const envUrl =
     (typeof process !== 'undefined' && process?.env?.REACT_APP_API_URL?.trim()) ||
     (typeof window !== 'undefined' && (window as any).REACT_APP_API_URL?.trim());
-  const fallbackUrl =
-    typeof window !== 'undefined'
-      ? `${window.location.protocol}//${window.location.hostname}:3101/api`
-      : 'http://localhost:3101/api';
-  return (envUrl || fallbackUrl).replace(/\/$/, '');
+  const normalizedEnvUrl = envUrl && /^https?:\/\/[^/\s]+/i.test(envUrl) ? envUrl.replace(/\/$/, '') : '';
+  if (normalizedEnvUrl) return normalizedEnvUrl;
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    const isLocal = host === 'localhost' || host === '127.0.0.1';
+    return isLocal ? 'http://localhost:3000/api' : `${window.location.protocol}//${host}:3101/api`;
+  }
+  return 'http://localhost:3101/api';
 };
 
 const API_BASE_URL = resolveApiBaseUrl();

@@ -6,6 +6,9 @@ import { sendSuccess } from '@/utils/response';
 import { logger } from '@/utils/logger';
 
 const router: Router = express.Router();
+const uploadsDir = path.isAbsolute(process.env.UPLOAD_PATH || '')
+  ? (process.env.UPLOAD_PATH as string)
+  : path.join(process.cwd(), process.env.UPLOAD_PATH || 'uploads');
 
 // Upload base64 image
 router.post('/upload', async (req: Request, res: Response) => {
@@ -24,7 +27,6 @@ router.post('/upload', async (req: Request, res: Response) => {
     }
 
     // Create uploads directory if it doesn't exist
-    const uploadsDir = path.join(__dirname, '../../uploads');
     if (!fs.existsSync(uploadsDir)) {
       fs.mkdirSync(uploadsDir, { recursive: true });
     }
@@ -62,6 +64,6 @@ router.post('/upload', async (req: Request, res: Response) => {
 });
 
 // Serve uploaded files
-router.use('/uploads', express.static(path.join(__dirname, '../../uploads')));
+router.use('/uploads', express.static(uploadsDir));
 
 export default router;

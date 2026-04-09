@@ -114,6 +114,80 @@ const extractImagePath = (raw: any): string => {
   return '';
 };
 
+const extractCartArray = (parsed: any): any[] => {
+  if (Array.isArray(parsed)) return parsed;
+  if (!parsed || typeof parsed !== 'object') return [];
+  const nestedCandidates = [
+    parsed?.items,
+    parsed?.cartItems,
+    parsed?.cart,
+    parsed?.data?.items,
+    parsed?.data?.cartItems,
+    parsed?.data?.cart,
+  ];
+  for (const candidate of nestedCandidates) {
+    if (Array.isArray(candidate)) return candidate;
+  }
+  const values = Object.values(parsed);
+  if (values.length > 0 && values.every((v) => v && typeof v === 'object')) {
+    return values as any[];
+  }
+  return [];
+};
+
+const normalizeCartItems = (parsed: any): CartItem[] => {
+  const items = extractCartArray(parsed);
+  const aggregated = new Map<string, CartItem>();
+  for (const item of items) {
+    const productId = String(item?.productId || item?.id || item?._id || item?.menuItemId || item?.product?._id || item?.product?.id || '').trim();
+    const specialInstructions = String(item?.specialInstructions || item?.note || '').trim();
+    const quantity = Number(item?.quantity ?? item?.qty ?? item?.count ?? item?.itemQty ?? item?.productQuantity ?? item?.product?.quantity ?? 1);
+    if (!quantity || quantity <= 0) continue;
+    const fallbackKey = String(item?.name || item?.title || item?.productName || item?.product?.name || 'item').trim().toLowerCase();
+    const cartKey = `${productId || fallbackKey}::${specialInstructions}`;
+    const existing = aggregated.get(cartKey);
+    if (existing) {
+      existing.quantity = Number(existing.quantity || 0) + quantity;
+      continue;
+    }
+    const fallbackPrice = Number(item?.totalPrice ?? item?.lineTotal ?? 0);
+    const derivedUnitPrice = fallbackPrice > 0 && quantity > 0 ? fallbackPrice / quantity : 0;
+    aggregated.set(cartKey, {
+      productId: productId || fallbackKey,
+      name: String(item?.name || item?.title || item?.productName || item?.product?.name || 'Item'),
+      price: Number(item?.price ?? item?.unitPrice ?? item?.amount ?? item?.product?.price ?? derivedUnitPrice ?? 0),
+      image: item?.image || item?.imageUrl || item?.thumbnail || item?.product?.image || item?.product?.imageUrl,
+      quantity,
+      specialInstructions: specialInstructions || undefined,
+      cartKey,
+    });
+  }
+  return Array.from(aggregated.values());
+};
+
+const toStoredCartItems = (items: CartItem[]) => {
+  return items.map((item) => {
+    const next = { ...item } as any;
+    delete next.cartKey;
+    return next;
+  });
+};
+
+const readNormalizedCartFromStorage = () => {
+  try {
+    const raw = localStorage.getItem('customer_cart');
+    const parsed = raw ? JSON.parse(raw) : [];
+    const normalized = normalizeCartItems(parsed);
+    if (!Array.isArray(parsed) && normalized.length > 0) {
+      localStorage.setItem('customer_cart', JSON.stringify(toStoredCartItems(normalized)));
+    }
+    const count = normalized.reduce((sum, item) => sum + (Number(item?.quantity) || 0), 0);
+    return { normalized, count };
+  } catch {
+    return { normalized: [] as CartItem[], count: 0 };
+  }
+};
+
 const PHONE_NUMBER = '03044996996';
 
 const haversineKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -269,7 +343,7 @@ function LocationSelectorDialog({
           position: 'relative',
         }}
       >
-        <Typography variant="h6" sx={{ fontWeight: 800, color: 'var(--text-primary)' }}>
+        <Typography component="span" variant="h6" sx={{ fontWeight: 800, color: 'var(--text-primary)' }}>
           Please select your location
         </Typography>
         {!requireSelection ? (
@@ -484,7 +558,12 @@ export default function CustomerLayout({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const openCart = () => setCartOpen(true);
+    const openCart = () => {
+      const { normalized, count } = readNormalizedCartFromStorage();
+      setCartCount(count);
+      setCartItems(normalized);
+      setCartOpen(true);
+    };
     window.addEventListener('open_mini_cart', openCart as EventListener);
     return () => {
       window.removeEventListener('open_mini_cart', openCart as EventListener);
@@ -508,34 +587,10 @@ export default function CustomerLayout({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const getCount = () => {
-      try {
-        const raw = localStorage.getItem('customer_cart');
-        if (!raw) return 0;
-        const items = JSON.parse(raw);
-        if (!Array.isArray(items)) return 0;
-        return items.reduce((sum: number, item: any) => sum + (Number(item?.quantity) || 0), 0);
-      } catch {
-        return 0;
-      }
-    };
-    const readItems = () => {
-      try {
-        const raw = localStorage.getItem('customer_cart');
-        const parsed = raw ? JSON.parse(raw) : [];
-        const items = Array.isArray(parsed) ? parsed : [];
-        return items.map((item: any) => ({
-          ...item,
-          cartKey: `${String(item?.productId || '')}::${String(item?.specialInstructions || '')}`,
-        }));
-      } catch {
-        return [];
-      }
-    };
-
     const update = () => {
-      setCartCount(getCount());
-      setCartItems(readItems());
+      const { normalized, count } = readNormalizedCartFromStorage();
+      setCartCount(count);
+      setCartItems(normalized);
     };
     update();
 
@@ -552,6 +607,24 @@ export default function CustomerLayout({ children }: { children: ReactNode }) {
       window.removeEventListener('customer_cart_updated', onCustom as EventListener);
     };
   }, []);
+
+  useEffect(() => {
+    if (!cartOpen) return;
+    const { normalized, count } = readNormalizedCartFromStorage();
+    setCartCount(count);
+    setCartItems(normalized);
+  }, [cartOpen]);
+
+  const visibleCartItems = useMemo(() => {
+    if (cartItems.length > 0) return cartItems;
+    try {
+      const raw = localStorage.getItem('customer_cart');
+      if (!raw) return [];
+      return normalizeCartItems(JSON.parse(raw));
+    } catch {
+      return [];
+    }
+  }, [cartItems]);
 
   useEffect(() => {
     const loadBranchCharges = async () => {
@@ -571,13 +644,13 @@ export default function CustomerLayout({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const loadSuggestions = async () => {
-      if (!cartOpen || cartItems.length === 0) return;
+      if (!cartOpen || visibleCartItems.length === 0) return;
       try {
         const hasBranch = selectedBranchId && selectedBranchId !== 'all';
         const menuUrl = hasBranch ? `/menu?branchId=${encodeURIComponent(selectedBranchId)}` : '/menu';
         const menuRes: any = await api.get(menuUrl);
         const categories = menuRes?.data?.categories || menuRes?.data?.data?.categories || [];
-        const cartIds = new Set(cartItems.map((i) => i.productId));
+        const cartIds = new Set(visibleCartItems.map((i) => i.productId));
         const products: SuggestedItem[] = (Array.isArray(categories) ? categories : [])
           .flatMap((cat: any) => {
             const list = Array.isArray(cat?.products) ? cat.products : (Array.isArray(cat?.items) ? cat.items : []);
@@ -597,45 +670,42 @@ export default function CustomerLayout({ children }: { children: ReactNode }) {
       }
     };
     loadSuggestions();
-  }, [cartOpen, cartItems, selectedBranchId]);
+  }, [cartOpen, visibleCartItems, selectedBranchId]);
 
   const writeCart = (items: CartItem[]) => {
-    const normalized = items.map((item) => {
-      const next = { ...item } as any;
-      delete next.cartKey;
-      return next;
-    });
+    const normalized = toStoredCartItems(items);
     localStorage.setItem('customer_cart', JSON.stringify(normalized));
+    setCartItems(normalizeCartItems(normalized));
     window.dispatchEvent(new Event('customer_cart_updated'));
   };
 
   const changeQty = (cartKey: string, delta: number) => {
-    const next = cartItems
+    const next = visibleCartItems
       .map((i) => (i.cartKey === cartKey ? { ...i, quantity: Math.max(0, (Number(i.quantity) || 0) + delta) } : i))
       .filter((i) => (Number(i.quantity) || 0) > 0);
     writeCart(next);
   };
 
   const removeItem = (cartKey: string) => {
-    writeCart(cartItems.filter((i) => i.cartKey !== cartKey));
+    writeCart(visibleCartItems.filter((i) => i.cartKey !== cartKey));
   };
 
   const clearCart = () => writeCart([]);
 
-  const cartSubtotal = cartItems.reduce((sum, i) => sum + (Number(i.price) || 0) * (Number(i.quantity) || 0), 0);
+  const cartSubtotal = visibleCartItems.reduce((sum, i) => sum + (Number(i.price) || 0) * (Number(i.quantity) || 0), 0);
   const taxAmount = (cartSubtotal * Number(taxRate || 0)) / 100;
   const grandTotal = cartSubtotal + taxAmount + Number(deliveryFee || 0);
 
   const addSuggestedToCart = (item: SuggestedItem) => {
-    const idx = cartItems.findIndex((i) => i.productId === item.id && !i.specialInstructions);
+    const idx = visibleCartItems.findIndex((i) => i.productId === item.id && !i.specialInstructions);
     if (idx >= 0) {
-      const next = [...cartItems];
+      const next = [...visibleCartItems];
       next[idx] = { ...next[idx], quantity: Number(next[idx].quantity || 0) + 1 };
       writeCart(next);
       return;
     }
     writeCart([
-      ...cartItems,
+      ...visibleCartItems,
       {
         productId: item.id,
         name: item.name,
@@ -823,6 +893,9 @@ export default function CustomerLayout({ children }: { children: ReactNode }) {
             >
               <IconButton
                 onClick={() => {
+                  const { normalized, count } = readNormalizedCartFromStorage();
+                  setCartCount(count);
+                  setCartItems(normalized);
                   setCheckoutOpen(false);
                   setCartOpen(true);
                 }}
@@ -871,7 +944,26 @@ export default function CustomerLayout({ children }: { children: ReactNode }) {
         }}
         maxWidth={checkoutOpen ? 'lg' : 'sm'}
         fullWidth
-        PaperProps={{ sx: { borderRadius: 5, boxShadow: '0 18px 44px rgba(0,0,0,0.22)', overflow: 'hidden' } }}
+        sx={{
+          '& .MuiDialog-container': {
+            alignItems: checkoutOpen ? 'center' : 'stretch',
+            justifyContent: checkoutOpen ? 'center' : { xs: 'center', md: 'flex-end' },
+          },
+        }}
+        PaperProps={{
+          sx: {
+            width: checkoutOpen ? 'calc(100% - 16px)' : { xs: '100%', sm: 430, md: 460 },
+            maxWidth: checkoutOpen ? undefined : { xs: '100%', sm: 430, md: 460 },
+            height: checkoutOpen ? 'auto' : { xs: '100dvh', sm: '100dvh' },
+            maxHeight: checkoutOpen ? 'calc(100dvh - 32px)' : '100dvh',
+            m: checkoutOpen ? { xs: 1, sm: 2 } : 0,
+            borderRadius: checkoutOpen ? { xs: 3, sm: 5 } : { xs: 0, sm: 0 },
+            boxShadow: '0 18px 44px rgba(0,0,0,0.22)',
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+          },
+        }}
       >
         <DialogTitle
           sx={{
@@ -881,8 +973,8 @@ export default function CustomerLayout({ children }: { children: ReactNode }) {
             pb: 1,
           }}
         >
-          <Typography variant="h6" sx={{ fontWeight: 800, color: 'var(--text-primary)' }}>
-            {checkoutOpen ? 'Checkout' : `My Cart (${cartCount})`}
+          <Typography component="span" variant="h6" sx={{ fontWeight: 800, color: 'var(--text-primary)' }}>
+            {checkoutOpen ? 'Checkout' : 'Your Cart'}
           </Typography>
           <IconButton
             onClick={() => {
@@ -894,12 +986,25 @@ export default function CustomerLayout({ children }: { children: ReactNode }) {
             <Close />
           </IconButton>
         </DialogTitle>
-        <DialogContent sx={{ pt: 0, px: checkoutOpen ? 3 : 2, pb: checkoutOpen ? 2.5 : 2 }}>
+        <DialogContent
+          sx={{
+            pt: 0,
+            px: checkoutOpen ? { xs: 1.25, sm: 3 } : { xs: 1.25, sm: 2 },
+            pb: checkoutOpen ? { xs: 1.5, sm: 2.5 } : { xs: 1.5, sm: 2 },
+            overflowX: 'hidden',
+            overflowY: checkoutOpen ? 'auto' : 'auto',
+            flex: 1,
+            '&::-webkit-scrollbar': { width: 7 },
+            '&::-webkit-scrollbar-thumb': { backgroundColor: '#c7c7c7', borderRadius: 999 },
+          }}
+        >
           {checkoutOpen ? (
             <Box sx={{ pb: 0.5 }}>
               <Grid container spacing={2.5} alignItems="stretch">
                 <Grid size={{ xs: 12, md: 7.2 }}>
-                  <Typography sx={{ fontWeight: 800, fontSize: 44, lineHeight: 1.05, color: '#111', mb: 1 }}>Checkout</Typography>
+                  <Typography sx={{ fontWeight: 800, fontSize: { xs: 32, sm: 44 }, lineHeight: 1.05, color: '#111', mb: 1 }}>
+                    Checkout
+                  </Typography>
                   <Typography sx={{ fontWeight: 800, fontSize: 18, lineHeight: 1.1, color: '#2a2a2a', mb: 2 }}>Delivery Order</Typography>
                   <Grid container spacing={1.5}>
                     <Grid size={{ xs: 12, sm: 6 }}>
@@ -969,7 +1074,9 @@ export default function CustomerLayout({ children }: { children: ReactNode }) {
                 </Grid>
                 <Grid size={{ xs: 12, md: 4.8 }}>
                   <Paper sx={{ border: '1px solid #e8e8e8', borderRadius: 4, p: 2.2, height: '100%' }}>
-                    <Typography sx={{ fontWeight: 900, fontSize: 42, lineHeight: 1, color: '#111', mb: 1.2 }}>Your Order</Typography>
+                    <Typography sx={{ fontWeight: 900, fontSize: { xs: 30, sm: 42 }, lineHeight: 1, color: '#111', mb: 1.2 }}>
+                      Your Order
+                    </Typography>
                     <Stack spacing={1} sx={{ mb: 1.8 }}>
                       <Stack direction="row" justifyContent="space-between" alignItems="center">
                         <Typography sx={{ color: '#3b3b3b', fontSize: 18, fontWeight: 700, lineHeight: 1 }}>Total</Typography>
@@ -984,9 +1091,13 @@ export default function CustomerLayout({ children }: { children: ReactNode }) {
                         <Typography sx={{ color: '#111', fontWeight: 800, fontSize: 20, lineHeight: 1 }}>Rs. {Number(deliveryFee || 0).toFixed(0)}</Typography>
                       </Stack>
                       <Divider sx={{ my: 0.5, borderColor: '#dedede' }} />
-                      <Stack direction="row" justifyContent="space-between" alignItems="center">
-                        <Typography sx={{ color: '#111', fontSize: 46, fontWeight: 900, lineHeight: 1 }}>Grand Total</Typography>
-                        <Typography sx={{ color: '#111', fontSize: 54, fontWeight: 900, lineHeight: 1 }}>Rs. {grandTotal.toFixed(0)}</Typography>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ gap: 1 }}>
+                        <Typography sx={{ color: '#111', fontSize: { xs: 30, sm: 46 }, fontWeight: 900, lineHeight: 1 }}>
+                          Grand Total
+                        </Typography>
+                        <Typography sx={{ color: '#111', fontSize: { xs: 34, sm: 54 }, fontWeight: 900, lineHeight: 1 }}>
+                          Rs. {grandTotal.toFixed(0)}
+                        </Typography>
                       </Stack>
                     </Stack>
                     <Button
@@ -1013,7 +1124,7 @@ export default function CustomerLayout({ children }: { children: ReactNode }) {
                 </Grid>
               </Grid>
             </Box>
-          ) : cartItems.length === 0 ? (
+          ) : visibleCartItems.length === 0 ? (
             <Box sx={{ py: 6, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
               <ShoppingBag sx={{ fontSize: 72, color: 'var(--primary)' }} />
               <Typography sx={{ mt: 2, fontWeight: 900, fontSize: 20, color: 'var(--text-primary)' }}>
@@ -1034,24 +1145,33 @@ export default function CustomerLayout({ children }: { children: ReactNode }) {
               </Button>
             </Box>
           ) : (
-            <Box sx={{ pb: 1 }}>
-              <Paper sx={{ border: '1px solid var(--border-color)', borderRadius: 2, boxShadow: 'var(--shadow-sm)', overflow: 'hidden', mb: 1.5 }}>
-                <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-                  <Typography sx={{ fontWeight: 800 }}>Selected items</Typography>
-                  <Stack direction="row" spacing={1}>
+            <Box sx={{ pb: 0, height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <Paper
+                sx={{
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 2,
+                  boxShadow: 'var(--shadow-sm)',
+                  overflow: 'hidden',
+                  mb: 1.5,
+                  bgcolor: '#fff',
+                }}
+              >
+                <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
+                  <Typography sx={{ fontWeight: 800 }}>Selected items ({visibleCartItems.length})</Typography>
+                  <Stack direction="row" spacing={1} sx={{ width: { xs: '100%', sm: 'auto' }, justifyContent: { xs: 'flex-end', sm: 'flex-start' } }}>
                     <Button size="small" onClick={() => setCartOpen(false)} sx={{ textTransform: 'none' }}>Add more items</Button>
                     <Button size="small" color="error" onClick={clearCart} sx={{ textTransform: 'none' }}>Clear</Button>
                   </Stack>
                 </Box>
                 <Divider />
-                <Box sx={{ maxHeight: 260, overflowY: 'auto', p: 1 }}>
+                <Box sx={{ maxHeight: { xs: '30dvh', sm: '32dvh' }, overflowY: 'auto', p: 1 }}>
                   <Stack spacing={1.5}>
-                    {cartItems.map((i) => {
+                    {visibleCartItems.map((i) => {
                       const rawImg = Array.isArray((i as any)?.images) ? (i as any).images[0] : (i.image as any);
                       const imgUrl = api.getImageUrl(rawImg);
                       return (
                         <Box key={i.cartKey}>
-                          <Stack direction="row" alignItems="center" spacing={1.5}>
+                          <Stack direction="row" alignItems="center" spacing={1.5} sx={{ flexWrap: { xs: 'wrap', sm: 'nowrap' } }}>
                             <Box
                               sx={{
                                 width: 56,
@@ -1072,15 +1192,32 @@ export default function CustomerLayout({ children }: { children: ReactNode }) {
                               )}
                             </Box>
                             <Box sx={{ flex: 1, minWidth: 0 }}>
-                              <Typography noWrap sx={{ fontWeight: 800, color: 'var(--text-primary)' }}>{i.name}</Typography>
+                              <Typography
+                                sx={{
+                                  fontWeight: 800,
+                                  color: 'var(--text-primary)',
+                                  display: '-webkit-box',
+                                  WebkitLineClamp: 2,
+                                  WebkitBoxOrient: 'vertical',
+                                  overflow: 'hidden',
+                                  lineHeight: 1.2,
+                                }}
+                              >
+                                {i.name}
+                              </Typography>
                               <Typography sx={{ color: 'var(--primary)', fontWeight: 900 }}>₨{Number(i.price || 0).toFixed(0)}</Typography>
                               {i.specialInstructions ? (
-                                <Typography sx={{ color: 'var(--text-secondary)', fontSize: 12 }} noWrap>
+                                <Typography sx={{ color: 'var(--text-secondary)', fontSize: 12, wordBreak: 'break-word' }}>
                                   Note: {i.specialInstructions}
                                 </Typography>
                               ) : null}
                             </Box>
-                            <Stack direction="row" alignItems="center" spacing={0.5}>
+                            <Stack
+                              direction="row"
+                              alignItems="center"
+                              spacing={0.5}
+                              sx={{ ml: { xs: 'auto', sm: 0 }, width: { xs: '100%', sm: 'auto' }, justifyContent: { xs: 'flex-end', sm: 'flex-start' } }}
+                            >
                               <IconButton size="small" onClick={() => changeQty(i.cartKey, -1)}>
                                 <Remove fontSize="small" />
                               </IconButton>
@@ -1106,11 +1243,11 @@ export default function CustomerLayout({ children }: { children: ReactNode }) {
                   <Typography sx={{ color: 'var(--text-secondary)', fontSize: 13, mb: 1 }}>
                     Customers often buy these together
                   </Typography>
-                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1 }}>
+                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr' }, gap: 1 }}>
                     {suggestedItems.map((s) => {
                       const imgUrl = api.getImageUrl(s.image);
                       return (
-                        <Paper key={s.id} sx={{ p: 1, borderRadius: 2, border: '1px solid var(--border-color)', boxShadow: 'none' }}>
+                        <Paper key={s.id} sx={{ p: 1, borderRadius: 2, border: '1px solid var(--border-color)', boxShadow: 'none', overflow: 'hidden', minWidth: 0 }}>
                           <Stack direction="row" spacing={1} alignItems="center">
                             <Box sx={{ width: 44, height: 44, borderRadius: '50%', border: '1px solid var(--border-color)', overflow: 'hidden', bgcolor: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                               {imgUrl ? (
@@ -1121,8 +1258,10 @@ export default function CustomerLayout({ children }: { children: ReactNode }) {
                                 </Typography>
                               )}
                             </Box>
-                            <Box sx={{ flex: 1, minWidth: 0 }}>
-                              <Typography noWrap sx={{ fontWeight: 700, fontSize: 14, color: '#2A2A2A' }}>{s.name}</Typography>
+                            <Box sx={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                              <Typography sx={{ fontWeight: 700, fontSize: 14, color: '#2A2A2A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {s.name}
+                              </Typography>
                               <Typography sx={{ color: '#121212', fontWeight: 800, fontSize: 13, letterSpacing: 0.2 }}>Rs {Number(s.price || 0).toFixed(0)}</Typography>
                             </Box>
                             <IconButton sx={{ color: 'var(--primary)' }} onClick={() => addSuggestedToCart(s)}>
@@ -1136,30 +1275,52 @@ export default function CustomerLayout({ children }: { children: ReactNode }) {
                 </Paper>
               ) : null}
 
-              <Paper sx={{ border: '1px solid #ececec', borderRadius: 2, boxShadow: 'var(--shadow-sm)', p: 1.5 }}>
+              <Paper sx={{ border: '1px solid #ececec', borderRadius: 2, boxShadow: 'var(--shadow-sm)', p: 1.5, mt: 'auto' }}>
                 <Stack spacing={0.8}>
                   <Stack direction="row" justifyContent="space-between">
-                    <Typography sx={{ color: '#4d4d4d', fontWeight: 600, fontSize: 16 }}>Total</Typography>
-                    <Typography sx={{ color: '#111', fontWeight: 700, fontSize: 17, letterSpacing: 0.2 }}>Rs {cartSubtotal.toFixed(0)}</Typography>
+                    <Typography sx={{ color: '#111', fontWeight: 500, fontSize: { xs: 17, sm: 18 }, lineHeight: 1.2, fontFamily: "'Inter', sans-serif" }}>
+                      Total
+                    </Typography>
+                    <Typography sx={{ color: '#111', fontWeight: 600, fontSize: { xs: 17, sm: 18 }, letterSpacing: 0, lineHeight: 1.2, fontFamily: "'Inter', sans-serif" }}>
+                      Rs. {cartSubtotal.toFixed(0)}
+                    </Typography>
                   </Stack>
                   <Stack direction="row" justifyContent="space-between">
-                    <Typography sx={{ color: '#4d4d4d', fontWeight: 600, fontSize: 16 }}>Tax {Number(taxRate || 0).toFixed(0)}%</Typography>
-                    <Typography sx={{ color: '#111', fontWeight: 700, fontSize: 17, letterSpacing: 0.2 }}>Rs {taxAmount.toFixed(0)}</Typography>
+                    <Typography sx={{ color: '#111', fontWeight: 500, fontSize: { xs: 17, sm: 18 }, lineHeight: 1.2, fontFamily: "'Inter', sans-serif" }}>
+                      Tax {Number(taxRate || 0).toFixed(0)}%
+                    </Typography>
+                    <Typography sx={{ color: '#111', fontWeight: 600, fontSize: { xs: 17, sm: 18 }, letterSpacing: 0, lineHeight: 1.2, fontFamily: "'Inter', sans-serif" }}>
+                      Rs. {taxAmount.toFixed(0)}
+                    </Typography>
                   </Stack>
                   <Stack direction="row" justifyContent="space-between">
-                    <Typography sx={{ color: '#4d4d4d', fontWeight: 600, fontSize: 16 }}>Delivery Fee</Typography>
-                    <Typography sx={{ color: '#111', fontWeight: 700, fontSize: 17, letterSpacing: 0.2 }}>Rs {Number(deliveryFee || 0).toFixed(0)}</Typography>
+                    <Typography sx={{ color: '#111', fontWeight: 500, fontSize: { xs: 17, sm: 18 }, lineHeight: 1.2, fontFamily: "'Inter', sans-serif" }}>
+                      Delivery Fee
+                    </Typography>
+                    <Typography sx={{ color: '#111', fontWeight: 600, fontSize: { xs: 17, sm: 18 }, letterSpacing: 0, lineHeight: 1.2, fontFamily: "'Inter', sans-serif" }}>
+                      Rs. {Number(deliveryFee || 0).toFixed(0)}
+                    </Typography>
                   </Stack>
                   <Divider sx={{ my: 0.3 }} />
-                  <Stack direction="row" justifyContent="space-between" sx={{ mt: 0.5 }}>
-                    <Typography sx={{ color: '#111', fontWeight: 900, fontSize: 26, lineHeight: 1 }}>Grand Total</Typography>
-                    <Typography sx={{ color: '#111', fontWeight: 900, fontSize: 34, lineHeight: 1 }}>Rs {grandTotal.toFixed(0)}</Typography>
+                  <Stack direction="row" justifyContent="space-between" sx={{ mt: 0.5, gap: 1 }}>
+                    <Typography sx={{ color: '#111', fontWeight: 500, fontSize: { xs: 17, sm: 18 }, lineHeight: 1.2, fontFamily: "'Inter', sans-serif" }}>
+                      Grand Total
+                    </Typography>
+                    <Typography sx={{ color: '#111', fontWeight: 600, fontSize: { xs: 17, sm: 18 }, lineHeight: 1.2, fontFamily: "'Inter', sans-serif" }}>
+                      Rs. {grandTotal.toFixed(0)}
+                    </Typography>
                   </Stack>
                 </Stack>
                 <Button
                   fullWidth
                   variant="contained"
-                  sx={{ mt: 1.5, bgcolor: 'var(--primary)', py: 1.25, '&:hover': { bgcolor: 'var(--primary-hover)' } }}
+                  sx={{
+                    mt: 1.5,
+                    bgcolor: '#ef1b2d',
+                    py: 1.25,
+                    borderRadius: 2.2,
+                    '&:hover': { bgcolor: '#d91324' },
+                  }}
                   onClick={() => {
                     setCartOpen(false);
                     setCheckoutOpen(false);
@@ -1167,7 +1328,9 @@ export default function CustomerLayout({ children }: { children: ReactNode }) {
                   }}
                 >
                   <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ width: '100%' }}>
-                    <span>Checkout</span>
+                    <span style={{ fontSize: 'clamp(18px, 2.2vw, 20px)', lineHeight: 1.2, fontWeight: 700, fontFamily: 'Inter, sans-serif' }}>
+                      Checkout
+                    </span>
                     <ArrowForward />
                   </Stack>
                 </Button>

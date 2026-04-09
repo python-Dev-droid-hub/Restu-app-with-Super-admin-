@@ -69,7 +69,7 @@ class ApiClient {
     };
 
     const prodApiUrl =
-      normalizeApiUrl(process.env.EXPO_PUBLIC_API_URL_PRODUCTION) || 'https://your-production-api.com/api';
+      normalizeApiUrl(process.env.EXPO_PUBLIC_API_URL_PRODUCTION) || 'http://31.97.189.252:3101/api';
 
     const devConfig = resolveDevelopmentApiConfig();
     this.baseURL = __DEV__ ? devConfig.url : prodApiUrl;

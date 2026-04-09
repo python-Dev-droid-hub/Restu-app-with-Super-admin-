@@ -112,7 +112,7 @@ export default function ProfileMenu({ visible, onClose, onLogout, onChangePasswo
   const handleChangeImage = async (imageUrl: string) => {
     try {
       setLoading(true);
-      const response = await api.put('/users/profile', { profileImage: imageUrl });
+      const response = await api.put('/users/profile', { avatar: imageUrl, profileImage: imageUrl, image: imageUrl });
       if (response.success) {
         const updatedUserData = { ...userData, image: imageUrl };
         setUserData(updatedUserData);
@@ -122,6 +122,7 @@ export default function ProfileMenu({ visible, onClose, onLogout, onChangePasswo
           const parsed = JSON.parse(stored);
           parsed.profileImage = imageUrl;
           parsed.image = imageUrl;
+          parsed.avatar = imageUrl;
           await AsyncStorage.setItem('userData', JSON.stringify(parsed));
         }
         Alert.alert(t('common.success'), t('messages.imageUpdated'));
@@ -149,11 +150,28 @@ export default function ProfileMenu({ visible, onClose, onLogout, onChangePasswo
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
+      base64: true,
     });
 
     if (!result.canceled && result.assets[0]) {
-      const imageUri = result.assets[0].uri;
-      await handleChangeImage(imageUri);
+      const asset = result.assets[0];
+      if (!asset.base64) {
+        Alert.alert(t('common.error'), 'Failed to read image data. Please try again.');
+        return;
+      }
+      const mimeType = asset.mimeType || 'image/jpeg';
+      const dataUrl = `data:${mimeType};base64,${asset.base64}`;
+      const uploadRes: any = await api.post('/upload', {
+        image: dataUrl,
+        filename: `profile-${Date.now()}.jpg`,
+        mimeType,
+      });
+      const uploadedUrl = uploadRes?.data?.url || uploadRes?.data?.fileUrl || uploadRes?.data?.path;
+      if (!uploadRes?.success || !uploadedUrl) {
+        Alert.alert(t('common.error'), uploadRes?.message || 'Failed to upload image');
+        return;
+      }
+      await handleChangeImage(uploadedUrl);
     }
   };
 
@@ -169,11 +187,28 @@ export default function ProfileMenu({ visible, onClose, onLogout, onChangePasswo
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
+      base64: true,
     });
 
     if (!result.canceled && result.assets[0]) {
-      const imageUri = result.assets[0].uri;
-      await handleChangeImage(imageUri);
+      const asset = result.assets[0];
+      if (!asset.base64) {
+        Alert.alert(t('common.error'), 'Failed to read image data. Please try again.');
+        return;
+      }
+      const mimeType = asset.mimeType || 'image/jpeg';
+      const dataUrl = `data:${mimeType};base64,${asset.base64}`;
+      const uploadRes: any = await api.post('/upload', {
+        image: dataUrl,
+        filename: `profile-${Date.now()}.jpg`,
+        mimeType,
+      });
+      const uploadedUrl = uploadRes?.data?.url || uploadRes?.data?.fileUrl || uploadRes?.data?.path;
+      if (!uploadRes?.success || !uploadedUrl) {
+        Alert.alert(t('common.error'), uploadRes?.message || 'Failed to upload image');
+        return;
+      }
+      await handleChangeImage(uploadedUrl);
     }
   };
 

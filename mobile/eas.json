@@ -9,10 +9,16 @@
       "distribution": "internal"
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL_PRODUCTION": "http://31.97.189.252:3101/api"
+      }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_URL_PRODUCTION": "http://31.97.189.252:3101/api"
+      }
     }
   },
   "submit": {
