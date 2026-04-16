@@ -58,9 +58,10 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const initializeWebSocket = useCallback(async (userId: string, userRole: string) => {
     try {
       console.log('[WebSocketContext] Initializing socket for user:', userId, 'role:', userRole);
+      const token = await AsyncStorage.getItem('authToken');
       
       // Initialize socket connection
-      initializeSocket(userId, userRole);
+      initializeSocket(userId, userRole, token || undefined);
 
       // Subscribe to notifications
       subscribeToNotifications((notification: any) => {

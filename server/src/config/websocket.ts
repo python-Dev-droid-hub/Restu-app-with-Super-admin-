@@ -1,6 +1,8 @@
 import { createServer } from 'http';
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import type { Express } from 'express';
+import { verifyAccessToken } from '@/utils/jwt';
+import { User } from '@/models/User';
 
 // Store connected users
 interface ConnectedUser {
@@ -23,25 +25,54 @@ export const initWebSocket = (app: Express) => {
     transports: ['websocket', 'polling'],
   });
 
+  io.use(async (socket, next) => {
+    try {
+      const authToken = (socket.handshake.auth as any)?.token;
+      const headerToken = socket.handshake.headers?.authorization?.toString().replace('Bearer ', '');
+      const token = authToken || headerToken;
+
+      if (!token) {
+        return next(new Error('unauthorized'));
+      }
+
+      const decoded = verifyAccessToken(token);
+      const user = await User.findById(decoded.userId).select('_id role isActive');
+      if (!user || !user.isActive) {
+        return next(new Error('unauthorized'));
+      }
+
+      (socket.data as any).user = {
+        userId: user._id.toString(),
+        role: String(user.role || '').toUpperCase(),
+      };
+
+      next();
+    } catch (e) {
+      next(new Error('unauthorized'));
+    }
+  });
+
   io.on('connection', (socket: Socket) => {
     console.log(`[WebSocket] User connected: ${socket.id}`);
 
-    socket.on('user_join', (data: { userId: string; role: string }) => {
+    const authed = (socket.data as any)?.user as { userId?: string; role?: string } | undefined;
+    const userId = authed?.userId;
+    const role = authed?.role;
+
+    if (userId && role) {
       const user: ConnectedUser = {
         socketId: socket.id,
-        userId: data.userId,
-        role: data.role,
+        userId,
+        role,
         connectedAt: new Date(),
       };
 
       connectedUsers.set(socket.id, user);
-      socket.join(`user_${data.userId}`);
-      socket.join(`role_${data.role}`);
+      socket.join(`user_${userId}`);
+      socket.join(`role_${role}`);
+    }
 
-      console.log(
-        `[WebSocket] User ${data.userId} (${data.role}) joined. Total: ${connectedUsers.size}`
-      );
-    });
+    socket.on('user_join', () => {});
 
     socket.on('disconnect', () => {
       connectedUsers.delete(socket.id);
@@ -63,7 +94,7 @@ export const initWebSocket = (app: Express) => {
     }
   ) => {
     io.to(`user_${recipientId}`).emit('notification', notificationData);
-    console.log(`[WebSocket] Notification sent to user ${recipientId}:`, notificationData);
+    console.log(`[WebSocket] Notification sent to user ${recipientId}:`, notificationData?.type);
   };
 
   const notifyByRole = (
@@ -76,7 +107,7 @@ export const initWebSocket = (app: Express) => {
     }
   ) => {
     io.to(`role_${role}`).emit('notification', notificationData);
-    console.log(`[WebSocket] Notification sent to role ${role}:`, notificationData);
+    console.log(`[WebSocket] Notification sent to role ${role}:`, notificationData?.type);
   };
 
   const broadcastNotification = (notificationData: any) => {

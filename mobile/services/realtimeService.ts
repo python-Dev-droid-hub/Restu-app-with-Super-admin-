@@ -31,7 +31,7 @@ const stopHeartbeat = () => {
   }
 };
 
-export const initializeSocket = (userId: string, userRole: string) => {
+export const initializeSocket = (userId: string, userRole: string, token?: string) => {
   if (socket?.connected) {
     console.log('[Socket] Already connected');
     return socket;
@@ -56,6 +56,7 @@ export const initializeSocket = (userId: string, userRole: string) => {
     upgrade: true,
     forceNew: true,
     timeout: SOCKET_CONNECT_TIMEOUT,
+    auth: token ? { token } : undefined,
     query: {
       userId,
       userRole,

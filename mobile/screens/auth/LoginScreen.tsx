@@ -57,7 +57,7 @@ export default function LoginScreen() {
         
         if (userId && userRole) {
           console.log('[LoginScreen] Initializing WebSocket for user:', userId, 'role:', userRole);
-          initializeSocket(userId.toString(), userRole);
+          initializeSocket(userId.toString(), userRole, response.data.tokens.accessToken);
           
           Toast.show({
             type: 'success',

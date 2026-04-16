@@ -258,6 +258,7 @@ export default function AdminDashboard() {
     const setupRealtime = async () => {
       try {
         const stored = await AsyncStorage.getItem('userData');
+        const token = await AsyncStorage.getItem('authToken');
         if (!mounted || !stored) return;
 
         const user = JSON.parse(stored);
@@ -265,7 +266,7 @@ export default function AdminDashboard() {
         const userRole = user?.role;
         if (!userId || !userRole) return;
 
-        const socket = initializeSocket(String(userId), String(userRole));
+        const socket = initializeSocket(String(userId), String(userRole), token || undefined);
 
         const onNotification = (notification: any) => {
           const type = String(notification?.type || '').toUpperCase();
