@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -28,6 +28,7 @@ import ProfileMenu from '../../components/common/ProfileMenu';
 import { useLocalization } from '../../context/LocalizationContext';
 import { getNotifications } from '../../services/notificationService';
 import { useUserData } from '../../hooks/useUserData';
+import { initializeSocket } from '../../services/realtimeService';
 
 const { width } = Dimensions.get('window');
 const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 0;
@@ -178,7 +179,7 @@ export default function AdminDashboard() {
     }
   };
 
-  const loadDashboardData = async () => {
+  const loadDashboardData = useCallback(async () => {
     try {
       setLoading(true);
       const params = new URLSearchParams();
@@ -231,7 +232,7 @@ export default function AdminDashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [activePeriod, selectedBranch]);
 
   const onRefresh = () => {
     loadDashboardData();
@@ -239,7 +240,7 @@ export default function AdminDashboard() {
     loadUnreadCount();
   };
 
-  const loadUnreadCount = async () => {
+  const loadUnreadCount = useCallback(async () => {
     try {
       const response: any = await api.get('/notifications/unread-count');
       if (response.success) {
@@ -248,7 +249,46 @@ export default function AdminDashboard() {
     } catch (error) {
       console.error('Error loading unread count:', error);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    let socketCleanup: (() => void) | undefined;
+
+    const setupRealtime = async () => {
+      try {
+        const stored = await AsyncStorage.getItem('userData');
+        if (!mounted || !stored) return;
+
+        const user = JSON.parse(stored);
+        const userId = user?._id || user?.id;
+        const userRole = user?.role;
+        if (!userId || !userRole) return;
+
+        const socket = initializeSocket(String(userId), String(userRole));
+
+        const onNotification = (notification: any) => {
+          const type = String(notification?.type || '').toUpperCase();
+          if (type.includes('ORDER') || type.includes('PAYMENT') || type.includes('DEAL')) {
+            loadDashboardData();
+            loadUnreadCount();
+          }
+        };
+
+        socket.on('notification', onNotification);
+        socketCleanup = () => socket.off('notification', onNotification);
+      } catch (e) {
+        // ignore
+      }
+    };
+
+    setupRealtime();
+
+    return () => {
+      mounted = false;
+      socketCleanup?.();
+    };
+  }, [loadDashboardData, loadUnreadCount]);
 
   const loadNotifications = async () => {
     try {

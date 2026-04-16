@@ -263,10 +263,14 @@ export default function CustomerDashboard() {
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <View>
-            <Text style={styles.headerTitle}>{getHeaderTitle()}</Text>
-            <Text style={styles.greeting}>
-              {`${getGreeting()}, ${userData?.displayName?.split(' ')[0] || 'Customer'}!`}
-            </Text>
+            {Platform.OS !== 'web' && (
+              <>
+                <Text style={styles.headerTitle}>{getHeaderTitle()}</Text>
+                <Text style={styles.greeting}>
+                  {`${getGreeting()}, ${userData?.displayName?.split(' ')[0] || 'Customer'}!`}
+                </Text>
+              </>
+            )}
           </View>
           {/* Branch Location Indicator */}
           <TouchableOpacity
