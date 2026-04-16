@@ -69,6 +69,7 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (storedCart) {
           const parsed = JSON.parse(storedCart);
           const normalized = Array.isArray(parsed) ? parsed.map(normalizeCartItem) : [];
+          setCartItems(normalized);
           
           // Validate cart immediately after loading
           try {
@@ -96,6 +97,10 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               });
             } catch (e) {}
             
+            if (validIds.size === 0) {
+              return;
+            }
+
             const validItems = normalized.filter(item => validIds.has(String(item._id).trim()));
             if (validItems.length !== normalized.length) {
               console.log('[CartContext] Removed', normalized.length - validItems.length, 'invalid items during load');
@@ -104,8 +109,7 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             // Save validated cart back to storage
             await AsyncStorage.setItem(CART_STORAGE_KEY, JSON.stringify(validItems));
           } catch (e) {
-            // If validation fails, still load the cart
-            setCartItems(normalized);
+            // If validation fails, keep the stored cart as-is
           }
         }
       } catch (error) {
@@ -210,6 +214,10 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         });
       } catch (e) {
         // Deals API might fail, continue without deals
+      }
+
+      if (validIds.size === 0) {
+        return;
       }
       
       // Filter out invalid cart items using functional update

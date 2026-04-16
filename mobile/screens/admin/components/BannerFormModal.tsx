@@ -141,12 +141,13 @@ const BannerFormModal = ({ visible, banner, onClose, onSave }: BannerFormModalPr
     }
   };
 
-  const API_BASE_URL = __DEV__ ? 'http://192.168.0.140:3000' : 'https://your-production-api.com';
-
   const getFullImageUrl = (url: string) => {
     if (!url) return '';
-    if (url.startsWith('http')) return url;
-    return `${API_BASE_URL}${url}`;
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    const base = api.getBaseURL().replace(/\/?api\/?$/, '');
+    if (!base) return url;
+    if (url.startsWith('/')) return `${base}${url}`;
+    return `${base}/${url.replace(/^\/+/, '')}`;
   };
 
   return (

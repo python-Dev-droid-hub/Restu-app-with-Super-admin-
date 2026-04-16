@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "mobile",
+    "name": "Restaurant App",
     "slug": "mobile",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -40,7 +40,7 @@
       "@react-native-community/datetimepicker"
     ],
     "extra": {
-      "apiUrl": "http://localhost:3000/api",
+      "apiUrl": "http://31.97.189.252:3101/api",
       "eas": {
         "projectId": "20b77239-f89f-4f35-afd4-4997e0f84e54"
       }

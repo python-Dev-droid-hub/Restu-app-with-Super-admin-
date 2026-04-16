@@ -8,6 +8,8 @@ import {
   RefreshControl,
   Image,
   Alert,
+  Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -94,6 +96,8 @@ interface DealCampaign {
 
 export default function CustomerMenuScreen() {
   console.log('🚀 CUSTOMER MENU SCREEN LOADED');
+  const { width } = useWindowDimensions();
+  const isWebMobile = Platform.OS === 'web' && width <= 768;
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -240,12 +244,19 @@ export default function CustomerMenuScreen() {
   };
 
   const renderProduct = (product: Product) => (
-    <TouchableOpacity key={product._id} style={styles.productCard} onPress={() => addToCart(product)}>
-      <View style={styles.productImageContainer}>
+    <TouchableOpacity
+      key={product._id}
+      style={[styles.productCard, isWebMobile && styles.productCardGrid]}
+      onPress={() => addToCart(product)}
+    >
+      <View style={[styles.productImageContainer, isWebMobile && styles.productImageContainerGrid]}>
         {product.imageUrl ? (
-          <Image source={{ uri: getFullImageUrl(product.imageUrl) }} style={styles.productImage} />
+          <Image
+            source={{ uri: getFullImageUrl(product.imageUrl) }}
+            style={[styles.productImage, isWebMobile && styles.productImageGrid]}
+          />
         ) : (
-          <View style={styles.productImagePlaceholder}>
+          <View style={[styles.productImagePlaceholder, isWebMobile && styles.productImageGrid]}>
             <Ionicons name="restaurant-outline" size={40} color="#ccc" />
           </View>
         )}
@@ -255,7 +266,7 @@ export default function CustomerMenuScreen() {
           </View>
         )}
       </View>
-      <View style={styles.productInfo}>
+      <View style={[styles.productInfo, isWebMobile && styles.productInfoGrid]}>
         <Text style={styles.productName}>{product.name}</Text>
         <Text style={styles.productDescription} numberOfLines={2}>
           {product.description}
@@ -263,7 +274,7 @@ export default function CustomerMenuScreen() {
         <Text style={styles.productPrice}>${getDisplayPrice(product).toFixed(2)}</Text>
       </View>
       <TouchableOpacity
-        style={[styles.addButton, !product.isAvailable && styles.addButtonDisabled]}
+        style={[styles.addButton, isWebMobile && styles.addButtonGrid, !product.isAvailable && styles.addButtonDisabled]}
         onPress={() => addToCart(product)}
         disabled={!product.isAvailable}
       >
@@ -363,7 +374,7 @@ export default function CustomerMenuScreen() {
         )}
 
         {/* Products */}
-        <View style={styles.productsContainer}>
+        <View style={[styles.productsContainer, isWebMobile && styles.productsContainerGrid]}>
           {loading ? (
             <View style={styles.loadingContainer}>
               <Text style={styles.loadingText}>Loading menu...</Text>
@@ -459,6 +470,11 @@ const styles = StyleSheet.create({
   productsContainer: {
     padding: 20,
   },
+  productsContainerGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
   productCard: {
     flexDirection: 'row',
     backgroundColor: '#fff',
@@ -473,13 +489,27 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
+  productCardGrid: {
+    flexDirection: 'column',
+    width: '48%',
+    padding: 12,
+  },
   productImageContainer: {
     position: 'relative',
     marginRight: 16,
   },
+  productImageContainerGrid: {
+    marginRight: 0,
+    marginBottom: 10,
+  },
   productImage: {
     width: 80,
     height: 80,
+    borderRadius: 12,
+  },
+  productImageGrid: {
+    width: '100%',
+    height: 120,
     borderRadius: 12,
   },
   productImagePlaceholder: {
@@ -510,6 +540,10 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
   },
+  productInfoGrid: {
+    width: '100%',
+    flex: 0,
+  },
   productName: {
     fontSize: 16,
     fontWeight: '600',
@@ -535,6 +569,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 16,
+  },
+  addButtonGrid: {
+    marginLeft: 0,
+    marginTop: 10,
+    alignSelf: 'flex-end',
   },
   addButtonDisabled: {
     backgroundColor: '#ccc',

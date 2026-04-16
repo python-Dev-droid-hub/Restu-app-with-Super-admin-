@@ -1,6 +1,5 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { NativeModules, Platform } from 'react-native';
 
 const appConfig = require('../../app.json');
 
@@ -14,6 +13,16 @@ class ApiClient {
   private instance: AxiosInstance;
   private baseURL: string;
   private baseURLSource: string;
+  private buildRequestTarget(config: any, fallbackUrl: string): string {
+    const baseURL = String(config?.baseURL || this.baseURL || '');
+    const url = String(config?.url || fallbackUrl || '');
+    if (!baseURL) {
+      return url;
+    }
+    const trimmedBase = baseURL.replace(/\/+$/, '');
+    const trimmedUrl = url.replace(/^\/+/, '');
+    return `${trimmedBase}/${trimmedUrl}`;
+  }
 
   constructor() {
     const normalizeApiUrl = (value?: string | null): string | null => {
@@ -27,17 +36,34 @@ class ApiClient {
         : `${trimmedValue.replace(/\/+$/, '')}/api`;
     };
 
-    const getMetroHost = (): string | null => {
-      const scriptURL = (NativeModules as any)?.SourceCode?.scriptURL as string | undefined;
-      if (!scriptURL) {
-        return null;
-      }
+    const PRODUCTION_API_FALLBACK = 'http://31.97.189.252:3101/api';
 
+    const isLocalOrPrivateNetworkUrl = (value: string): boolean => {
       try {
-        return new URL(scriptURL).hostname || null;
+        const hostname = new URL(value).hostname.toLowerCase();
+        if (
+          hostname === 'localhost' ||
+          hostname === '127.0.0.1' ||
+          hostname === '::1' ||
+          hostname.endsWith('.local')
+        ) {
+          return true;
+        }
+
+        const octets = hostname.split('.').map((part) => Number(part));
+        if (octets.length !== 4 || octets.some((n) => Number.isNaN(n) || n < 0 || n > 255)) {
+          return false;
+        }
+
+        const [a, b] = octets;
+        if (a === 10) return true;
+        if (a === 192 && b === 168) return true;
+        if (a === 172 && b >= 16 && b <= 31) return true;
+        if (a === 169 && b === 254) return true;
+
+        return false;
       } catch {
-        const match = scriptURL.match(/https?:\/\/([^/:]+)/i);
-        return match?.[1] || null;
+        return false;
       }
     };
 
@@ -45,44 +71,51 @@ class ApiClient {
       return normalizeApiUrl(appConfig?.expo?.extra?.apiUrl);
     };
 
-    const resolveDevelopmentApiConfig = (): { url: string; source: string } => {
+    const resolveApiConfig = (): { url: string; source: string } => {
       const configuredUrl = normalizeApiUrl(process.env.EXPO_PUBLIC_API_URL);
       if (configuredUrl) {
+        if (!__DEV__ && isLocalOrPrivateNetworkUrl(configuredUrl)) {
+          // Ignore local/private URLs in release builds.
+        } else {
         return { url: configuredUrl, source: 'EXPO_PUBLIC_API_URL' };
+        }
+      }
+
+      const configuredProductionUrl = normalizeApiUrl(process.env.EXPO_PUBLIC_API_URL_PRODUCTION);
+      if (configuredProductionUrl) {
+        if (!__DEV__ && isLocalOrPrivateNetworkUrl(configuredProductionUrl)) {
+          // Ignore local/private URLs in release builds.
+        } else {
+        return { url: configuredProductionUrl, source: 'EXPO_PUBLIC_API_URL_PRODUCTION' };
+        }
       }
 
       const appConfigUrl = getConfiguredAppApiUrl();
       if (appConfigUrl) {
+        if (!__DEV__ && isLocalOrPrivateNetworkUrl(appConfigUrl)) {
+          // Ignore local/private URLs in release builds.
+        } else {
         return { url: appConfigUrl, source: 'app.json extra.apiUrl' };
+        }
       }
 
-      const metroHost = getMetroHost();
-      if (metroHost) {
-        return { url: `http://${metroHost}:3000/api`, source: 'NativeModules.SourceCode.scriptURL' };
-      }
-
-      if (Platform.OS === 'android') {
-        return { url: 'http://10.0.2.2:3000/api', source: 'android emulator fallback' };
-      }
-
-      return { url: 'http://localhost:3000/api', source: 'ios localhost fallback' };
+      return { url: PRODUCTION_API_FALLBACK, source: 'default production fallback' };
     };
 
-    const prodApiUrl =
-      normalizeApiUrl(process.env.EXPO_PUBLIC_API_URL_PRODUCTION) || 'http://31.97.189.252:3101/api';
+    const resolvedConfig = resolveApiConfig();
+    this.baseURL = resolvedConfig.url;
+    this.baseURLSource = resolvedConfig.source;
 
-    const devConfig = resolveDevelopmentApiConfig();
-    this.baseURL = __DEV__ ? devConfig.url : prodApiUrl;
-    this.baseURLSource = __DEV__ ? devConfig.source : 'EXPO_PUBLIC_API_URL_PRODUCTION';
-
-    console.log('[API] Base URL:', this.baseURL);
-    console.log('[API] Base URL source:', this.baseURLSource);
-    console.log('[API] Host sources:', {
-      env: process.env.EXPO_PUBLIC_API_URL || null,
-      appConfig: appConfig?.expo?.extra?.apiUrl || null,
-      sourceCode: (NativeModules as any)?.SourceCode?.scriptURL || null,
-    });
-    console.log('[API] Environment:', __DEV__ ? 'development' : 'production');
+    if (__DEV__) {
+      console.log('[API] Base URL:', this.baseURL);
+      console.log('[API] Base URL source:', this.baseURLSource);
+      console.log('[API] Host sources:', {
+        env: process.env.EXPO_PUBLIC_API_URL || null,
+        envProd: process.env.EXPO_PUBLIC_API_URL_PRODUCTION || null,
+        appConfig: appConfig?.expo?.extra?.apiUrl || null,
+      });
+      console.log('[API] Environment:', __DEV__ ? 'development' : 'production');
+    }
 
     this.instance = axios.create({
       baseURL: this.baseURL,
@@ -99,7 +132,9 @@ class ApiClient {
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
         }
-        console.log('[API Request]', config.method?.toUpperCase(), config.url);
+        if (__DEV__) {
+          console.log('[API Request]', config.method?.toUpperCase(), config.url);
+        }
         return config;
       },
       (error: any) => Promise.reject(error)
@@ -108,17 +143,21 @@ class ApiClient {
     // Response interceptor for error handling
     this.instance.interceptors.response.use(
       (response: any) => {
-        console.log('[API Response]', response.status, response.config.url);
+        if (__DEV__) {
+          console.log('[API Response]', response.status, response.config.url);
+        }
         return response;
       },
       async (error: any) => {
-        console.error(
-          '[API Error]',
-          error.message,
-          error.code,
-          '| baseURL:',
-          error.config?.baseURL || this.baseURL
-        );
+        if (__DEV__) {
+          console.error(
+            '[API Error]',
+            error.message,
+            error.code,
+            '| baseURL:',
+            error.config?.baseURL || this.baseURL
+          );
+        }
         if (error.response?.status === 401) {
           await AsyncStorage.removeItem('authToken');
           await AsyncStorage.removeItem('userRole');
@@ -137,9 +176,14 @@ class ApiClient {
       const response: AxiosResponse<ApiResponse<T>> = await this.instance.get(url);
       return response.data;
     } catch (error: any) {
+      const requestTarget = this.buildRequestTarget(error?.config, url);
       return {
         success: false,
-        message: error.response?.data?.message || 'Network error',
+        message:
+          error.response?.data?.message ||
+          error.response?.data?.error ||
+          (error?.response ? `Request failed (${error.response.status})` : `Network error (${error.code || 'NO_CODE'})`) +
+            `: ${requestTarget}`,
       };
     }
   }
@@ -149,9 +193,14 @@ class ApiClient {
       const response: AxiosResponse<ApiResponse<T>> = await this.instance.post(url, data);
       return response.data;
     } catch (error: any) {
+      const requestTarget = this.buildRequestTarget(error?.config, url);
       return {
         success: false,
-        message: error.response?.data?.message || 'Network error',
+        message:
+          error.response?.data?.message ||
+          error.response?.data?.error ||
+          (error?.response ? `Request failed (${error.response.status})` : `Network error (${error.code || 'NO_CODE'})`) +
+            `: ${requestTarget}`,
       };
     }
   }
@@ -161,9 +210,14 @@ class ApiClient {
       const response: AxiosResponse<ApiResponse<T>> = await this.instance.put(url, data);
       return response.data;
     } catch (error: any) {
+      const requestTarget = this.buildRequestTarget(error?.config, url);
       return {
         success: false,
-        message: error.response?.data?.message || 'Network error',
+        message:
+          error.response?.data?.message ||
+          error.response?.data?.error ||
+          (error?.response ? `Request failed (${error.response.status})` : `Network error (${error.code || 'NO_CODE'})`) +
+            `: ${requestTarget}`,
       };
     }
   }
@@ -191,9 +245,14 @@ class ApiClient {
       const response: AxiosResponse<ApiResponse<T>> = await this.instance.patch(url, data);
       return response.data;
     } catch (error: any) {
+      const requestTarget = this.buildRequestTarget(error?.config, url);
       return {
         success: false,
-        message: error.response?.data?.message || 'Network error',
+        message:
+          error.response?.data?.message ||
+          error.response?.data?.error ||
+          (error?.response ? `Request failed (${error.response.status})` : `Network error (${error.code || 'NO_CODE'})`) +
+            `: ${requestTarget}`,
       };
     }
   }
@@ -203,9 +262,14 @@ class ApiClient {
       const response: AxiosResponse<ApiResponse<T>> = await this.instance.delete(url);
       return response.data;
     } catch (error: any) {
+      const requestTarget = this.buildRequestTarget(error?.config, url);
       return {
         success: false,
-        message: error.response?.data?.message || 'Network error',
+        message:
+          error.response?.data?.message ||
+          error.response?.data?.error ||
+          (error?.response ? `Request failed (${error.response.status})` : `Network error (${error.code || 'NO_CODE'})`) +
+            `: ${requestTarget}`,
       };
     }
   }
@@ -217,9 +281,14 @@ class ApiClient {
       });
       return response.data;
     } catch (error: any) {
+      const requestTarget = this.buildRequestTarget(error?.config, url);
       return {
         success: false,
-        message: error.response?.data?.message || 'Network error',
+        message:
+          error.response?.data?.message ||
+          error.response?.data?.error ||
+          (error?.response ? `Request failed (${error.response.status})` : `Network error (${error.code || 'NO_CODE'})`) +
+            `: ${requestTarget}`,
       };
     }
   }

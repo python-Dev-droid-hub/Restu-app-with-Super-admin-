@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, borderRadius, shadows } from '../../../theme';
+import { api } from '../../../components/api/client';
 
 interface Banner {
   _id: string;
@@ -39,12 +40,13 @@ const BannerCard = ({ banner, onEdit, onDelete, onToggleStatus }: BannerCardProp
     return isActive ? '✓ Active' : '○ Inactive';
   };
 
-  const API_BASE_URL = __DEV__ ? 'http://192.168.0.140:3000' : 'https://your-production-api.com';
-
   const getFullImageUrl = (url: string) => {
     if (!url) return '';
-    if (url.startsWith('http')) return url;
-    return `${API_BASE_URL}${url}`;
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    const base = api.getBaseURL().replace(/\/?api\/?$/, '');
+    if (!base) return url;
+    if (url.startsWith('/')) return `${base}${url}`;
+    return `${base}/${url.replace(/^\/+/, '')}`;
   };
 
   return (

@@ -7,18 +7,35 @@ import { Types } from 'mongoose';
 
 export class DashboardService {
   // Super Admin Dashboard Stats
-  async getSuperAdminStats() {
+  async getSuperAdminStats(params?: { branchId?: string }) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+
+    const branchIdRaw = params?.branchId && params.branchId !== 'all' ? params.branchId : undefined;
+    const branchObjectId = branchIdRaw && Types.ObjectId.isValid(branchIdRaw) ? new Types.ObjectId(branchIdRaw) : undefined;
+
+    const branchMatch = (() => {
+      if (!branchIdRaw) return null;
+      const inList: any[] = [];
+      if (branchObjectId) inList.push(branchObjectId);
+      if (branchIdRaw) inList.push(branchIdRaw);
+      return { branch: { $in: inList } };
+    })();
+
+    const selectedBranch = branchIdRaw
+      ? await Branch.findById(branchObjectId || branchIdRaw).select('_id branchName isActive')
+      : null;
     
     // Today's orders
     const ordersToday = await Order.countDocuments({
-      createdAt: { $gte: today }
+      createdAt: { $gte: today },
+      ...(branchMatch || {}),
     });
     
     // Total items sold today
     const todayOrders = await Order.find({
-      createdAt: { $gte: today }
+      createdAt: { $gte: today },
+      ...(branchMatch || {}),
     }).select('items');
     
     const totalItemsSold = todayOrders.reduce((sum, order) => {
@@ -27,43 +44,55 @@ export class DashboardService {
     
     // Today's revenue
     const todayRevenue = await Order.aggregate([
-      { $match: { createdAt: { $gte: today } } },
+      { $match: { createdAt: { $gte: today }, ...(branchMatch || {}) } },
       { $group: { _id: null, total: { $sum: '$totalAmount' } } }
     ]).then(result => result[0]?.total || 0);
     
     // TOTAL orders (all-time)
-    const totalOrders = await Order.countDocuments();
+    const totalOrders = await Order.countDocuments({
+      ...(branchMatch || {}),
+    });
     
     // TOTAL revenue (all-time)
     const totalRevenue = await Order.aggregate([
+      ...(branchMatch ? [{ $match: branchMatch }] : []),
       { $group: { _id: null, total: { $sum: '$totalAmount' } } }
     ]).then(result => result[0]?.total || 0);
     
     // Total branches - count ALL branches (active and inactive)
-    const totalBranches = await Branch.countDocuments();
+    const totalBranches = branchIdRaw ? (selectedBranch ? 1 : 0) : await Branch.countDocuments();
+
+    const activeBranches = branchIdRaw
+      ? (selectedBranch?.isActive ? 1 : 0)
+      : await Branch.countDocuments({ isActive: true });
     
     // Total users (customers)
-    const totalUsers = await User.countDocuments({ role: 'CUSTOMER' });
+    const totalUsers = branchIdRaw
+      ? (await Order.distinct('customer', { ...(branchMatch || {}) })).length
+      : await User.countDocuments({ role: 'CUSTOMER' });
     
     // Top performing branches (by orders)
-    const topBranches = await Order.aggregate([
-      { $match: { createdAt: { $gte: today } } },
-      { $group: { _id: '$branch', orderCount: { $sum: 1 } } },
-      { $sort: { orderCount: -1 } },
-      { $limit: 5 }
-    ]);
-    
-    // Get branch names
-    const branchIds = topBranches.map(b => b._id);
-    const branches = await Branch.find({ _id: { $in: branchIds } }).select('branchName');
-    
-    const topPerformingBranches = topBranches.map(tb => {
-      const branch = branches.find(b => b._id.toString() === tb._id.toString());
-      return {
-        name: branch?.branchName || 'Unknown Branch',
-        performance: Math.min(Math.round((tb.orderCount / ordersToday) * 100) || 0, 100)
-      };
-    });
+    const topPerformingBranches = branchIdRaw
+      ? []
+      : await (async () => {
+          const topBranches = await Order.aggregate([
+            { $match: { createdAt: { $gte: today } } },
+            { $group: { _id: '$branch', orderCount: { $sum: 1 } } },
+            { $sort: { orderCount: -1 } },
+            { $limit: 5 }
+          ]);
+
+          const branchIds = topBranches.map(b => b._id);
+          const branches = await Branch.find({ _id: { $in: branchIds } }).select('branchName');
+
+          return topBranches.map(tb => {
+            const branch = branches.find(b => b._id.toString() === tb._id.toString());
+            return {
+              name: branch?.branchName || 'Unknown Branch',
+              performance: Math.min(Math.round((tb.orderCount / ordersToday) * 100) || 0, 100)
+            };
+          });
+        })();
     
     return {
       ordersToday,
@@ -72,6 +101,7 @@ export class DashboardService {
       totalOrders,      // All-time total
       totalRevenue,   // All-time total
       totalBranches,
+      activeBranches,
       totalUsers,
       topPerformingBranches
     };

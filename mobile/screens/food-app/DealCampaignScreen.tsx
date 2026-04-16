@@ -23,13 +23,13 @@ import Toast from 'react-native-toast-message';
 
 const { width } = Dimensions.get('window');
 
-const API_BASE_URL = __DEV__ ? 'http://192.168.0.140:3000' : 'https://your-production-api.com';
-
 const getFullImageUrl = (url?: string) => {
   if (!url) return '';
   if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  if (url.startsWith('/')) return `${API_BASE_URL}${url}`;
-  return url;
+  const base = api.getBaseURL().replace(/\/?api\/?$/, '');
+  if (!base) return url;
+  if (url.startsWith('/')) return `${base}${url}`;
+  return `${base}/${url.replace(/^\/+/, '')}`;
 };
 
 interface DealItem {

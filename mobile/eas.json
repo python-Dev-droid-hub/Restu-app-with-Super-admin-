@@ -10,6 +10,9 @@
     },
     "preview": {
       "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
       "env": {
         "EXPO_PUBLIC_API_URL_PRODUCTION": "http://31.97.189.252:3101/api"
       }

@@ -124,7 +124,8 @@ export default function CartScreen() {
       <FlatList
         data={cartItems}
         renderItem={renderCartItem}
-        keyExtractor={(item) => item._id}
+        keyExtractor={(item) => `${item._id}:${item.size || ''}`}
+        style={{ flex: 1 }}
         contentContainerStyle={styles.cartList}
         showsVerticalScrollIndicator={false}
       />

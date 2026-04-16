@@ -99,7 +99,10 @@ export default function LoginScreen() {
         // @ts-ignore
         navigation.navigate(dashboardName);
       } else {
-        Alert.alert('Login Failed', response.message || 'Invalid credentials');
+        Alert.alert(
+          'Login Failed',
+          `${response.message || 'Invalid credentials'}\n\nAPI: ${api.getBaseURL()}`
+        );
       }
     } catch (error: any) {
       const errorMessage = error.response?.data?.message ||

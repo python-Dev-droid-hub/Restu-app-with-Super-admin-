@@ -44,7 +44,7 @@ export default function ResponsiveHeader({
     <View
       style={[
         styles.container,
-        { paddingTop: insets.top + getSpacing(3) },
+        { paddingTop: insets.top + getSpacing(1) },
         style,
       ]}
     >

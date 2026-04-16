@@ -68,7 +68,7 @@ const getFullImageUrl = (imagePath: string | undefined | null): string | null =>
   }
   // Get base URL without /api suffix and prepend to relative path
   // Note: Upload routes are mounted at /api, so uploads are at /api/uploads
-  const baseURL = api.getBaseURL(); // This is http://192.168.0.140:3000/api
+  const baseURL = api.getBaseURL();
   const fullUrl = `${baseURL}${imagePath}`;
   console.log('[OrderCard] Image URL:', fullUrl);
   return fullUrl;

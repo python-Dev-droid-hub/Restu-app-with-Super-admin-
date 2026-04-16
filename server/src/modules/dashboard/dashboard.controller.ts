@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import { DashboardService } from './dashboard.service';
 import { sendSuccess } from '@/utils/response';
 import { asyncHandler, IAuthRequest } from '@/utils';
@@ -16,13 +16,15 @@ export class DashboardController {
 
   // Super Admin Dashboard Stats
   getSuperAdminStats = asyncHandler(async (req: IAuthRequest, res: Response) => {
+    const { branchId } = req.query as { branchId?: string };
     logger.info('📊 [SUPER_ADMIN STATS] Request received', {
       user: req.user?.email,
       role: req.user?.role,
-      userId: req.user?._id
+      userId: req.user?._id,
+      branchId,
     });
 
-    const stats = await this.dashboardService.getSuperAdminStats();
+    const stats = await (this.dashboardService.getSuperAdminStats as any)({ branchId });
 
     logger.info('📊 [SUPER_ADMIN STATS] Stats retrieved successfully', {
       ordersToday: stats.ordersToday,
@@ -273,7 +275,7 @@ export class DashboardController {
   });
 
   // Most Ordered Items (for Chef Dashboard)
-  getMostOrderedItems = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
+  getMostOrderedItems = asyncHandler(async (_req: IAuthRequest, res: Response): Promise<void> => {
     // Return mock data for now - can be enhanced later with real analytics
     const mockItems = [
       { rank: 1, name: 'Biryani', time: '12:30 PM' },
@@ -284,7 +286,7 @@ export class DashboardController {
   });
 
   // Notifications endpoint
-  getNotifications = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
+  getNotifications = asyncHandler(async (_req: IAuthRequest, res: Response): Promise<void> => {
     // Return empty notifications for now - can be enhanced later
     sendSuccess(res, { notifications: [], unreadCount: 0 }, 'Notifications retrieved successfully');
   });

@@ -105,7 +105,7 @@ const AccessDenied = () => (
 
 export default function SuperAdminDashboard() {
   const navigation = useNavigation();
-  const { formatPrice } = useSettings();
+  const { currencySymbol, formatPrice, refreshSettings } = useSettings();
   const { t } = useLocalization();
   const insets = useSafeAreaInsets();
   const { profileImage: userProfileImage } = useUserData();
@@ -157,8 +157,14 @@ export default function SuperAdminDashboard() {
 
   useEffect(() => {
     if (userRole === 'SUPER_ADMIN') {
-      loadDashboardData();
-      loadOrdersData();
+      (async () => {
+        const savedBranchId = await AsyncStorage.getItem('selectedBranchId');
+        const branchId = savedBranchId || null;
+        setSelectedBranchId(branchId);
+        refreshSettings();
+        loadDashboardData(branchId);
+        loadOrdersData(branchId);
+      })();
       
       // Poll every 60 seconds (1 minute) - reduced from 10s to prevent server overload
       const interval = setInterval(() => {
@@ -169,7 +175,7 @@ export default function SuperAdminDashboard() {
       
       return () => clearInterval(interval);
     }
-  }, [userRole]);
+  }, [userRole, refreshSettings]);
 
   const loadUserData = async () => {
     try {
@@ -280,9 +286,15 @@ export default function SuperAdminDashboard() {
     }
   };
 
-  const handleBranchSelect = (branchId: string | null) => {
+  const handleBranchSelect = async (branchId: string | null) => {
     setSelectedBranchId(branchId);
     setShowBranchDropdown(false);
+    if (branchId) {
+      await AsyncStorage.setItem('selectedBranchId', branchId);
+    } else {
+      await AsyncStorage.removeItem('selectedBranchId');
+    }
+    refreshSettings();
     // Pass branchId directly since state update is async
     loadDashboardData(branchId);
     loadOrdersData(branchId);
@@ -378,7 +390,7 @@ export default function SuperAdminDashboard() {
               <View style={styles.branchSelectorTextContainer}>
                 <Text style={styles.branchSelectorLabel}>Selected Branch</Text>
                 <Text style={styles.branchSelectorValue} numberOfLines={1}>
-                  {getSelectedBranchName()}
+                  {getSelectedBranchName()}{selectedBranchId ? ` (${currencySymbol})` : ''}
                 </Text>
               </View>
             </View>
