@@ -9,7 +9,7 @@ dotenv.config();
 
 async function fixTableIndex() {
   try {
-    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/restaurant_app');
+    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27019/restaurant_app');
     console.log('Connected to MongoDB');
 
     // Drop the old index

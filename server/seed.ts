@@ -9,7 +9,7 @@ async function seed() {
     const { User } = require('./src/models');
     const { Branch } = require('./src/models');
     
-    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/restaurant_app');
+    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27019/restaurant_app');
     console.log('Connected to MongoDB');
 
     // Find existing branch

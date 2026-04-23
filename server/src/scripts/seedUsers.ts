@@ -78,7 +78,7 @@ const usersToSeed: UserSeedData[] = [
 async function seedUsers() {
   try {
     // Connect to database
-    const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/restaurant-app';
+    const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27019/restaurant-app';
     await mongoose.connect(mongoUri);
     console.log('✅ Connected to database\n');
 

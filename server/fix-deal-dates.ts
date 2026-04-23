@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 
 async function fixDealDates() {
   try {
-    await mongoose.connect('mongodb://localhost:27017/restaurant_app');
+    await mongoose.connect('mongodb://localhost:27019/restaurant_app');
     const db = mongoose.connection.db;
     
     if (!db) {

@@ -3,7 +3,7 @@ import { Order } from '../models/Order';
 
 async function createTestOrder() {
   try {
-    await mongoose.connect('mongodb://localhost:27017/restaurant-app');
+    await mongoose.connect('mongodb://localhost:27019/restaurant-app');
     console.log('Connected to MongoDB');
     
     const branchId = '69a1ff3c478939bf1fd8a73c';

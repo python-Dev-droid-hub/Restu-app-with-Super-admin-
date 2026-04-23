@@ -17,8 +17,8 @@ interface CreateAdminOptions {
 async function createAdminUser(options: CreateAdminOptions) {
   try {
     // Connect to database
-    const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/restaurant_app';
-    await mongoose.connect(mongoUri);
+    const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27019/restaurant_app';
+    await mongoose.connect(MONGODB_URI);
     console.log('Connected to MongoDB');
 
     // Check if user already exists

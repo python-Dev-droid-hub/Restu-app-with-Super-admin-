@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 
 async function check() {
-  await mongoose.connect('mongodb://localhost:27017/restaurant_app');
+  await mongoose.connect('mongodb://localhost:27019/restaurant_app');
   
   const chefId = '69a5b7d53102c8193f62e75f';
   const managerId = '69a1ff87478939bf1fd8a748';

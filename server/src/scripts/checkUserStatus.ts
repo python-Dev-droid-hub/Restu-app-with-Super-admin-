@@ -8,8 +8,7 @@ dotenv.config();
 async function checkUserStatus() {
   try {
     // Connect to database
-    const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/restaurant-app';
-    await mongoose.connect(mongoUri);
+    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27019/restaurant_app');
     console.log('✅ Connected to database\n');
 
     // Get all users

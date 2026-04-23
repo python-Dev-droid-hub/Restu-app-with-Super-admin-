@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import { logger } from '@/utils/logger';
 import { logRegisteredModels } from './models';
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/restaurant_app';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27019/restaurant_app';
 
 export const connectDatabase = async (): Promise<void> => {
   try {

@@ -71,7 +71,7 @@ Each module contains:
 |----------|-------------|---------|
 | `PORT` | Server port | 3000 |
 | `NODE_ENV` | Environment | development |
-| `MONGODB_URI` | MongoDB connection string | mongodb://localhost:27017/restaurant_app |
+| `MONGODB_URI` | MongoDB connection string | mongodb://localhost:27019/restaurant_app |
 | `JWT_SECRET` | JWT secret key | Required |
 | `JWT_EXPIRE` | JWT expiration time | 7d |
 | `CORS_ORIGIN` | CORS origin | http://localhost:3001 |

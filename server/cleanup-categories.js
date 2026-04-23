@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 async function cleanup() {
   try {
-    await mongoose.connect('mongodb://localhost:27017/restaurant_app');
+    await mongoose.connect('mongodb://localhost:27019/restaurant_app');
     console.log('Connected to database');
     
     // Delete all categories except Shawarma

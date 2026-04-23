@@ -9,7 +9,7 @@ dotenv.config({ path: path.join(__dirname, '../../.env') });
 async function verifyAdminUser() {
   try {
     // Connect to database
-    const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/restaurant_app';
+    const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27019/restaurant_app';
     await mongoose.connect(mongoUri);
     console.log('Connected to MongoDB\n');
 
