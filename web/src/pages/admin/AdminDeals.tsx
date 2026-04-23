@@ -121,7 +121,9 @@ const AdminDeals: React.FC = () => {
       ]);
 
       if (dealsRes?.success) {
-        setDeals(dealsRes.data?.deals || []);
+        setDeals(dealsRes.data?.deals || dealsRes.data?.data?.deals || []);
+      } else if (dealsRes?.error) {
+        setError(String(dealsRes.error));
       }
 
       if (branchesRes?.success) {

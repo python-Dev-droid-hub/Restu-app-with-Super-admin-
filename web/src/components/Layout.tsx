@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { api } from '../services/api';
 import { useLanguage } from '../context/LanguageContext';
 import NotificationDropdown from './NotificationDropdown';
 import './Layout.css';
+import { io, type Socket } from 'socket.io-client';
 
 const sanitizeWebImageSrc = (src: unknown): string => {
   if (!src || typeof src !== 'string') return '';
@@ -25,6 +25,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [userRole, setUserRole] = useState<string>('');
   const [userName, setUserName] = useState<string>('');
   const [profileImage, setProfileImage] = useState<string>('');
+  const socketRef = useRef<Socket | null>(null);
 
   // Get user data on component mount
   useEffect(() => {
@@ -93,28 +94,48 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const currentPageKey = getCurrentPageKey();
   const currentPage = t(currentPageKey as any);
 
-  const loadUnreadCount = async () => {
-    // Only load notifications for ADMIN users
-    if (userRole === 'ADMIN') {
-      try {
-        const response = await api.getNotificationUnreadCount();
-        if (response.success && response.data) {
-          // Type the response data properly
-          const data = response.data as { unreadCount?: number };
-          setUnreadCount(data.unreadCount || 0);
-        }
-      } catch (error) {
-        console.error('Error loading unread count:', error);
-        setUnreadCount(0);
-      }
-    } else {
-      setUnreadCount(0);
-    }
-  };
-
   useEffect(() => {
-    loadUnreadCount();
-  }, []);
+    if (userRole !== 'ADMIN') {
+      setUnreadCount(0);
+      return;
+    }
+
+    if (socketRef.current) return;
+
+    const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken') || '';
+    const rawApiUrl = (import.meta as any)?.env?.VITE_API_URL as string | undefined;
+    const rawProxyTarget = (import.meta as any)?.env?.VITE_PROXY_TARGET as string | undefined;
+
+    const normalizeHost = (value?: string): string => {
+      const v = (value || '').trim();
+      if (!v) return '';
+      return v.replace(/\/?api\/?$/, '').replace(/\/$/, '');
+    };
+
+    const socketUrl = normalizeHost(rawProxyTarget) || normalizeHost(rawApiUrl) || 'http://localhost:3101';
+
+    const socket = io(socketUrl, {
+      path: '/socket.io',
+      transports: ['websocket', 'polling'],
+      auth: token ? { token } : undefined,
+    });
+    socketRef.current = socket;
+
+    const requestUnread = () => {
+      socket.emit('admin_unread_count:get');
+    };
+
+    socket.on('connect', requestUnread);
+    socket.on('admin_unread_count:data', (payload: any) => {
+      setUnreadCount(typeof payload?.unreadCount === 'number' ? payload.unreadCount : 0);
+    });
+    socket.on('notification', requestUnread);
+
+    return () => {
+      socketRef.current?.disconnect();
+      socketRef.current = null;
+    };
+  }, [userRole]);
 
   const handleNotificationClick = () => {
     setShowNotifications((prev) => !prev);
@@ -242,6 +263,8 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                   <img 
                     src={profileImage} 
                     alt={userName || 'User'} 
+                    loading="lazy"
+                    decoding="async"
                     style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
                   />
                 ) : (

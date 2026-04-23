@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -30,6 +30,7 @@ import {
   Restaurant,
 } from '@mui/icons-material';
 import { api } from '../../services/api';
+import { io, type Socket } from 'socket.io-client';
 
 interface NotificationItem {
   _id: string;
@@ -46,10 +47,13 @@ const AdminNotifications: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
   const [tabValue, setTabValue] = useState(0);
+  const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
     loadNotifications();
-    loadUnreadCount();
+    if (socketRef.current?.connected) {
+      socketRef.current.emit('admin_unread_count:get');
+    }
   }, [tabValue]);
 
   const loadNotifications = async () => {
@@ -76,16 +80,41 @@ const AdminNotifications: React.FC = () => {
     }
   };
 
-  const loadUnreadCount = async () => {
-    try {
-      const response: any = await api.getNotificationUnreadCount();
-      if (response?.success) {
-        setUnreadCount(response.data?.count || 0);
-      }
-    } catch (err) {
-      console.error('Error loading unread count:', err);
-    }
-  };
+  useEffect(() => {
+    if (socketRef.current) return;
+
+    const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken') || '';
+    const rawApiUrl = (import.meta as any)?.env?.VITE_API_URL as string | undefined;
+    const rawProxyTarget = (import.meta as any)?.env?.VITE_PROXY_TARGET as string | undefined;
+
+    const normalizeHost = (value?: string): string => {
+      const v = (value || '').trim();
+      if (!v) return '';
+      return v.replace(/\/?api\/?$/, '').replace(/\/$/, '');
+    };
+
+    const socketUrl = normalizeHost(rawProxyTarget) || normalizeHost(rawApiUrl) || 'http://localhost:3101';
+
+    const socket = io(socketUrl, {
+      path: '/socket.io',
+      transports: ['websocket', 'polling'],
+      auth: token ? { token } : undefined,
+    });
+    socketRef.current = socket;
+
+    const requestUnread = () => socket.emit('admin_unread_count:get');
+
+    socket.on('connect', requestUnread);
+    socket.on('admin_unread_count:data', (payload: any) => {
+      setUnreadCount(typeof payload?.unreadCount === 'number' ? payload.unreadCount : 0);
+    });
+    socket.on('notification', requestUnread);
+
+    return () => {
+      socketRef.current?.disconnect();
+      socketRef.current = null;
+    };
+  }, []);
 
   const handleMarkAsRead = async (id: string) => {
     try {

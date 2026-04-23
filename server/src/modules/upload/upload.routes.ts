@@ -6,9 +6,11 @@ import { sendSuccess } from '@/utils/response';
 import { logger } from '@/utils/logger';
 
 const router: Router = express.Router();
-const uploadsDir = path.isAbsolute(process.env.UPLOAD_PATH || '')
-  ? (process.env.UPLOAD_PATH as string)
-  : path.join(process.cwd(), process.env.UPLOAD_PATH || 'uploads');
+const serverRoot = path.resolve(__dirname, '..', '..', '..');
+const repoRoot = path.resolve(serverRoot, '..');
+const uploadPathEnv = process.env.UPLOAD_PATH || 'uploads';
+const uploadsDirPrimary = path.isAbsolute(uploadPathEnv) ? uploadPathEnv : path.join(serverRoot, uploadPathEnv);
+const uploadsDirFallback = path.isAbsolute(uploadPathEnv) ? uploadPathEnv : path.join(repoRoot, uploadPathEnv);
 
 // Upload base64 image
 router.post('/upload', async (req: Request, res: Response) => {
@@ -27,8 +29,8 @@ router.post('/upload', async (req: Request, res: Response) => {
     }
 
     // Create uploads directory if it doesn't exist
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
+    if (!fs.existsSync(uploadsDirPrimary)) {
+      fs.mkdirSync(uploadsDirPrimary, { recursive: true });
     }
 
     // Generate unique filename
@@ -36,7 +38,7 @@ router.post('/upload', async (req: Request, res: Response) => {
     const finalFilename = filename ? 
       uniqueSuffix + '-' + filename : 
       'category-' + uniqueSuffix + '.jpg';
-    const filePath = path.join(uploadsDir, finalFilename);
+    const filePath = path.join(uploadsDirPrimary, finalFilename);
 
     // Convert base64 to buffer and save
     const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
@@ -64,6 +66,6 @@ router.post('/upload', async (req: Request, res: Response) => {
 });
 
 // Serve uploaded files
-router.use('/uploads', express.static(uploadsDir));
+router.use('/uploads', express.static(uploadsDirPrimary), express.static(uploadsDirFallback));
 
 export default router;

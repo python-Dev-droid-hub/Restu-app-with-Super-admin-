@@ -3,6 +3,7 @@ import {
   Box,
   Typography,
   Button,
+  Divider,
   Table,
   TableBody,
   TableCell,
@@ -51,6 +52,43 @@ interface Order {
   currency?: string;
 }
 
+type OrderDetailsItem = {
+  _id?: string;
+  quantity?: number;
+  productName?: string;
+  name?: string;
+  unitPrice?: number;
+  price?: number;
+  totalPrice?: number;
+  total?: number;
+  specialInstructions?: string;
+  product?: { name?: string };
+};
+
+type OrderDetails = {
+  _id?: string;
+  orderNumber?: string;
+  status?: string;
+  createdAt?: string;
+  orderType?: string;
+  paymentMethod?: string;
+  paymentStatus?: string;
+  addressLine?: string;
+  deliveryInstructions?: string;
+  specialInstructions?: string;
+  tableNumber?: string | number;
+  customerName?: string;
+  phoneNumber?: string;
+  customer?: { displayName?: string; name?: string; email?: string; phoneNumber?: string };
+  branch?: { branchName?: string; name?: string };
+  items?: OrderDetailsItem[];
+  subtotal?: number;
+  deliveryFee?: number;
+  taxAmount?: number;
+  discountAmount?: number;
+  totalAmount?: number;
+};
+
 const AdminOrders: React.FC = () => {
   const { formatPrice } = useSettings();
   const [loading, setLoading] = useState(true);
@@ -70,7 +108,24 @@ const AdminOrders: React.FC = () => {
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
   const [newStatus, setNewStatus] = useState('');
   const [updating, setUpdating] = useState(false);
+  const [detailsUpdatingStatus, setDetailsUpdatingStatus] = useState('');
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [detailsError, setDetailsError] = useState<string>('');
+  const [orderDetails, setOrderDetails] = useState<OrderDetails | null>(null);
   const itemsPerPage = 10;
+  const statusOptions = [
+    'PENDING',
+    'KITCHEN_ACCEPTED',
+    'PREPARING',
+    'READY',
+    'PICKED_UP',
+    'OUT_FOR_DELIVERY',
+    'DELIVERED',
+    'SERVED',
+    'COMPLETED',
+    'CANCELLED',
+  ];
 
   const tabs = [
     { label: 'All', value: 'all' },
@@ -373,6 +428,29 @@ const AdminOrders: React.FC = () => {
     setAnchorEl(null);
   };
 
+  const openOrderDetails = async (order: Order) => {
+    if (!order?._id) return;
+    setSelectedOrder(order);
+    setDetailsOpen(true);
+    setDetailsLoading(true);
+    setDetailsError('');
+    setOrderDetails(null);
+
+    const res: any = await api.get(`/orders/${order._id}`);
+    if (res?.success) {
+      setOrderDetails((res?.data || null) as OrderDetails | null);
+    } else {
+      setDetailsError(String(res?.error || res?.message || 'Failed to load order details'));
+    }
+    setDetailsLoading(false);
+  };
+
+  const closeOrderDetails = () => {
+    setDetailsOpen(false);
+    setDetailsError('');
+    setOrderDetails(null);
+  };
+
   const handleStatusChange = (status: string) => {
     setNewStatus(status);
     setStatusDialogOpen(true);
@@ -393,13 +471,77 @@ const AdminOrders: React.FC = () => {
         setFilteredOrders(prev => prev.map(o => 
           o._id === selectedOrder._id ? { ...o, status: newStatus.toLowerCase() } : o
         ));
+        setOrderDetails(prev => prev ? { ...prev, status: newStatus.toUpperCase() } : prev);
       }
     } catch (error) {
       console.error('Error updating order status:', error);
     } finally {
       setUpdating(false);
       setStatusDialogOpen(false);
-      setSelectedOrder(null);
+      if (!detailsOpen) setSelectedOrder(null);
+    }
+  };
+
+  const getMobileLikeActions = (statusUpper: string, orderTypeUpper: string) => {
+    const isFinal = ['CANCELLED', 'DELIVERED', 'SERVED', 'COMPLETED'].includes(statusUpper);
+    const isDelivery = orderTypeUpper === 'DELIVERY' || statusUpper === 'OUT_FOR_DELIVERY' || statusUpper === 'RIDER_ASSIGNED';
+    const actions: Array<{ key: string; label: string; nextStatus: string; color: string }> = [];
+
+    if (statusUpper === 'PENDING') {
+      actions.push({ key: 'kitchen_accepted', label: 'Kitchen Accepted', nextStatus: 'KITCHEN_ACCEPTED', color: '#2BC48A' });
+    } else if (statusUpper === 'KITCHEN_ACCEPTED') {
+      actions.push({ key: 'preparing', label: 'Start Preparing', nextStatus: 'PREPARING', color: '#FFB020' });
+    } else if (statusUpper === 'PREPARING') {
+      actions.push({ key: 'ready', label: 'Mark Ready', nextStatus: 'READY', color: '#2BC48A' });
+    } else if (statusUpper === 'READY') {
+      if (isDelivery) {
+        actions.push({ key: 'out_for_delivery', label: 'Out for Delivery', nextStatus: 'OUT_FOR_DELIVERY', color: '#2BC48A' });
+        actions.push({ key: 'delivered', label: 'Mark Delivered', nextStatus: 'DELIVERED', color: '#2BC48A' });
+      } else {
+        actions.push({ key: 'picked_up', label: 'Pick Up', nextStatus: 'PICKED_UP', color: '#2BC48A' });
+        actions.push({ key: 'completed', label: 'Mark Complete', nextStatus: 'COMPLETED', color: '#2BC48A' });
+      }
+    } else if (statusUpper === 'RIDER_ASSIGNED') {
+      actions.push({ key: 'out_for_delivery', label: 'Out for Delivery', nextStatus: 'OUT_FOR_DELIVERY', color: '#2BC48A' });
+      actions.push({ key: 'delivered', label: 'Mark Delivered', nextStatus: 'DELIVERED', color: '#2BC48A' });
+    } else if (statusUpper === 'OUT_FOR_DELIVERY') {
+      actions.push({ key: 'delivered', label: 'Mark Delivered', nextStatus: 'DELIVERED', color: '#2BC48A' });
+    } else if (statusUpper === 'PICKED_UP') {
+      actions.push({ key: 'served', label: 'Mark Served', nextStatus: 'SERVED', color: '#2BC48A' });
+      actions.push({ key: 'completed', label: 'Mark Complete', nextStatus: 'COMPLETED', color: '#2BC48A' });
+    } else if (statusUpper === 'SERVED') {
+      actions.push({ key: 'completed', label: 'Mark Complete', nextStatus: 'COMPLETED', color: '#2BC48A' });
+    } else if (statusUpper === 'DELIVERED') {
+      actions.push({ key: 'completed', label: 'Mark Complete', nextStatus: 'COMPLETED', color: '#2BC48A' });
+    }
+
+    if (!isFinal) {
+      actions.push({ key: 'cancel', label: 'Cancel', nextStatus: 'CANCELLED', color: '#FF4D4D' });
+    }
+
+    return actions;
+  };
+
+  const updateStatusFromDetails = async (nextStatus: string) => {
+    const orderId = String(orderDetails?._id || selectedOrder?._id || '');
+    if (!orderId) return;
+
+    const upper = String(nextStatus || '').toUpperCase();
+    if (!upper) return;
+
+    try {
+      setDetailsUpdatingStatus(upper);
+      const response: any = await api.updateOrderStatus(orderId, upper);
+      if (response?.success) {
+        setOrders(prev => prev.map(o => (o._id === orderId ? { ...o, status: upper.toLowerCase() } : o)));
+        setFilteredOrders(prev => prev.map(o => (o._id === orderId ? { ...o, status: upper.toLowerCase() } : o)));
+        setOrderDetails(prev => (prev ? { ...prev, status: upper } : prev));
+        setSelectedOrder(prev => (prev ? { ...prev, status: upper.toLowerCase() } : prev));
+      }
+    } catch (error) {
+      console.error('Error updating order status:', error);
+    } finally {
+      setDetailsUpdatingStatus('');
     }
   };
 
@@ -602,9 +744,11 @@ const AdminOrders: React.FC = () => {
                 return (
                   <TableRow
                     key={order._id}
+                    onClick={() => void openOrderDetails(order)}
                     sx={{
                       '&:hover': { bgcolor: '#f8f9fa' },
                       borderBottom: '1px solid #f0f0f0',
+                      cursor: 'pointer',
                     }}
                   >
                     <TableCell sx={{ py: 2 }}>
@@ -668,7 +812,10 @@ const AdminOrders: React.FC = () => {
                       <IconButton 
                         size="small" 
                         sx={{ color: '#999' }}
-                        onClick={(e) => handleMenuOpen(e, order)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleMenuOpen(e, order);
+                        }}
                       >
                         <MoreVert sx={{ fontSize: 18 }} />
                       </IconButton>
@@ -715,6 +862,16 @@ const AdminOrders: React.FC = () => {
         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
         transformOrigin={{ vertical: 'top', horizontal: 'right' }}
       >
+        <MenuItem
+          onClick={() => {
+            const order = selectedOrder;
+            handleMenuClose();
+            if (order) void openOrderDetails(order);
+          }}
+        >
+          View Details
+        </MenuItem>
+        <Divider />
         <MenuItem onClick={() => handleStatusChange('DELIVERED')} sx={{ color: '#4CAF50' }}>
           <CheckCircle sx={{ mr: 1, fontSize: 18 }} />
           Mark as Delivered
@@ -729,20 +886,305 @@ const AdminOrders: React.FC = () => {
       <Dialog open={statusDialogOpen} onClose={() => setStatusDialogOpen(false)}>
         <DialogTitle>Update Order Status</DialogTitle>
         <DialogContent>
-          <Typography>
-            Are you sure you want to mark order <strong>{selectedOrder?.orderNumber}</strong> as <strong>{newStatus.toLowerCase()}</strong>?
-          </Typography>
+          <Box sx={{ minWidth: 320 }}>
+            <Typography sx={{ mb: 1 }}>
+              Order <strong>{selectedOrder?.orderNumber}</strong>
+            </Typography>
+            <FormControl fullWidth size="small">
+              <Select
+                value={newStatus}
+                onChange={(e) => setNewStatus(String(e.target.value))}
+                displayEmpty
+              >
+                <MenuItem value="" disabled>Select status</MenuItem>
+                {statusOptions.map((s) => (
+                  <MenuItem key={s} value={s}>{s}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setStatusDialogOpen(false)} disabled={updating}>Cancel</Button>
           <Button 
             onClick={confirmStatusUpdate} 
             variant="contained"
-            disabled={updating}
+            disabled={updating || !newStatus}
             sx={{ bgcolor: newStatus === 'CANCELLED' ? '#F44336' : '#4CAF50', '&:hover': { bgcolor: newStatus === 'CANCELLED' ? '#D32F2F' : '#388E3C' } }}
           >
             {updating ? 'Updating...' : 'Confirm'}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={detailsOpen} onClose={closeOrderDetails} fullWidth maxWidth="sm">
+        <DialogTitle sx={{ fontWeight: 800 }}>
+          Order Details
+        </DialogTitle>
+        <DialogContent
+          dividers
+          sx={{
+            scrollbarWidth: 'thin',
+            scrollbarColor: 'rgba(255,255,255,0.9) transparent',
+            '&::-webkit-scrollbar': {
+              width: 6,
+            },
+            '&::-webkit-scrollbar-track': {
+              background: 'transparent',
+            },
+            '&::-webkit-scrollbar-thumb': {
+              backgroundColor: 'rgba(255,255,255,0.9)',
+              border: '1px solid rgba(0,0,0,0.08)',
+              borderRadius: 999,
+            },
+          }}
+        >
+          {detailsLoading ? (
+            <Box sx={{ py: 1 }}>
+              <Skeleton height={28} />
+              <Skeleton height={28} />
+              <Skeleton height={28} />
+              <Skeleton height={180} />
+            </Box>
+          ) : detailsError ? (
+            <Typography sx={{ color: '#d32f2f' }}>{detailsError}</Typography>
+          ) : (
+            (() => {
+              const d = orderDetails || {};
+              const orderNumber = String(d.orderNumber || selectedOrder?.orderNumber || '');
+              const createdAt = d.createdAt || selectedOrder?.createdAt || '';
+              const status = String(d.status || selectedOrder?.status || '');
+              const orderType = String(d.orderType || '').toUpperCase();
+              const isOnline = orderType && orderType !== 'DINE_IN';
+              const customerName =
+                d.customer?.displayName ||
+                d.customer?.name ||
+                d.customerName ||
+                selectedOrder?.customerName ||
+                '';
+              const customerEmail = d.customer?.email || '';
+              const customerPhone = d.phoneNumber || d.customer?.phoneNumber || '';
+              const items = Array.isArray(d.items) ? d.items : [];
+
+              const subtotal = Number(d.subtotal ?? 0);
+              const deliveryFee = Number(d.deliveryFee ?? 0);
+              const taxAmount = Number(d.taxAmount ?? 0);
+              const discountAmount = Number(d.discountAmount ?? 0);
+              const totalAmount = Number(d.totalAmount ?? selectedOrder?.totalAmount ?? 0);
+
+              const showSubtotalRow = subtotal > 0;
+              const showDeliveryRow = deliveryFee > 0;
+              const showTaxRow = taxAmount > 0;
+              const showDiscountRow = discountAmount > 0;
+
+              const orderInstructions = String(d.specialInstructions || d.deliveryInstructions || '').trim();
+              const addressLine = String(d.addressLine || '').trim();
+              const paymentMethod = String(d.paymentMethod || '').toUpperCase();
+              const paymentStatus = String(d.paymentStatus || '').toUpperCase();
+              const tableNumber = d.tableNumber;
+
+              return (
+                <Box>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2 }}>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography sx={{ fontWeight: 900, color: '#111', fontSize: 16 }}>
+                        {orderNumber ? `#${orderNumber}` : 'Order'}
+                      </Typography>
+                      <Typography sx={{ color: '#666', fontSize: 12 }}>
+                        {createdAt ? new Date(createdAt).toLocaleString() : ''}
+                      </Typography>
+                    </Box>
+                    <Chip
+                      size="small"
+                      label={status ? status.toUpperCase() : 'UNKNOWN'}
+                      sx={{ fontWeight: 700 }}
+                    />
+                  </Box>
+
+                  <Divider sx={{ my: 2 }} />
+
+                  <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
+                    <Box>
+                      <Typography sx={{ fontSize: 12, color: '#777', fontWeight: 700 }}>Order Type</Typography>
+                      <Typography sx={{ fontSize: 13, color: '#111', fontWeight: 700 }}>
+                        {orderType || '-'}
+                      </Typography>
+                    </Box>
+                    <Box>
+                      <Typography sx={{ fontSize: 12, color: '#777', fontWeight: 700 }}>Branch</Typography>
+                      <Typography sx={{ fontSize: 13, color: '#111', fontWeight: 700 }}>
+                        {d.branch?.branchName || d.branch?.name || selectedOrder?.branchName || '-'}
+                      </Typography>
+                    </Box>
+                    <Box>
+                      <Typography sx={{ fontSize: 12, color: '#777', fontWeight: 700 }}>Payment</Typography>
+                      <Typography sx={{ fontSize: 13, color: '#111', fontWeight: 700 }}>
+                        {paymentMethod || '-'}{paymentStatus ? ` • ${paymentStatus}` : ''}
+                      </Typography>
+                    </Box>
+                    {orderType === 'DINE_IN' && tableNumber !== undefined && tableNumber !== null ? (
+                      <Box>
+                        <Typography sx={{ fontSize: 12, color: '#777', fontWeight: 700 }}>Table</Typography>
+                        <Typography sx={{ fontSize: 13, color: '#111', fontWeight: 700 }}>
+                          {String(tableNumber)}
+                        </Typography>
+                      </Box>
+                    ) : (
+                      <Box />
+                    )}
+                  </Box>
+
+                  {isOnline && (customerName || customerEmail || customerPhone || addressLine) && (
+                    <>
+                      <Divider sx={{ my: 2 }} />
+                      <Typography sx={{ fontWeight: 900, color: '#111', fontSize: 14, mb: 1 }}>
+                        Customer Details
+                      </Typography>
+                      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
+                        <Box>
+                          <Typography sx={{ fontSize: 12, color: '#777', fontWeight: 700 }}>Name</Typography>
+                          <Typography sx={{ fontSize: 13, color: '#111', fontWeight: 700 }}>{customerName || '-'}</Typography>
+                        </Box>
+                        <Box>
+                          <Typography sx={{ fontSize: 12, color: '#777', fontWeight: 700 }}>Phone</Typography>
+                          <Typography sx={{ fontSize: 13, color: '#111', fontWeight: 700 }}>{customerPhone || '-'}</Typography>
+                        </Box>
+                        <Box sx={{ gridColumn: '1 / -1' }}>
+                          <Typography sx={{ fontSize: 12, color: '#777', fontWeight: 700 }}>Email</Typography>
+                          <Typography sx={{ fontSize: 13, color: '#111', fontWeight: 700 }}>{customerEmail || '-'}</Typography>
+                        </Box>
+                        {addressLine && (
+                          <Box sx={{ gridColumn: '1 / -1' }}>
+                            <Typography sx={{ fontSize: 12, color: '#777', fontWeight: 700 }}>Address</Typography>
+                            <Typography sx={{ fontSize: 13, color: '#111', fontWeight: 700 }}>{addressLine}</Typography>
+                          </Box>
+                        )}
+                      </Box>
+                    </>
+                  )}
+
+                  <Divider sx={{ my: 2 }} />
+                  <Typography sx={{ fontWeight: 900, color: '#111', fontSize: 14, mb: 1 }}>
+                    Items
+                  </Typography>
+
+                  {items.length ? (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                      {items.map((it, idx) => {
+                        const qty = Number(it.quantity ?? 0);
+                        const name = String(it.product?.name || it.productName || it.name || 'Item');
+                        const unit = Number(it.unitPrice ?? it.price ?? 0);
+                        const line = Number(it.totalPrice ?? it.total ?? (qty && unit ? qty * unit : 0));
+                        const itemNote = String(it.specialInstructions || '').trim();
+                        return (
+                          <Box key={String(it._id || idx)} sx={{ border: '1px solid #eee', borderRadius: 2, p: 1.25 }}>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
+                              <Box sx={{ minWidth: 0 }}>
+                                <Typography sx={{ fontWeight: 800, color: '#111', fontSize: 13 }}>
+                                  {name}
+                                </Typography>
+                                <Typography sx={{ color: '#777', fontSize: 12 }}>
+                                  {qty} × {formatPrice(unit)}
+                                </Typography>
+                              </Box>
+                              <Typography sx={{ fontWeight: 900, color: '#111', fontSize: 13 }}>
+                                {formatPrice(line)}
+                              </Typography>
+                            </Box>
+                            {itemNote ? (
+                              <Typography sx={{ mt: 0.75, color: '#555', fontSize: 12 }}>
+                                Instruction: {itemNote}
+                              </Typography>
+                            ) : null}
+                          </Box>
+                        );
+                      })}
+                    </Box>
+                  ) : (
+                    <Typography sx={{ color: '#777', fontSize: 13 }}>No items found.</Typography>
+                  )}
+
+                  <Divider sx={{ my: 2 }} />
+                  <Typography sx={{ fontWeight: 900, color: '#111', fontSize: 14, mb: 1 }}>
+                    Bill
+                  </Typography>
+
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+                    {showSubtotalRow ? (
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography sx={{ color: '#666' }}>Subtotal</Typography>
+                        <Typography sx={{ fontWeight: 800, color: '#111' }}>{formatPrice(subtotal)}</Typography>
+                      </Box>
+                    ) : null}
+                    {showDeliveryRow ? (
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography sx={{ color: '#666' }}>Delivery Fee</Typography>
+                        <Typography sx={{ fontWeight: 800, color: '#111' }}>{formatPrice(deliveryFee)}</Typography>
+                      </Box>
+                    ) : null}
+                    {showTaxRow ? (
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography sx={{ color: '#666' }}>Tax</Typography>
+                        <Typography sx={{ fontWeight: 800, color: '#111' }}>{formatPrice(taxAmount)}</Typography>
+                      </Box>
+                    ) : null}
+                    {showDiscountRow ? (
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography sx={{ color: '#666' }}>Discount</Typography>
+                        <Typography sx={{ fontWeight: 800, color: '#111' }}>- {formatPrice(discountAmount)}</Typography>
+                      </Box>
+                    ) : null}
+                    <Divider sx={{ my: 0.75 }} />
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <Typography sx={{ fontWeight: 900, color: '#111' }}>Total</Typography>
+                      <Typography sx={{ fontWeight: 900, color: '#111' }}>{formatPrice(totalAmount)}</Typography>
+                    </Box>
+                  </Box>
+
+                  {orderInstructions ? (
+                    <>
+                      <Divider sx={{ my: 2 }} />
+                      <Typography sx={{ fontWeight: 900, color: '#111', fontSize: 14, mb: 1 }}>
+                        Instructions
+                      </Typography>
+                      <Typography sx={{ color: '#444', fontSize: 13 }}>
+                        {orderInstructions}
+                      </Typography>
+                    </>
+                  ) : null}
+                </Box>
+              );
+            })()
+          )}
+        </DialogContent>
+        <DialogActions>
+          {(() => {
+            const statusUpper = String(orderDetails?.status || selectedOrder?.status || '').toUpperCase();
+            const orderTypeUpper = String(orderDetails?.orderType || '').toUpperCase();
+            const actions = getMobileLikeActions(statusUpper, orderTypeUpper);
+            const busy = !!detailsUpdatingStatus || updating;
+            return (
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mr: 'auto' }}>
+                {actions.map((a) => (
+                  <Button
+                    key={a.key}
+                    variant="contained"
+                    onClick={() => void updateStatusFromDetails(a.nextStatus)}
+                    disabled={busy || detailsLoading || !!detailsError}
+                    sx={{
+                      bgcolor: a.color,
+                      '&:hover': { bgcolor: a.color },
+                      textTransform: 'none',
+                      fontWeight: 800,
+                    }}
+                  >
+                    {detailsUpdatingStatus === a.nextStatus ? 'Updating...' : a.label}
+                  </Button>
+                ))}
+              </Box>
+            );
+          })()}
+          <Button onClick={closeOrderDetails}>Close</Button>
         </DialogActions>
       </Dialog>
     </Box>

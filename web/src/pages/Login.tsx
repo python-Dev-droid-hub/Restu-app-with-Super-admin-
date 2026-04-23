@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLogin } from '@restaurant-app/shared';
+import { api } from '../services/api';
 import './Login.css';
 
 export function Login() {
@@ -24,6 +25,8 @@ export function Login() {
     if (!email || !password) return;
 
     try {
+      localStorage.removeItem('userRole');
+      localStorage.removeItem('userData');
       const result: any = await login({ email, password });
       console.log('Login result:', result);
 
@@ -48,10 +51,28 @@ export function Login() {
         return;
       }
 
+      const meRes: any = await api.get('/auth/me');
+      if (meRes?.success && meRes?.data) {
+        localStorage.setItem('userData', JSON.stringify(meRes.data));
+        if ((meRes.data as any)?.role) {
+          localStorage.setItem('userRole', String((meRes.data as any).role));
+        }
+      }
+
       // Extract user role from login result or wait for it to be available
       const checkUserRole = () => {
-        // Try to get role from various sources
-        let userRole = localStorage.getItem('userRole');
+        // Prefer userData.role (authoritative), then fall back to userRole key
+        let userRole = '';
+        try {
+          const rawUser = localStorage.getItem('userData');
+          const parsed = rawUser ? JSON.parse(rawUser) : null;
+          userRole = String(parsed?.role || '');
+        } catch {
+          userRole = '';
+        }
+        if (!userRole) {
+          userRole = localStorage.getItem('userRole') || '';
+        }
 
         // If not found, try to extract from login result or auth state
         if (!userRole && result && typeof result === 'object' && result.user?.role) {
@@ -61,11 +82,16 @@ export function Login() {
           }
         }
 
-        console.log('Final user role:', userRole);
+        const normalizedRole = String(userRole || '').trim().toUpperCase();
+        console.log('Final user role:', normalizedRole);
 
         // Handle role-based redirection
-        if (userRole === 'ADMIN' || userRole === 'SUPER_ADMIN') {
+        if (normalizedRole === 'ADMIN' || normalizedRole === 'SUPER_ADMIN') {
           navigate('/admin/dashboard');
+        } else if (normalizedRole === 'BRANCH_MANAGER') {
+          navigate('/manager/dashboard');
+        } else if (normalizedRole === 'CHEF') {
+          navigate('/chef/dashboard');
         } else {
           navigate('/customer');
         }

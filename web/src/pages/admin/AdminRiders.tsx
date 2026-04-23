@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -47,6 +47,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { api } from '../../services/api';
 import { useSettings } from '../../context/SettingsContext';
+import { io, type Socket } from 'socket.io-client';
 
 // ==================== TYPES ====================
 interface Branch {
@@ -93,6 +94,8 @@ interface Order {
 const AdminRiders: React.FC = () => {
   const navigate = useNavigate();
   const { formatPrice } = useSettings();
+  const socketRef = useRef<Socket | null>(null);
+  const selectedBranchRef = useRef<string>('all');
   
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'riders' | 'orders'>('riders');
@@ -108,46 +111,66 @@ const AdminRiders: React.FC = () => {
   const [assigning, setAssigning] = useState(false);
 
   useEffect(() => {
-    loadBranches();
-  }, []);
+    selectedBranchRef.current = selectedBranch;
+  }, [selectedBranch]);
 
   useEffect(() => {
-    if (branches.length > 0) {
-      loadData();
-    }
-  }, [selectedBranch, branches]);
+    const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
 
-  const loadBranches = async () => {
-    try {
-      const response: any = await api.getAllBranches();
-      if (!response?.success) return;
+    const getServerHost = (): string => {
+      const rawApiUrl = (import.meta as any)?.env?.VITE_API_URL as string | undefined;
+      const rawProxyTarget = (import.meta as any)?.env?.VITE_PROXY_TARGET as string | undefined;
 
-      const rawList = response?.data?.branches || response?.data?.data?.branches || response?.data || [];
+      const normalizeHost = (value?: string): string => {
+        const v = (value || '').trim();
+        if (!v) return '';
+        return v.replace(/\/?api\/?$/, '').replace(/\/$/, '');
+      };
+
+      const fromEnv = normalizeHost(rawProxyTarget) || normalizeHost(rawApiUrl);
+      if (fromEnv) return fromEnv;
+
+      const protocol = window.location.protocol || 'http:';
+      const hostname = window.location.hostname || 'localhost';
+      return `${protocol}//${hostname}:3101`;
+    };
+
+    const socket = io(getServerHost(), {
+      path: '/socket.io',
+      transports: ['websocket', 'polling'],
+      auth: token ? { token } : undefined,
+    });
+    socketRef.current = socket;
+
+    const requestBranches = () => {
+      socket.emit('admin_branches:get');
+    };
+
+    const requestData = (branchId: string) => {
+      setLoading(true);
+      socket.emit('admin_riders_performance:get', { branchId });
+      socket.emit('admin_delivery_orders:get', { branchId });
+    };
+
+    socket.on('connect', () => {
+      requestBranches();
+      requestData(selectedBranchRef.current);
+    });
+
+    socket.on('admin_branches:data', (payload: any) => {
+      const rawList = payload?.branches || payload?.data?.branches || payload?.data || payload || [];
       const normalized = (Array.isArray(rawList) ? rawList : []).map((b: any) => ({
         _id: b?._id || b?.id,
-        name: b?.name || b?.branchName || b?.restaurantName,
+        name: b?.branchName || b?.name || b?.restaurantName,
+        branchName: b?.branchName || b?.name,
       }));
       setBranches(normalized);
-    } catch (error) {
-      console.error('Error loading branches:', error);
-    }
-  };
+    });
 
-  const loadData = async () => {
-    setLoading(true);
-    await Promise.all([loadRiders(), loadOrders()]);
-    setLoading(false);
-  };
-
-  const loadRiders = async () => {
-    try {
-      const response: any = await api.getAdminRidersPerformance({ 
-        branchId: selectedBranch 
-      });
-      
-      if (response?.success && response?.data) {
-        const ridersList = response.data.riders || [];
-        setRiders(ridersList.map((r: any) => ({
+    socket.on('admin_riders_performance:data', (payload: any) => {
+      const ridersList = payload?.riders || payload?.data?.riders || payload?.data || payload || [];
+      setRiders(
+        (Array.isArray(ridersList) ? ridersList : []).map((r: any) => ({
           riderId: r.riderId || r._id || r.id,
           name: r.name || 'Unknown Rider',
           email: r.email,
@@ -158,92 +181,74 @@ const AdminRiders: React.FC = () => {
           onDuty: r.onDuty || false,
           assignedBranch: r.assignedBranch,
           avatar: r.avatar,
-        })));
-      }
-    } catch (error) {
-      console.error('Error loading riders:', error);
-      // Fallback to users endpoint
-      try {
-        const params = new URLSearchParams();
-        if (selectedBranch !== 'all') params.append('branchId', selectedBranch);
-        params.append('role', 'RIDER');
-        
-        const response: any = await api.get(`/users?${params.toString()}`);
-        if (response?.success && response?.data) {
-          const users = response.data.users || response.data.data || [];
-          const ridersList = users.filter((u: any) => u.role === 'RIDER' || u.role === 'rider');
-          setRiders(ridersList.map((r: any) => ({
-            riderId: r._id || r.id,
-            name: r.displayName || r.name || r.email || 'Unknown Rider',
-            email: r.email,
-            phone: r.phoneNumber || r.phone,
-            deliveredOrders: r.totalDeliveries || 0,
-            revenue: 0,
-            rating: r.rating || 5.0,
-            onDuty: r.onDuty || false,
-            assignedBranch: r.assignedBranch || r.branch,
-            avatar: r.avatar || r.image,
-          })));
-        }
-      } catch (fallbackError) {
-        console.error('Fallback error loading riders:', fallbackError);
-      }
-    }
-  };
+        }))
+      );
+      setLoading(false);
+    });
 
-  const loadOrders = async () => {
-    try {
-      const params = new URLSearchParams();
-      params.append('orderType', 'DELIVERY');
-      if (selectedBranch !== 'all') params.append('branchId', selectedBranch);
-      
-      const response: any = await api.get(`/orders?${params.toString()}`);
-      
-      if (response?.success && response?.data) {
-        const ordersList = response.data.orders || [];
-        
-        // Filter and sort orders
-        const processedOrders = ordersList
-          .filter((o: any) => {
-            const needsRider = ['READY', 'PREPARING', 'KITCHEN_ACCEPTED'].includes(o.status);
-            const hasRider = o.rider && (o.rider._id || o.rider.id);
-            const wasCancelled = o.status === 'CANCELLED' && hasRider;
-            return needsRider || hasRider || wasCancelled;
-          })
-          .map((o: any) => ({
-            _id: o._id || o.id,
-            orderNumber: o.orderNumber || o.order_number || `ORD-${(o._id || '').slice(-6)}`,
-            status: o.status,
-            customerName: o.customer?.displayName || o.customer?.name || o.customerName,
-            deliveryAddress: o.deliveryAddress || o.delivery_address,
-            totalAmount: o.totalAmount || o.total_amount || o.total || 0,
-            createdAt: o.createdAt || o.created_at,
-            cancelledAt: o.cancelledAt || o.cancelled_at,
-            cancellationReason: o.cancellationReason || o.cancellation_reason,
-            rider: o.rider ? {
-              _id: o.rider._id || o.rider.id,
-              name: o.rider.displayName || o.rider.name,
-              onDuty: o.rider.onDuty,
-            } : null,
-            branch: o.branch ? {
-              _id: o.branch._id || o.branch.id,
-              name: o.branch.name || o.branch.branchName,
-            } : null,
-          }))
-          .sort((a: Order, b: Order) => {
-            const aIsCancelled = a.status === 'CANCELLED';
-            const bIsCancelled = b.status === 'CANCELLED';
-            if (aIsCancelled && !bIsCancelled) return -1;
-            if (!aIsCancelled && bIsCancelled) return 1;
-            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-          });
-        
-        setOrders(processedOrders);
-      }
-    } catch (error) {
-      console.error('Error loading orders:', error);
-    }
-  };
+    socket.on('admin_delivery_orders:data', (payload: any) => {
+      const ordersList = payload?.orders || payload?.data?.orders || payload?.data || payload || [];
+
+      const processedOrders: Order[] = (Array.isArray(ordersList) ? ordersList : [])
+        .filter((o: any) => {
+          const needsRider = ['READY', 'PREPARING', 'KITCHEN_ACCEPTED'].includes(o.status);
+          const hasRider = o.rider && (o.rider._id || o.rider.id);
+          const wasCancelled = o.status === 'CANCELLED' && hasRider;
+          return needsRider || hasRider || wasCancelled;
+        })
+        .map((o: any): Order => ({
+          _id: o._id || o.id,
+          orderNumber: o.orderNumber || o.order_number || `ORD-${(o._id || '').slice(-6)}`,
+          status: o.status,
+          customerName: o.customer?.displayName || o.customer?.name || o.customerName,
+          deliveryAddress: o.deliveryAddress || o.delivery_address,
+          totalAmount: o.totalAmount || o.total_amount || o.total || 0,
+          createdAt: o.createdAt || o.created_at,
+          cancelledAt: o.cancelledAt || o.cancelled_at,
+          cancellationReason: o.cancellationReason || o.cancellation_reason,
+          rider: o.rider
+            ? {
+                _id: o.rider._id || o.rider.id,
+                name: o.rider.displayName || o.rider.name,
+                onDuty: o.rider.onDuty,
+              }
+            : undefined,
+          branch: o.branch
+            ? {
+                _id: o.branch._id || o.branch.id,
+                name: o.branch.name || o.branch.branchName,
+              }
+            : undefined,
+        }))
+        .sort((a, b) => {
+          const aIsCancelled = a.status === 'CANCELLED';
+          const bIsCancelled = b.status === 'CANCELLED';
+          if (aIsCancelled && !bIsCancelled) return -1;
+          if (!aIsCancelled && bIsCancelled) return 1;
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        });
+
+      setOrders(processedOrders);
+      setLoading(false);
+    });
+
+    socket.on('connect_error', () => {
+      setLoading(false);
+    });
+
+    return () => {
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!socketRef.current) return;
+    if (!socketRef.current.connected) return;
+    setLoading(true);
+    socketRef.current.emit('admin_riders_performance:get', { branchId: selectedBranch });
+    socketRef.current.emit('admin_delivery_orders:get', { branchId: selectedBranch });
+  }, [selectedBranch]);
 
   const handleBranchChange = (event: SelectChangeEvent<string>) => {
     setSelectedBranch(event.target.value);
@@ -272,7 +277,10 @@ const AdminRiders: React.FC = () => {
         setAssignDialogOpen(false);
         setSelectedOrder(null);
         setSelectedRider('');
-        loadOrders(); // Refresh orders
+        if (socketRef.current?.connected) {
+          socketRef.current.emit('admin_delivery_orders:get', { branchId: selectedBranch });
+          socketRef.current.emit('admin_riders_performance:get', { branchId: selectedBranch });
+        }
       } else {
         alert(response?.message || 'Failed to assign rider');
       }

@@ -1188,16 +1188,43 @@ export class DashboardService {
 
   // Chef Dashboard Stats
   async getChefStats(chefId: string) {
-    const pendingOrders = await Order.countDocuments({
-      status: 'PENDING'
-    });
-    const preparingOrders = await Order.countDocuments({
-      status: 'PREPARING'
-    });
-    const completedToday = await Order.countDocuments({
-      status: 'READY',
-      updatedAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
-    });
+    const chef = await User.findById(chefId).select('assignedBranch').lean();
+    const rawBranch: any = (chef as any)?.assignedBranch;
+    const branchId = rawBranch?._id?.toString?.() || rawBranch?.toString?.() || '';
+
+    if (!branchId) {
+      return {
+        pendingOrders: 0,
+        preparingOrders: 0,
+        completedToday: 0,
+        avgPreparationTime: 15,
+      };
+    }
+
+    const branchObjectId = Types.ObjectId.isValid(branchId) ? new Types.ObjectId(branchId) : undefined;
+    const branchMatch = { branch: branchObjectId || (branchId as any) };
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const [pendingOrders, preparingOrders, completedToday] = await Promise.all([
+      Order.countDocuments({
+        ...branchMatch,
+        deletedAt: null,
+        status: { $in: ['PENDING', 'KITCHEN_ACCEPTED'] },
+      }),
+      Order.countDocuments({
+        ...branchMatch,
+        deletedAt: null,
+        status: 'PREPARING',
+      }),
+      Order.countDocuments({
+        ...branchMatch,
+        deletedAt: null,
+        status: { $in: ['READY', 'SERVED', 'DELIVERED', 'COMPLETED'] },
+        updatedAt: { $gte: todayStart },
+      }),
+    ]);
 
     return {
       pendingOrders,
@@ -1205,6 +1232,56 @@ export class DashboardService {
       completedToday,
       avgPreparationTime: 15
     };
+  }
+
+  async getMostOrderedItemsForChef(chefId: string, params?: { days?: number; limit?: number }) {
+    const chef = await User.findById(chefId).select('assignedBranch').lean();
+    const rawBranch: any = (chef as any)?.assignedBranch;
+    const branchId = rawBranch?._id?.toString?.() || rawBranch?.toString?.() || '';
+
+    if (!branchId) {
+      return { items: [] as Array<{ rank: number; name: string; time: string }> };
+    }
+
+    const days = Math.max(1, Number(params?.days ?? 7));
+    const limit = Math.min(20, Math.max(1, Number(params?.limit ?? 5)));
+    const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const branchObjectId = Types.ObjectId.isValid(branchId) ? new Types.ObjectId(branchId) : undefined;
+    const branchValue: any = branchObjectId || branchId;
+
+    const rows = await Order.aggregate([
+      {
+        $match: {
+          branch: branchValue,
+          deletedAt: null,
+          status: { $ne: 'CANCELLED' },
+          createdAt: { $gte: startDate },
+        },
+      },
+      { $unwind: '$items' },
+      {
+        $group: {
+          _id: '$items.product',
+          name: { $first: '$items.productName' },
+          totalQty: { $sum: '$items.quantity' },
+          lastOrderedAt: { $max: '$createdAt' },
+        },
+      },
+      { $sort: { totalQty: -1, lastOrderedAt: -1 } },
+      { $limit: limit },
+      { $project: { _id: 0, name: 1, totalQty: 1, lastOrderedAt: 1 } },
+    ]);
+
+    const items = rows.map((r: any, idx: number) => ({
+      rank: idx + 1,
+      name: String(r?.name || 'Unknown Item'),
+      time: r?.lastOrderedAt
+        ? new Date(r.lastOrderedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+        : '',
+    }));
+
+    return { items };
   }
 
   // Chef Kitchen Orders

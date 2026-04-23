@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
-import { api } from '../services/api';
+import React, { createContext, useContext, useState, useEffect, useRef, type ReactNode } from 'react';
+import { io, type Socket } from 'socket.io-client';
 
 interface SettingsContextType {
   defaultCurrency: string;
@@ -48,6 +48,7 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
     appName: 'Restaurant App',
   });
   const [isLoading, setIsLoading] = useState(true);
+  const socketRef = useRef<Socket | null>(null);
 
   const loadSettings = async () => {
     try {
@@ -76,55 +77,56 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
       
       console.log('[SettingsContext] User data:', { userRole, branchId, selectedBranchId, userBranchId });
 
-      // For staff roles OR customers with a selected branch, use branch-specific settings
-      const staffRoles = ['ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER', 'CHEF', 'WAITER', 'KITCHEN', 'COOK', 'HEAD_CHEF', 'SOUS_CHEF', 'KITCHEN_MANAGER'];
-      if ((staffRoles.includes(userRole) || userRole === 'CUSTOMER') && userBranchId) {
-        try {
-          const branchRes: any = await api.getBranchById(userBranchId);
-          if (branchRes?.success && branchRes.data) {
-            const branchCurrency = branchRes.data?.currency;
-            const branchTaxRate = branchRes.data?.taxRate !== undefined ? branchRes.data.taxRate : 8.5;
+      if (!socketRef.current) {
+        const rawApiUrl = (import.meta as any)?.env?.VITE_API_URL as string | undefined;
+        const rawProxyTarget = (import.meta as any)?.env?.VITE_PROXY_TARGET as string | undefined;
 
-            // Validate currency - fallback to system settings if not supported
-            const currency = VALID_CURRENCIES.includes(branchCurrency) ? branchCurrency : 'USD';
-            const symbol = currencySymbols[currency] || '$';
+        const normalizeHost = (value?: string): string => {
+          const v = (value || '').trim();
+          if (!v) return '';
+          return v.replace(/\/?api\/?$/, '').replace(/\/$/, '');
+        };
 
-            setSettings({
-              defaultCurrency: currency,
-              taxRate: branchTaxRate,
-              deliveryFee: branchRes.data?.deliveryFee || 50,
-              currencySymbol: symbol,
-              appName: 'Restaurant App',
-            });
-            console.log('[SettingsContext] Loaded branch settings for', userRole, '- Currency:', currency, 'Symbol:', symbol);
-            setIsLoading(false);
-            return;
-          }
-        } catch (branchError) {
-          console.error('[SettingsContext] Error loading branch settings:', branchError);
-          // Continue to fallback
-        }
+        const socketUrl = normalizeHost(rawProxyTarget) || normalizeHost(rawApiUrl) || 'http://localhost:3101';
+
+        socketRef.current = io(socketUrl, {
+          path: '/socket.io',
+          transports: ['websocket', 'polling'],
+          auth: token ? { token } : undefined,
+        });
+
+        socketRef.current.on('settings_context:data', (payload: any) => {
+          const currencyRaw = payload?.defaultCurrency || payload?.currency;
+          const currency = VALID_CURRENCIES.includes(currencyRaw) ? currencyRaw : 'USD';
+          const symbol = currencySymbols[currency] || '$';
+
+          setSettings({
+            defaultCurrency: currency,
+            taxRate: typeof payload?.taxRate === 'number' ? payload.taxRate : 8.5,
+            deliveryFee: typeof payload?.deliveryFee === 'number' ? payload.deliveryFee : 50,
+            currencySymbol: symbol,
+            appName: payload?.appName || 'Restaurant App',
+          });
+          setIsLoading(false);
+        });
+
+        socketRef.current.on('connect_error', () => {
+          setIsLoading(false);
+        });
       }
 
-      // Fallback to system settings
-      const response: any = await api.getSettings();
-      const systemSettings = response?.success && response.data ? response.data : null;
+      const request = () => {
+        setIsLoading(true);
+        socketRef.current?.emit('settings_context:get', { branchId: userBranchId || undefined });
+      };
 
-      const currency = VALID_CURRENCIES.includes(systemSettings?.defaultCurrency) ? systemSettings?.defaultCurrency : 'USD';
-      const symbol = currencySymbols[currency] || '$';
-      setSettings({
-        defaultCurrency: currency,
-        taxRate: systemSettings?.taxRate || 8.5,
-        deliveryFee: systemSettings?.deliveryFee || 50,
-        currencySymbol: symbol,
-        appName: systemSettings?.appName || 'Restaurant App',
-      });
-      console.log('[SettingsContext] Loaded system settings - Currency:', currency, 'Symbol:', symbol);
+      if (socketRef.current.connected) request();
+      else socketRef.current.once('connect', request);
     } catch (error) {
       console.error('[SettingsContext] Error loading settings:', error);
       // Keep defaults on error
     } finally {
-      setIsLoading(false);
+      // setIsLoading is driven by socket response
     }
   };
 
@@ -138,7 +140,11 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
     };
     
     window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      socketRef.current?.disconnect();
+      socketRef.current = null;
+    };
   }, []);
 
   const formatPrice = (price: number): string => {

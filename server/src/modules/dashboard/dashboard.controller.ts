@@ -275,14 +275,10 @@ export class DashboardController {
   });
 
   // Most Ordered Items (for Chef Dashboard)
-  getMostOrderedItems = asyncHandler(async (_req: IAuthRequest, res: Response): Promise<void> => {
-    // Return mock data for now - can be enhanced later with real analytics
-    const mockItems = [
-      { rank: 1, name: 'Biryani', time: '12:30 PM' },
-      { rank: 2, name: 'Karahi', time: '1:15 PM' },
-      { rank: 3, name: 'Naan', time: '11:45 AM' },
-    ];
-    sendSuccess(res, { items: mockItems }, 'Most ordered items retrieved successfully');
+  getMostOrderedItems = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
+    const chefId = req.user?._id;
+    const data = await this.dashboardService.getMostOrderedItemsForChef(chefId!.toString(), { days: 7, limit: 5 });
+    sendSuccess(res, data, 'Most ordered items retrieved successfully');
   });
 
   // Notifications endpoint

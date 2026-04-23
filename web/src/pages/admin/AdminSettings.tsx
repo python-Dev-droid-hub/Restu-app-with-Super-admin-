@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useRef, useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -24,6 +24,7 @@ import {
   Email,
 } from '@mui/icons-material';
 import { api } from '../../services/api';
+import { io, type Socket } from 'socket.io-client';
 
 interface AppSettings {
   appName: string;
@@ -79,6 +80,7 @@ const AdminSettings: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const socketRef = useRef<Socket | null>(null);
   const [settings, setSettings] = useState<AppSettings>({
     appName: 'Restaurant App',
     appVersion: '1.0.0',
@@ -124,58 +126,92 @@ const AdminSettings: React.FC = () => {
     socialMedia: {},
   });
 
-  useEffect(() => {
-    loadSettings();
+  const requestSettings = useCallback(() => {
+    if (!socketRef.current) return;
+    setLoading(true);
+    socketRef.current.emit('admin_settings:get');
   }, []);
 
-  const loadSettings = async () => {
-    try {
-      setLoading(true);
-      const response: any = await api.getSettings();
-      if (response?.success) {
-        const data = response.data?.settings || response.data || {};
-        setSettings({
-          appName: data.appName || data.siteName || 'Restaurant App',
-          appVersion: data.appVersion || '1.0.0',
-          restaurantName: data.restaurantName || '',
-          restaurantDescription: data.restaurantDescription || data.siteDescription || '',
-          defaultCurrency: data.defaultCurrency || data.currency || 'USD',
-          currency: data.currency || data.defaultCurrency || 'USD',
-          defaultLanguage: data.defaultLanguage || data.language || 'en',
-          language: data.language || data.defaultLanguage || 'en',
-          taxRate: data.taxRate || 0,
-          serviceCharge: data.serviceCharge || 0,
-          maintenanceMode: data.maintenanceMode ?? false,
-          allowRegistration: data.allowRegistration ?? true,
-          contactEmail: data.contactEmail || '',
-          contactPhone: data.contactPhone || '',
-          address: data.address || { street: '', city: '', state: '', zipCode: '', country: 'USA' },
-          operatingHours: data.operatingHours || data.businessHours || {
-            monday: { open: '09:00', close: '22:00', closed: false },
-            tuesday: { open: '09:00', close: '22:00', closed: false },
-            wednesday: { open: '09:00', close: '22:00', closed: false },
-            thursday: { open: '09:00', close: '22:00', closed: false },
-            friday: { open: '09:00', close: '22:00', closed: false },
-            saturday: { open: '09:00', close: '22:00', closed: false },
-            sunday: { open: '09:00', close: '22:00', closed: true },
-          },
-          deliverySettings: data.deliverySettings || {
-            deliveryRadius: 10,
-            deliveryFee: 0,
-            minimumOrder: 0,
-            estimatedDeliveryTime: 30,
-          },
-          notifications: data.notifications || { emailNotifications: true, smsNotifications: false, pushNotifications: true },
-          socialMedia: data.socialMedia || data.socialLinks || {},
-        });
-      }
-    } catch (err) {
-      console.error('Error loading settings:', err);
-      setError('Failed to load settings');
-    } finally {
+  useEffect(() => {
+    const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
+
+    const getServerHost = (): string => {
+      const rawApiUrl = (import.meta as any)?.env?.VITE_API_URL as string | undefined;
+      const rawProxyTarget = (import.meta as any)?.env?.VITE_PROXY_TARGET as string | undefined;
+
+      const normalizeHost = (value?: string): string => {
+        const v = (value || '').trim();
+        if (!v) return '';
+        return v.replace(/\/?api\/?$/, '').replace(/\/$/, '');
+      };
+
+      const fromEnv = normalizeHost(rawProxyTarget) || normalizeHost(rawApiUrl);
+      if (fromEnv) return fromEnv;
+
+      const protocol = window.location.protocol || 'http:';
+      const hostname = window.location.hostname || 'localhost';
+      return `${protocol}//${hostname}:3101`;
+    };
+
+    const socket = io(getServerHost(), {
+      path: '/socket.io',
+      transports: ['websocket', 'polling'],
+      auth: token ? { token } : undefined,
+    });
+    socketRef.current = socket;
+
+    socket.on('connect', requestSettings);
+    socket.on('admin_settings:data', (payload: any) => {
+      const data = payload?.settings || payload?.data?.settings || payload?.data || payload || {};
+      setSettings({
+        appName: data.appName || data.siteName || 'Restaurant App',
+        appVersion: data.appVersion || '1.0.0',
+        restaurantName: data.restaurantName || '',
+        restaurantDescription: data.restaurantDescription || data.siteDescription || '',
+        defaultCurrency: data.defaultCurrency || data.currency || 'USD',
+        currency: data.currency || data.defaultCurrency || 'USD',
+        defaultLanguage: data.defaultLanguage || data.language || 'en',
+        language: data.language || data.defaultLanguage || 'en',
+        taxRate: data.taxRate || 0,
+        serviceCharge: data.serviceCharge || 0,
+        maintenanceMode: data.maintenanceMode ?? false,
+        allowRegistration: data.allowRegistration ?? true,
+        contactEmail: data.contactEmail || '',
+        contactPhone: data.contactPhone || '',
+        address: data.address || { street: '', city: '', state: '', zipCode: '', country: 'USA' },
+        operatingHours: data.operatingHours || data.businessHours || {
+          monday: { open: '09:00', close: '22:00', closed: false },
+          tuesday: { open: '09:00', close: '22:00', closed: false },
+          wednesday: { open: '09:00', close: '22:00', closed: false },
+          thursday: { open: '09:00', close: '22:00', closed: false },
+          friday: { open: '09:00', close: '22:00', closed: false },
+          saturday: { open: '09:00', close: '22:00', closed: false },
+          sunday: { open: '09:00', close: '22:00', closed: true },
+        },
+        deliverySettings: data.deliverySettings || {
+          deliveryRadius: 10,
+          deliveryFee: 0,
+          minimumOrder: 0,
+          estimatedDeliveryTime: 30,
+        },
+        notifications: data.notifications || { emailNotifications: true, smsNotifications: false, pushNotifications: true },
+        socialMedia: data.socialMedia || data.socialLinks || {},
+      });
       setLoading(false);
-    }
-  };
+    });
+
+    socket.on('connect_error', () => {
+      setLoading(false);
+      setError('Backend server is not reachable. Start the server or fix VITE_PROXY_TARGET.');
+    });
+
+    if (socket.connected) requestSettings();
+
+    return () => {
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, [requestSettings]);
 
   const handleSave = async () => {
     try {
@@ -201,7 +237,7 @@ const AdminSettings: React.FC = () => {
     try {
       const response: any = await api.resetSettings();
       if (response?.success) {
-        loadSettings();
+        requestSettings();
         setSuccess('Settings reset to defaults');
       }
     } catch {

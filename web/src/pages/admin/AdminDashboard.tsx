@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Box,
   Container,
@@ -24,7 +24,7 @@ import {
   Paper,
 } from '@mui/material';
 import type { SelectChangeEvent } from '@mui/material';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Store,
   AccountBalanceWallet,
@@ -34,8 +34,8 @@ import {
   ReceiptLong,
 } from '@mui/icons-material';
 
-import { api } from '../../services/api';
 import { useSettings } from '../../context/SettingsContext';
+import { io, type Socket } from 'socket.io-client';
 
 // ==================== TYPES ====================
 interface UserData {
@@ -101,10 +101,62 @@ interface RiderPerformanceRow {
   revenue: number;
 }
 
+type StatCardProps = {
+  icon: React.ReactNode;
+  value: string;
+  label: string;
+  sublabel: string;
+  bgcolor: string;
+  loading: boolean;
+};
+
+const StatCard = ({ icon, value, label, sublabel, bgcolor, loading }: StatCardProps) => (
+  <Card sx={{
+    borderRadius: 4,
+    backgroundColor: bgcolor,
+    boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+    color: 'white',
+    position: 'relative',
+    overflow: 'hidden',
+    height: 140,
+    transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+    '&:hover': {
+      transform: 'translateY(-2px)',
+      boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+    },
+  }}>
+    <CardContent sx={{ p: 2.5, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <Box sx={{
+          bgcolor: 'rgba(255,255,255,0.2)',
+          borderRadius: 2,
+          p: 1,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}>
+          {icon}
+        </Box>
+      </Box>
+      <Box>
+        <Typography sx={{ fontSize: 28, fontWeight: 700, lineHeight: 1, color: 'white' }}>
+          {loading ? <Skeleton width={80} sx={{ bgcolor: 'rgba(255,255,255,0.4)' }} /> : value}
+        </Typography>
+      </Box>
+      <Box>
+        <Typography sx={{ fontSize: 13, fontWeight: 600, color: 'white', opacity: 0.95 }}>{label}</Typography>
+        <Typography sx={{ fontSize: 11, color: 'white', opacity: 0.8 }}>{sublabel}</Typography>
+      </Box>
+    </CardContent>
+  </Card>
+);
+
 // ==================== COMPONENT ====================
 const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { refreshSettings } = useSettings();
+  const globalQuery = useMemo(() => (new URLSearchParams(location.search).get('q') || '').trim().toLowerCase(), [location.search]);
   const [loading, setLoading] = useState(true);
   const [activePeriod, setActivePeriod] = useState<'all' | 'day' | 'week' | 'month'>('all');
   const [selectedBranch, setSelectedBranch] = useState<string>('all');
@@ -134,6 +186,34 @@ const AdminDashboard: React.FC = () => {
 
   const [profileImage, setProfileImage] = useState<string>('');
   const [userData, setUserData] = useState<UserData | null>(null);
+  const socketRef = useRef<Socket | null>(null);
+  const filtersRef = useRef<{ period: 'all' | 'day' | 'week' | 'month'; branchId: string }>({
+    period: 'all',
+    branchId: 'all',
+  });
+  const branchesRef = useRef<Branch[]>([]);
+
+  useEffect(() => {
+    branchesRef.current = branches;
+  }, [branches]);
+
+  const getServerHost = (): string => {
+    const rawApiUrl = (import.meta as any)?.env?.VITE_API_URL as string | undefined;
+    const rawProxyTarget = (import.meta as any)?.env?.VITE_PROXY_TARGET as string | undefined;
+
+    const normalizeHost = (value?: string): string => {
+      const v = (value || '').trim();
+      if (!v) return '';
+      return v.replace(/\/?api\/?$/, '').replace(/\/$/, '');
+    };
+
+    const fromEnv = normalizeHost(rawProxyTarget) || normalizeHost(rawApiUrl);
+    if (fromEnv) return fromEnv;
+
+    const protocol = window.location.protocol || 'http:';
+    const hostname = window.location.hostname || 'localhost';
+    return `${protocol}//${hostname}:3101`;
+  };
 
   // Load user data including profile image
   const loadUserData = () => {
@@ -175,10 +255,33 @@ const AdminDashboard: React.FC = () => {
     if (!normalizedPath.startsWith('/')) return normalizedPath;
     
     // Convert relative path to full URL
-    const base = (api as any).getBaseURL ? (api as any).getBaseURL() : '';
-    const host = base.endsWith('/api') ? base.slice(0, -4) : base;
-    return `${host}${normalizedPath}`;
+    return `${getServerHost()}${normalizedPath}`;
   };
+
+  function normalizeOrders(orders: any[]): Order[] {
+    return (Array.isArray(orders) ? orders : []).map((o: any) => {
+      const riderData = o?.rider || o?._doc?.rider;
+      const rider = riderData ? {
+        name: riderData.displayName || riderData.name || 'Unknown Rider',
+        avatar: riderData.avatar || riderData.image || riderData.profileImage || riderData.photo
+      } : undefined;
+
+      return {
+        _id: o?._id || o?.id,
+        orderNumber: o?.orderNumber || o?.orderNo || o?.number,
+        status: o?.status || 'PENDING',
+        customerName: o?.customerName || o?.customer?.name,
+        customerEmail: o?.customerEmail || o?.customer?.email,
+        total: Number(o?.total ?? o?.totalAmount ?? o?.amount ?? 0),
+        totalAmount: o?.totalAmount,
+        createdAt: o?.createdAt || new Date().toISOString(),
+        branchName: o?.branchName || o?.branch?.branchName || o?.branch?.name,
+        branch: o?.branch,
+        branchId: o?.branch?._id || o?.branchId || o?.branch,
+        rider,
+      };
+    }).filter((o: any) => !!o._id);
+  }
 
   const statusCounts = recentOrders.reduce(
     (acc, o) => {
@@ -195,46 +298,138 @@ const AdminDashboard: React.FC = () => {
   );
 
   useEffect(() => {
-    loadBranches();
-    loadCurrency();
     loadUserData();
   }, []);
 
   useEffect(() => {
-    if (branches.length > 0) {
-      loadDashboardData();
+    filtersRef.current = { period: activePeriod, branchId: selectedBranch };
+    if (socketRef.current?.connected) {
+      setLoading(true);
+      socketRef.current.emit('admin_dashboard:get', {
+        period: activePeriod,
+        branchId: selectedBranch,
+        limit: 50,
+      });
     }
-  }, [activePeriod, selectedBranch, branches]);
+  }, [activePeriod, selectedBranch]);
 
   useEffect(() => {
     const branch = branches.find((b) => b._id === selectedBranch);
     if (branch?.currency) {
       setCurrency(branch.currency.trim());
     } else {
-      // Reset to global currency when all branches or branch without currency is selected
-      loadCurrency();
+      setCurrency('PKR');
     }
   }, [selectedBranch, branches]);
 
+  const ensureSocketConnected = useCallback(() => {
+    if (socketRef.current) return;
+
+    const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken') || '';
+    const rawApiUrl = (import.meta as any)?.env?.VITE_API_URL as string | undefined;
+    const rawProxyTarget = (import.meta as any)?.env?.VITE_PROXY_TARGET as string | undefined;
+
+    const normalizeHost = (value?: string): string => {
+      const v = (value || '').trim();
+      if (!v) return '';
+      return v.replace(/\/?api\/?$/, '').replace(/\/$/, '');
+    };
+
+    const socketUrl = normalizeHost(rawProxyTarget) || normalizeHost(rawApiUrl) || 'http://localhost:3101';
+
+    const socket = io(socketUrl, {
+      path: '/socket.io',
+      transports: ['websocket', 'polling'],
+      auth: token ? { token } : undefined,
+    });
+
+    socketRef.current = socket;
+
+    socket.on('connect', () => {
+      const { period, branchId } = filtersRef.current;
+      setLoading(true);
+      socket.emit('admin_branches:get');
+      socket.emit('admin_dashboard:get', { period, branchId, limit: 50 });
+    });
+
+    socket.on('admin_branches:data', (payload: any) => {
+      const rawList = payload?.branches || payload?.data?.branches || payload?.data || payload || [];
+      const normalized = (Array.isArray(rawList) ? rawList : []).map((b: any) => ({
+        _id: b?._id || b?.id,
+        name: b?.name || b?.branchName || b?.restaurantName,
+        currency: b?.currency,
+        isActive: typeof b?.isActive === 'boolean' ? b.isActive : (typeof b?.status === 'string' ? String(b.status).toLowerCase() === 'active' : undefined),
+      }));
+      setBranches(normalized);
+
+      const savedBranchId = localStorage.getItem('selectedBranchId');
+      if (savedBranchId && normalized.find((b: any) => b._id === savedBranchId)) {
+        setSelectedBranch(savedBranchId);
+      }
+    });
+
+    socket.on('admin_dashboard:data', (payload: any) => {
+      const d: any = payload?.stats || {};
+      const currentBranches = branchesRef.current;
+      setStats({
+        totalOrders: d.totalOrders ?? 0,
+        totalRevenue: d.totalRevenue ?? 0,
+        totalUsers: d.totalUsers ?? 0,
+        totalProducts: d.totalProducts ?? 0,
+        activeOrders: d.activeOrders ?? 0,
+        totalBranches: currentBranches.length,
+        activeRiders: d.activeRiders ?? d.totalRiders ?? 0,
+      });
+
+      const branchesPerf = payload?.branchesPerformance;
+      if (branchesPerf?.branches) {
+        const list = Array.isArray(branchesPerf.branches) ? branchesPerf.branches : [];
+        const perf: Branch[] = list.map((b: any, idx: number) => ({
+          _id: b?.branchId || `${idx}`,
+          name: b?.name,
+          orders: Number(b?.orders || 0),
+          revenue: Number(b?.revenue || 0),
+          riders: Number(b?.riders || 0),
+          status: b?.isActive ? 'active' : 'inactive',
+        }));
+        setBranchPerformance(perf);
+      }
+
+      const rawOrders = Array.isArray(payload?.orders) ? payload.orders : [];
+      const normalizedOrders = normalizeOrders(rawOrders);
+      setRecentOrders(normalizedOrders.slice(0, 10));
+
+      const waitersPerf = payload?.waitersPerformance;
+      setWaitersPerformance(Array.isArray(waitersPerf?.waiters) ? waitersPerf.waiters : []);
+
+      const ridersPerf = payload?.ridersPerformance;
+      setRidersCount(typeof ridersPerf?.ridersCount === 'number' ? ridersPerf.ridersCount : 0);
+      setRidersPerformance(Array.isArray(ridersPerf?.riders) ? ridersPerf.riders : []);
+
+      setLastUpdated(payload?.timestamp ? new Date(payload.timestamp) : new Date());
+      setLoading(false);
+    });
+
+    socket.on('notification', () => {
+      const { period, branchId } = filtersRef.current;
+      socket.emit('admin_dashboard:get', { period, branchId, limit: 50 });
+    });
+
+    socket.on('admin_dashboard:error', () => {
+      setLoading(false);
+    });
+  }, []);
+
   useEffect(() => {
-    const interval = setInterval(() => {
-      loadDashboardData();
-    }, 10000); // Refresh every 10 seconds for real-time updates
-    return () => clearInterval(interval);
-  }, [activePeriod, selectedBranch, branches]);
+    ensureSocketConnected();
+    return () => {
+      socketRef.current?.disconnect();
+      socketRef.current = null;
+    };
+  }, [ensureSocketConnected]);
 
   const handlePeriodChange = (_: React.SyntheticEvent, newValue: 'all' | 'day' | 'week' | 'month') => {
     setActivePeriod(newValue);
-  };
-
-  const loadCurrency = async () => {
-    try {
-      const response: any = await api.getSettings();
-      const c = response?.data?.currency;
-      if (typeof c === 'string' && c.trim()) setCurrency(c.trim());
-    } catch (error) {
-      console.error('Error loading settings currency:', error);
-    }
   };
 
   const handleBranchChange = (event: SelectChangeEvent<string>) => {
@@ -250,165 +445,6 @@ const AdminDashboard: React.FC = () => {
     refreshSettings();
   };
 
-  const loadBranches = async () => {
-    try {
-      const response: any = await api.getAllBranches();
-      if (!response?.success) return;
-
-      const rawList = response?.data?.branches || response?.data?.data?.branches || response?.data?.data?.restaurants || response?.data || [];
-      const normalized = (Array.isArray(rawList) ? rawList : []).map((b: any) => ({
-        _id: b?._id || b?.id,
-        name: b?.name || b?.branchName || b?.restaurantName,
-        currency: b?.currency,
-        isActive: typeof b?.isActive === 'boolean' ? b.isActive : (typeof b?.status === 'string' ? String(b.status).toLowerCase() === 'active' : undefined),
-      }));
-      setBranches(normalized);
-      
-      // Check if there's a saved branch selection
-      const savedBranchId = localStorage.getItem('selectedBranchId');
-      if (savedBranchId && normalized.find((b: any) => b._id === savedBranchId)) {
-        setSelectedBranch(savedBranchId);
-      }
-    } catch (error) {
-      console.error('Error loading branches:', error);
-    }
-  };
-
-  const normalizeOrders = (orders: any[]): Order[] => {
-    return (Array.isArray(orders) ? orders : []).map((o: any) => {
-      // Extract rider data
-      const riderData = o?.rider || o?._doc?.rider;
-      const rider = riderData ? {
-        name: riderData.displayName || riderData.name || 'Unknown Rider',
-        avatar: riderData.avatar || riderData.image || riderData.profileImage || riderData.photo
-      } : undefined;
-      
-      return {
-        _id: o?._id || o?.id,
-        orderNumber: o?.orderNumber || o?.orderNo || o?.number,
-        status: o?.status || 'PENDING',
-        customerName: o?.customerName || o?.customer?.name,
-        customerEmail: o?.customerEmail || o?.customer?.email,
-        total: Number(o?.total ?? o?.totalAmount ?? o?.amount ?? 0),
-        totalAmount: o?.totalAmount,
-        createdAt: o?.createdAt || new Date().toISOString(),
-        branchName: o?.branchName || o?.branch?.branchName || o?.branch?.name,
-        branch: o?.branch,
-        branchId: o?.branch?._id || o?.branchId || o?.branch,
-        rider,
-      };
-    }).filter((o: any) => !!o._id);
-  };
-
-  const loadDashboardData = async () => {
-    try {
-      setLoading(true);
-
-      const [statsResponse, ordersResponse, waitersPerfResponse, ridersPerfResponse, branchesPerfResponse]: any[] = await Promise.all([
-        api.getAdminDashboardStats({ period: activePeriod, branchId: selectedBranch }),
-        api.getAdminOrders({ limit: 50, period: activePeriod, branchId: selectedBranch }),
-        api.getAdminWaitersPerformance({ period: activePeriod, branchId: selectedBranch }),
-        api.getAdminRidersPerformance({ period: activePeriod, branchId: selectedBranch }),
-        api.getAdminBranchesPerformance({ period: activePeriod, branchId: selectedBranch }),
-      ]);
-
-      if (statsResponse?.success && statsResponse?.data) {
-        const d: any = statsResponse.data;
-        setStats({
-          totalOrders: d.totalOrders ?? 0,
-          totalRevenue: d.totalRevenue ?? 0,
-          totalUsers: d.totalUsers ?? 0,
-          totalProducts: d.totalProducts ?? 0,
-          activeOrders: d.activeOrders ?? 0,
-          totalBranches: branches.length,
-          activeRiders: d.activeRiders ?? d.totalRiders ?? 0,
-        });
-      } else {
-        setStats((prev) => ({ ...prev, totalBranches: branches.length }));
-      }
-
-      if (branchesPerfResponse?.success && branchesPerfResponse?.data?.branches) {
-        const list = Array.isArray(branchesPerfResponse.data.branches) ? branchesPerfResponse.data.branches : [];
-        const perf: Branch[] = list.map((b: any, idx: number) => ({
-          _id: b?.branchId || `${idx}`,
-          name: b?.name,
-          orders: Number(b?.orders || 0),
-          revenue: Number(b?.revenue || 0),
-          riders: Number(b?.riders || 0),
-          status: b?.isActive ? 'active' : 'inactive',
-        }));
-        setBranchPerformance(perf);
-      }
-
-      if (ordersResponse?.success && ordersResponse?.data) {
-        const od: any = ordersResponse.data;
-        const rawOrders = od.orders || od.data?.orders || od.data || od;
-        const normalizedOrders = normalizeOrders(rawOrders);
-        setRecentOrders(normalizedOrders.slice(0, 10));
-        setLastUpdated(new Date());
-
-        // Build Branch Performance for ALL branches (show 0s too) (fallback)
-        const map = new Map<string, { branchId?: string; name: string; orders: number; revenue: number; status?: 'active' | 'inactive' }>();
-        normalizedOrders.forEach((o) => {
-          const branchId = typeof o.branchId === 'string' ? o.branchId : undefined;
-          const key = branchId || o.branchName || 'unknown';
-          const fallbackName = o.branchName || 'Unknown Branch';
-          const branchFromList = branchId ? branches.find((b) => b._id === branchId) : undefined;
-          const nameFromList = branchFromList?.name || fallbackName;
-          const statusFromList: 'active' | 'inactive' | undefined =
-            typeof branchFromList?.isActive === 'boolean' ? (branchFromList.isActive ? 'active' : 'inactive') : undefined;
-
-          const curr = map.get(key) || { branchId, name: nameFromList, orders: 0, revenue: 0, status: statusFromList };
-          curr.orders += 1;
-          curr.revenue += Number(o.total || 0);
-          map.set(key, curr);
-        });
-
-        // Ensure all branches exist in the table, even if they have 0 orders in this period
-        branches.forEach((b) => {
-          const key = b._id;
-          if (map.has(key)) return;
-          map.set(key, {
-            branchId: b._id,
-            name: b.name,
-            orders: 0,
-            revenue: 0,
-            status: typeof b.isActive === 'boolean' ? (b.isActive ? 'active' : 'inactive') : 'active',
-          });
-        });
-
-        const perf: Branch[] = Array.from(map.values())
-          .sort((a, b) => (b.orders || 0) - (a.orders || 0))
-          .map((b, idx) => ({
-            _id: b.branchId || `${idx}`,
-            name: b.name,
-            orders: b.orders,
-            revenue: b.revenue,
-            riders: undefined,
-            status: b.status || 'active',
-          }));
-        if ((!branchesPerfResponse?.success || !branchesPerfResponse?.data?.branches) && perf.length > 0) {
-          setBranchPerformance(perf);
-        }
-      }
-
-      if (waitersPerfResponse?.success) {
-        const wd: any = waitersPerfResponse.data;
-        setWaitersPerformance(Array.isArray(wd?.waiters) ? wd.waiters : []);
-      }
-
-      if (ridersPerfResponse?.success) {
-        const rd: any = ridersPerfResponse.data;
-        setRidersCount(typeof rd?.ridersCount === 'number' ? rd.ridersCount : 0);
-        setRidersPerformance(Array.isArray(rd?.riders) ? rd.riders : []);
-      }
-
-    } catch (error) {
-      console.error('Error fetching dashboard data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const getStatusColor = (status: string): { bg: string; color: string; label: string } => {
     switch (status?.toUpperCase()) {
@@ -442,64 +478,35 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
-  // Stat Card Component with solid colors (matching mobile)
-  const StatCard = ({
-    icon,
-    value,
-    label,
-    sublabel,
-    bgcolor 
-  }: { 
-    icon: React.ReactNode;
-    value: string;
-    label: string;
-    sublabel: string;
-    bgcolor: string;
-  }) => (
-    <Card sx={{
-      borderRadius: 4,
-      backgroundColor: bgcolor,
-      boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
-      color: 'white',
-      position: 'relative',
-      overflow: 'hidden',
-      height: 140,
-      transition: 'transform 0.2s ease, box-shadow 0.2s ease',
-      '&:hover': {
-        transform: 'translateY(-2px)',
-        boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
-      },
-    }}>
-      <CardContent sx={{ p: 2.5, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <Box sx={{ 
-            bgcolor: 'rgba(255,255,255,0.2)', 
-            borderRadius: 2, 
-            p: 1,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}>
-            {icon}
-          </Box>
-        </Box>
-        <Box>
-          <Typography sx={{ fontSize: 28, fontWeight: 700, lineHeight: 1, color: 'white' }}>
-            {loading ? <Skeleton width={80} sx={{ bgcolor: 'rgba(255,255,255,0.4)' }} /> : value}
-          </Typography>
-        </Box>
-        <Box>
-          <Typography sx={{ fontSize: 13, fontWeight: 600, color: 'white', opacity: 0.95 }}>{label}</Typography>
-          <Typography sx={{ fontSize: 11, color: 'white', opacity: 0.8 }}>{sublabel}</Typography>
-        </Box>
-      </CardContent>
-    </Card>
-  );
+  const filteredBranches = useMemo(() => {
+    return (branchPerformance || []).filter((b) => {
+      if (branchFilter !== 'all' && b.status !== branchFilter) return false;
+      if (!globalQuery) return true;
+      const hay = `${b.name || ''} ${b.status || ''}`.toLowerCase();
+      return hay.includes(globalQuery);
+    });
+  }, [branchFilter, branchPerformance, globalQuery]);
 
-  const filteredBranches = branchPerformance.filter(b => {
-    if (branchFilter === 'all') return true;
-    return b.status === branchFilter;
-  });
+  const waitersPerformanceVisible = useMemo(() => {
+    const list = waitersPerformance || [];
+    if (!globalQuery) return list;
+    return list.filter((w) => `${w.name || ''}`.toLowerCase().includes(globalQuery));
+  }, [globalQuery, waitersPerformance]);
+
+  const ridersPerformanceVisible = useMemo(() => {
+    const list = ridersPerformance || [];
+    if (!globalQuery) return list;
+    return list.filter((r) => `${r.name || ''}`.toLowerCase().includes(globalQuery));
+  }, [globalQuery, ridersPerformance]);
+
+  const recentOrdersVisible = useMemo(() => {
+    const list = recentOrders || [];
+    if (!globalQuery) return list;
+    return list.filter((o: any) => {
+      const hay = `${o?.orderNumber || ''} ${o?.branchName || ''} ${o?.status || ''} ${o?.rider?.name || ''}`.toLowerCase();
+      return hay.includes(globalQuery);
+    });
+  }, [globalQuery, recentOrders]);
 
   return (
     <Box sx={{ bgcolor: '#f5f5f5', minHeight: '100vh', px: 3, py: 3, width: '100%' }}>
@@ -588,6 +595,7 @@ const AdminDashboard: React.FC = () => {
               label="Total Revenue"
               sublabel={loading ? '' : `${statusCounts.completed} completed • ${statusCounts.cancelled} cancelled`}
               bgcolor="#2E7D52"
+              loading={loading}
               />
             </Box>
           </Grid>
@@ -599,6 +607,7 @@ const AdminDashboard: React.FC = () => {
               label="Total Orders"
               sublabel={loading ? '' : `${statusCounts.preparing} preparing • ${statusCounts.ready} ready`}
               bgcolor="#E87E35"
+              loading={loading}
               />
             </Box>
           </Grid>
@@ -610,6 +619,7 @@ const AdminDashboard: React.FC = () => {
               label="Menu Items"
               sublabel={loading ? '' : 'Active products across selection'}
               bgcolor="#7B5CB8"
+              loading={loading}
               />
             </Box>
           </Grid>
@@ -621,6 +631,7 @@ const AdminDashboard: React.FC = () => {
               label="Branches"
               sublabel={loading ? '' : 'All branches'}
               bgcolor="#1E5AA8"
+              loading={loading}
               />
             </Box>
           </Grid>
@@ -677,37 +688,45 @@ const AdminDashboard: React.FC = () => {
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {filteredBranches.map((branch) => (
-                        <TableRow key={branch._id} sx={{ '&:hover': { bgcolor: '#fafafa' } }}>
-                          <TableCell sx={{ fontWeight: 500, color: '#1a1a2e', py: 2, borderBottom: '1px solid #f5f5f5' }}>
-                            {branch.name}
-                          </TableCell>
-                          <TableCell align="center" sx={{ color: '#666', py: 2, borderBottom: '1px solid #f5f5f5' }}>
-                            {branch.orders?.toLocaleString()}
-                          </TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 500, color: '#1a1a2e', py: 2, borderBottom: '1px solid #f5f5f5' }}>
-                            {formatCurrency(branch.revenue || 0)}
-                          </TableCell>
-                          <TableCell align="center" sx={{ color: '#666', py: 2, borderBottom: '1px solid #f5f5f5' }}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
-                              <TwoWheeler sx={{ fontSize: 16, color: '#666' }} />
-                              {branch.riders}
-                            </Box>
-                          </TableCell>
-                          <TableCell align="center" sx={{ py: 2, borderBottom: '1px solid #f5f5f5' }}>
-                            <Chip
-                              label={branch.status === 'active' ? 'Active' : 'Inactive'}
-                              size="small"
-                              sx={{
-                                bgcolor: branch.status === 'active' ? '#dcfce7' : '#fee2e2',
-                                color: branch.status === 'active' ? '#166534' : '#dc2626',
-                                fontWeight: 500,
-                                fontSize: 12,
-                              }}
-                            />
+                      {filteredBranches.length ? (
+                        filteredBranches.map((branch) => (
+                          <TableRow key={branch._id} sx={{ '&:hover': { bgcolor: '#fafafa' } }}>
+                            <TableCell sx={{ fontWeight: 500, color: '#1a1a2e', py: 2, borderBottom: '1px solid #f5f5f5' }}>
+                              {branch.name}
+                            </TableCell>
+                            <TableCell align="center" sx={{ color: '#666', py: 2, borderBottom: '1px solid #f5f5f5' }}>
+                              {branch.orders?.toLocaleString()}
+                            </TableCell>
+                            <TableCell align="right" sx={{ fontWeight: 500, color: '#1a1a2e', py: 2, borderBottom: '1px solid #f5f5f5' }}>
+                              {formatCurrency(branch.revenue || 0)}
+                            </TableCell>
+                            <TableCell align="center" sx={{ color: '#666', py: 2, borderBottom: '1px solid #f5f5f5' }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
+                                <TwoWheeler sx={{ fontSize: 16, color: '#666' }} />
+                                {branch.riders}
+                              </Box>
+                            </TableCell>
+                            <TableCell align="center" sx={{ py: 2, borderBottom: '1px solid #f5f5f5' }}>
+                              <Chip
+                                label={branch.status === 'active' ? 'Active' : 'Inactive'}
+                                size="small"
+                                sx={{
+                                  bgcolor: branch.status === 'active' ? '#dcfce7' : '#fee2e2',
+                                  color: branch.status === 'active' ? '#166534' : '#dc2626',
+                                  fontWeight: 500,
+                                  fontSize: 12,
+                                }}
+                              />
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      ) : (
+                        <TableRow>
+                          <TableCell colSpan={5} sx={{ py: 3, color: '#666', textAlign: 'center', borderBottom: '1px solid #f5f5f5' }}>
+                            No matching branches.
                           </TableCell>
                         </TableRow>
-                      ))}
+                      )}
                     </TableBody>
                   </Table>
                 </TableContainer>
@@ -746,8 +765,8 @@ const AdminDashboard: React.FC = () => {
                             </TableCell>
                           </TableRow>
                         ))
-                      ) : (waitersPerformance || []).length > 0 ? (
-                        (waitersPerformance || []).map((w) => (
+                      ) : (waitersPerformanceVisible || []).length > 0 ? (
+                        (waitersPerformanceVisible || []).map((w) => (
                           <TableRow key={w.waiterId} sx={{ '&:hover': { bgcolor: '#fafafa' } }}>
                             <TableCell sx={{ fontWeight: 500, color: '#1a1a2e', py: 2, borderBottom: '1px solid #f5f5f5' }}>
                               {w.name || 'Unknown'}
@@ -808,8 +827,8 @@ const AdminDashboard: React.FC = () => {
                             </TableCell>
                           </TableRow>
                         ))
-                      ) : (ridersPerformance || []).length > 0 ? (
-                        (ridersPerformance || []).map((r) => (
+                      ) : (ridersPerformanceVisible || []).length > 0 ? (
+                        (ridersPerformanceVisible || []).map((r) => (
                           <TableRow key={r.riderId} sx={{ '&:hover': { bgcolor: '#fafafa' } }}>
                             <TableCell sx={{ fontWeight: 500, color: '#1a1a2e', py: 2, borderBottom: '1px solid #f5f5f5' }}>
                               {r.name || 'Unknown'}
@@ -858,81 +877,89 @@ const AdminDashboard: React.FC = () => {
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {recentOrders.map((order) => {
-                        const statusStyle = getStatusColor(order.status);
-                        return (
-                          <TableRow key={order._id} sx={{ '&:hover': { bgcolor: '#fafafa' } }}>
-                            <TableCell sx={{ fontWeight: 600, color: '#1a1a2e' }}>
-                              #{order.orderNumber}
-                            </TableCell>
-                            <TableCell>
-                              <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                                <Typography sx={{ fontWeight: 500, color: '#1a1a2e' }}>{order.branchName}</Typography>
-                              </Box>
-                            </TableCell>
-                            <TableCell>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: '#666' }}>
-                                <AccessTime sx={{ fontSize: 16 }} />
-                                {order.eta}
-                              </Box>
-                            </TableCell>
-                            <TableCell>
-                              <Chip
-                                label={statusStyle.label}
-                                size="small"
-                                sx={{
-                                  bgcolor: statusStyle.bg,
-                                  color: statusStyle.color,
-                                  fontWeight: 600,
-                                  fontSize: 11,
-                                  borderRadius: 1,
-                                }}
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                <Avatar 
-                                  src={order.rider?.avatar ? api.getImageUrl(order.rider.avatar) : undefined}
-                                  sx={{ width: 28, height: 28, fontSize: 12, bgcolor: '#FF6B35' }}
-                                >
-                                  {order.rider?.name?.charAt(0) || 'R'}
-                                </Avatar>
-                                <Typography sx={{ fontSize: 13, color: '#666' }}>{order.rider?.name || 'Unassigned'}</Typography>
-                              </Box>
-                            </TableCell>
-                            <TableCell>
-                              <Box sx={{ display: 'flex', gap: 1 }}>
-                                <Button 
-                                  size="small" 
-                                  sx={{ 
-                                    textTransform: 'none', 
-                                    fontSize: 12, 
-                                    color: '#666',
-                                    minWidth: 'auto',
-                                    px: 1.5,
+                      {recentOrdersVisible.length ? (
+                        recentOrdersVisible.map((order) => {
+                          const statusStyle = getStatusColor(order.status);
+                          return (
+                            <TableRow key={order._id} sx={{ '&:hover': { bgcolor: '#fafafa' } }}>
+                              <TableCell sx={{ fontWeight: 600, color: '#1a1a2e' }}>
+                                #{order.orderNumber}
+                              </TableCell>
+                              <TableCell>
+                                <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                                  <Typography sx={{ fontWeight: 500, color: '#1a1a2e' }}>{order.branchName}</Typography>
+                                </Box>
+                              </TableCell>
+                              <TableCell>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: '#666' }}>
+                                  <AccessTime sx={{ fontSize: 16 }} />
+                                  {order.eta}
+                                </Box>
+                              </TableCell>
+                              <TableCell>
+                                <Chip
+                                  label={statusStyle.label}
+                                  size="small"
+                                  sx={{
+                                    bgcolor: statusStyle.bg,
+                                    color: statusStyle.color,
+                                    fontWeight: 600,
+                                    fontSize: 11,
+                                    borderRadius: 1,
                                   }}
-                                >
-                                  View
-                                </Button>
-                                <Button 
-                                  size="small" 
-                                  variant="contained"
-                                  sx={{ 
-                                    textTransform: 'none', 
-                                    fontSize: 12, 
-                                    bgcolor: '#22c55e',
-                                    '&:hover': { bgcolor: '#16a34a' },
-                                    minWidth: 'auto',
-                                    px: 2,
-                                  }}
-                                >
-                                  Track
-                                </Button>
-                              </Box>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                  <Avatar
+                                    src={order.rider?.avatar ? normalizeMediaUrl(order.rider.avatar) : undefined}
+                                    sx={{ width: 28, height: 28, fontSize: 12, bgcolor: '#FF6B35' }}
+                                  >
+                                    {order.rider?.name?.charAt(0) || 'R'}
+                                  </Avatar>
+                                  <Typography sx={{ fontSize: 13, color: '#666' }}>{order.rider?.name || 'Unassigned'}</Typography>
+                                </Box>
+                              </TableCell>
+                              <TableCell>
+                                <Box sx={{ display: 'flex', gap: 1 }}>
+                                  <Button 
+                                    size="small" 
+                                    sx={{ 
+                                      textTransform: 'none', 
+                                      fontSize: 12, 
+                                      color: '#666',
+                                      minWidth: 'auto',
+                                      px: 1.5,
+                                    }}
+                                  >
+                                    View
+                                  </Button>
+                                  <Button 
+                                    size="small" 
+                                    variant="contained"
+                                    sx={{ 
+                                      textTransform: 'none', 
+                                      fontSize: 12, 
+                                      bgcolor: '#22c55e',
+                                      '&:hover': { bgcolor: '#16a34a' },
+                                      minWidth: 'auto',
+                                      px: 2,
+                                    }}
+                                  >
+                                    Track
+                                  </Button>
+                                </Box>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })
+                      ) : (
+                        <TableRow>
+                          <TableCell colSpan={6} sx={{ py: 3, color: '#666', textAlign: 'center' }}>
+                            {globalQuery ? 'No matching orders.' : 'No orders.'}
+                          </TableCell>
+                        </TableRow>
+                      )}
                     </TableBody>
                   </Table>
                 </TableContainer>

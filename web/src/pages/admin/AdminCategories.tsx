@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -29,6 +29,7 @@ import {
   Delete,
   Category,
 } from '@mui/icons-material';
+import { io, type Socket } from 'socket.io-client';
 import { api } from '../../services/api';
 
 interface CategoryItem {
@@ -48,6 +49,7 @@ const AdminCategories: React.FC = () => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<CategoryItem | null>(null);
   const [branches, setBranches] = useState<any[]>([]);
+  const socketRef = useRef<Socket | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -60,52 +62,83 @@ const AdminCategories: React.FC = () => {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    loadCategories();
-    loadBranches();
+    const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
+
+    const getServerHost = (): string => {
+      const rawApiUrl = (import.meta as any)?.env?.VITE_API_URL as string | undefined;
+      const rawProxyTarget = (import.meta as any)?.env?.VITE_PROXY_TARGET as string | undefined;
+
+      const normalizeHost = (value?: string): string => {
+        const v = (value || '').trim();
+        if (!v) return '';
+        return v.replace(/\/?api\/?$/, '').replace(/\/$/, '');
+      };
+
+      const fromEnv = normalizeHost(rawProxyTarget) || normalizeHost(rawApiUrl);
+      if (fromEnv) return fromEnv;
+
+      const protocol = window.location.protocol || 'http:';
+      const hostname = window.location.hostname || 'localhost';
+      return `${protocol}//${hostname}:3101`;
+    };
+
+    const socket = io(getServerHost(), {
+      path: '/socket.io',
+      transports: ['websocket', 'polling'],
+      auth: token ? { token } : undefined,
+    });
+    socketRef.current = socket;
+
+    const request = () => {
+      setLoading(true);
+      socket.emit('admin_categories:get');
+      socket.emit('admin_branches:get');
+    };
+
+    socket.on('connect', request);
+    socket.on('admin_branches:data', (payload: any) => {
+      const list = payload?.branches || payload?.data?.branches || payload?.data || payload || [];
+      setBranches(Array.isArray(list) ? list : []);
+    });
+
+    socket.on('admin_categories:data', (payload: any) => {
+      const rawCategories = payload?.categories || payload?.data?.categories || payload?.data || payload || [];
+      const normalized = (Array.isArray(rawCategories) ? rawCategories : []).map((c: any) => {
+        let imageUrl = c.imageUrl || c.image || '';
+        if (imageUrl && (imageUrl.startsWith('file://') || imageUrl.includes('var/mobile') || imageUrl.includes('ImagePicker'))) {
+          imageUrl = '';
+        }
+        return {
+          _id: c._id || c.id,
+          name: c.name || 'Unnamed',
+          description: c.description || '',
+          imageUrl,
+          displayOrder: c.displayOrder || 0,
+          isActive: c.isActive ?? true,
+          itemCount: c.productCount || c.itemCount || 0,
+          branchId: Array.isArray(c.branchId) ? c.branchId : (c.branchId ? [c.branchId] : []),
+        };
+      });
+      setCategories(normalized);
+      setLoading(false);
+    });
+
+    socket.on('connect_error', () => {
+      setLoading(false);
+      setError('Backend server is not reachable. Start the server or fix VITE_PROXY_TARGET.');
+    });
+
+    if (socket.connected) request();
+
+    return () => {
+      socket.disconnect();
+      socketRef.current = null;
+    };
   }, []);
 
-  const loadBranches = async () => {
-    try {
-      const response: any = await api.getAllBranches();
-      if (response?.success) {
-        setBranches(response.data?.branches || response.data || []);
-      }
-    } catch (err) {
-      console.error('Error loading branches:', err);
-    }
-  };
-
-  const loadCategories = async () => {
-    try {
-      setLoading(true);
-      const response: any = await api.getAllCategories();
-      if (response?.success) {
-        const rawCategories = response.data?.categories || response.data || [];
-        const normalized = rawCategories.map((c: any) => {
-          let imageUrl = c.imageUrl || c.image || '';
-          // Filter out invalid paths (mobile app paths, file:// URLs)
-          if (imageUrl && (imageUrl.startsWith('file://') || imageUrl.includes('var/mobile') || imageUrl.includes('ImagePicker'))) {
-            imageUrl = '';
-          }
-          return {
-            _id: c._id || c.id,
-            name: c.name || 'Unnamed',
-            description: c.description || '',
-            imageUrl,
-            displayOrder: c.displayOrder || 0,
-            isActive: c.isActive ?? true,
-            itemCount: c.productCount || c.itemCount || 0,
-            branchId: Array.isArray(c.branchId) ? c.branchId : (c.branchId ? [c.branchId] : []),
-          };
-        });
-        setCategories(normalized);
-      }
-    } catch (err) {
-      console.error('Error loading categories:', err);
-      setError('Failed to load categories');
-    } finally {
-      setLoading(false);
-    }
+  const refreshData = () => {
+    socketRef.current?.emit('admin_categories:get');
+    socketRef.current?.emit('admin_branches:get');
   };
 
   const handleOpenDialog = (category?: CategoryItem) => {
@@ -155,7 +188,7 @@ const AdminCategories: React.FC = () => {
 
       if (response?.success) {
         handleCloseDialog();
-        loadCategories();
+        refreshData();
       } else {
         const errorMsg = response?.message || response?.error?.message || 'Failed to save category';
         console.error('🔍 [DEBUG] Save failed:', errorMsg);
@@ -176,7 +209,7 @@ const AdminCategories: React.FC = () => {
     try {
       const response: any = await api.deleteCategory(id);
       if (response?.success) {
-        loadCategories();
+        refreshData();
       }
     } catch (err) {
       console.error('Error deleting category:', err);

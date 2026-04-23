@@ -217,7 +217,8 @@ const AdminDealCampaigns: React.FC = () => {
       setLoading(true);
       const response: any = await api.get('/deals/campaigns');
       if (response?.success) {
-        setCampaigns((response.data?.campaigns || []).map((campaign: any) => normalizeCampaign(campaign)));
+        const rawList = response.data?.campaigns || response.data?.data?.campaigns || [];
+        setCampaigns((Array.isArray(rawList) ? rawList : []).map((campaign: any) => normalizeCampaign(campaign)));
       }
     } catch (err) {
       console.error('Error loading campaigns:', err);

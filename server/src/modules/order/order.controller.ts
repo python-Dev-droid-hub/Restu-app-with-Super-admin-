@@ -772,6 +772,7 @@ export class OrderController {
     const { id } = req.params;
     const userId = req.user!._id;
     const userRole = req.user!.role;
+    const role = String(userRole);
 
     const order = await this.orderRepository.findById(id);
     if (!order) {
@@ -782,7 +783,15 @@ export class OrderController {
     const isCustomer = order.customer._id.toString() === userId.toString();
     const isRestaurantOwner = order.branch?.branchManager && order.branch.branchManager.toString() === userId.toString();
     const isDriver = order.rider && order.rider._id.toString() === userId.toString();
-    const isAdmin = userRole === 'ADMIN';
+    const isAdmin = userRole === 'ADMIN' || userRole === 'SUPER_ADMIN';
+    const userBranch = (req.user as any).assignedBranch;
+    const userBranchId = userBranch?._id?.toString() || userBranch?.toString?.() || '';
+    const orderBranchId = order.branch?._id?.toString() || order.branch?.toString?.() || '';
+    const isBranchManagerForOrder =
+      (role === 'BRANCH_MANAGER' || role === 'MANAGER') &&
+      !!userBranchId &&
+      !!orderBranchId &&
+      userBranchId === orderBranchId;
 
      // Riders should be able to view delivery orders that are available/ready (unassigned)
      // so they can inspect details before accepting.
@@ -793,7 +802,7 @@ export class OrderController {
        ['READY', 'RIDER_ASSIGNED'].includes(String(order?.status || '').toUpperCase()) &&
        (!order.rider || String(order.rider?._id || order.rider) === String(userId));
 
-    if (!isCustomer && !isRestaurantOwner && !isDriver && !isAdmin && !isAvailableDeliveryForRider) {
+    if (!isCustomer && !isRestaurantOwner && !isBranchManagerForOrder && !isDriver && !isAdmin && !isAvailableDeliveryForRider) {
       throw createError('Not authorized to view this order', 403);
     }
 
@@ -805,6 +814,7 @@ export class OrderController {
     const { status, paymentMethod, paymentStatus } = req.body;
     const userId = req.user!._id;
     const userRole = req.user!.role;
+    const role = String(userRole);
 
     const order = await this.orderRepository.findById(id);
     if (!order) {
@@ -815,10 +825,16 @@ export class OrderController {
     const isRestaurantOwner = order.branch?.branchManager && order.branch.branchManager.toString() === userId.toString();
     const isDriver = order.rider && order.rider._id.toString() === userId.toString();
     const isChef = userRole === 'CHEF';
-    const isAdmin = userRole === 'ADMIN';
+    const isAdmin = userRole === 'ADMIN' || userRole === 'SUPER_ADMIN';
     // Allow any waiter from the branch to pick up orders (not just assigned waiter)
     const userBranch = (req.user as any).assignedBranch;
     const userBranchId = userBranch?._id?.toString() || userBranch?.toString() || '';
+    const orderBranchId = order.branch?._id?.toString() || order.branch?.toString?.() || '';
+    const isBranchManagerForOrder =
+      (role === 'BRANCH_MANAGER' || role === 'MANAGER') &&
+      !!userBranchId &&
+      !!orderBranchId &&
+      userBranchId === orderBranchId;
     const isWaiter = userRole === 'WAITER' && (
       (order.waiter && order.waiter._id.toString() === userId.toString()) ||
       (order.branch && order.branch._id.toString() === userBranchId)
@@ -831,6 +847,7 @@ export class OrderController {
       driver: ['OUT_FOR_DELIVERY', 'DELIVERED'],
       admin: ['PENDING', 'KITCHEN_ACCEPTED', 'PREPARING', 'READY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED', 'PICKED_UP', 'COMPLETED', 'SERVED'],
       waiter: ['PICKED_UP', 'SERVED', 'COMPLETED'],
+      branch_manager: ['PENDING', 'KITCHEN_ACCEPTED', 'PREPARING', 'READY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED', 'PICKED_UP', 'COMPLETED', 'SERVED'],
     };
 
     let canUpdate = false;
@@ -841,6 +858,8 @@ export class OrderController {
     } else if (isDriver && allowedTransitions.driver.includes(status)) {
       canUpdate = true;
     } else if (isAdmin && allowedTransitions.admin.includes(status)) {
+      canUpdate = true;
+    } else if (isBranchManagerForOrder && allowedTransitions.branch_manager.includes(status)) {
       canUpdate = true;
     } else if (isWaiter && allowedTransitions.waiter.includes(status)) {
       // Waiter can only mark as COMPLETED if payment is done
@@ -1486,6 +1505,7 @@ export class OrderController {
     const { status, picked_up_at, ready_at } = req.body;
     const userId = req.user!._id;
     const userRole = req.user!.role;
+    const role = String(userRole);
 
     const order = await this.orderRepository.findById(orderId);
     if (!order) {
@@ -1497,7 +1517,7 @@ export class OrderController {
     const isChef = userRole === 'CHEF';
     const isAdmin = userRole === 'ADMIN' || userRole === 'SUPER_ADMIN';
     const isBranchManager = order.branch?.branchManager && order.branch.branchManager.toString() === userId.toString();
-    const isManager = userRole === 'BRANCH_MANAGER';
+    const isManager = role === 'BRANCH_MANAGER' || role === 'MANAGER';
 
     // Waiter can only mark as PICKED_UP
     if (isWaiter && status === 'PICKED_UP') {

@@ -3,9 +3,13 @@ import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
+import hpp from 'hpp';
+const xss = require('xss-clean');
+import mongoSanitize from 'express-mongo-sanitize';
 import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import path from 'path';
+import fs from 'fs';
 
 import { connectDatabase } from '@/config/database';
 import { logger } from '@/utils/logger';
@@ -40,9 +44,15 @@ dotenv.config();
 
 const app: Express = express();
 const PORT = parseInt(process.env.PORT || '3101', 10);
-const uploadsPath = path.isAbsolute(process.env.UPLOAD_PATH || '')
-  ? (process.env.UPLOAD_PATH as string)
-  : path.join(process.cwd(), process.env.UPLOAD_PATH || 'uploads');
+const serverRoot = path.resolve(__dirname, '..');
+const repoRoot = path.resolve(serverRoot, '..');
+const uploadPathEnv = process.env.UPLOAD_PATH || 'uploads';
+const uploadsPathPrimary = path.isAbsolute(uploadPathEnv) ? uploadPathEnv : path.join(serverRoot, uploadPathEnv);
+const uploadsPathFallback = path.isAbsolute(uploadPathEnv) ? uploadPathEnv : path.join(repoRoot, uploadPathEnv);
+
+if (!fs.existsSync(uploadsPathPrimary)) {
+  fs.mkdirSync(uploadsPathPrimary, { recursive: true });
+}
 
 const ws = initWebSocket(app);
 
@@ -50,23 +60,55 @@ app.locals.ws = ws;
 
 (globalThis as any).ws = ws;
 
-// Rate limiting - more lenient for development
-const limiter = rateLimit({
+// Rate limiting - General API limiter
+const generalLimiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000'), // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '1000'), // 1000 requests per window for development
-  message: 'Too many requests from this IP, please try again later.',
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '1000'), // 1000 requests per window
+  message: {
+    success: false,
+    message: 'Too many requests from this IP, please try again later.'
+  },
   standardHeaders: true,
   legacyHeaders: false,
   skip: (req) => process.env.NODE_ENV === 'development', // Skip rate limiting in dev
 });
 
+// Stricter rate limiting for authentication routes
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20, // Limit each IP to 20 login/register requests per window
+  message: {
+    success: false,
+    message: 'Too many authentication attempts, please try again after 15 minutes.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => process.env.NODE_ENV === 'development',
+});
+
 // Middleware
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
-  contentSecurityPolicy: false,
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      imgSrc: ["'self'", "data:", "blob:", "*"], // Allow images from any source for now due to dynamic uploads
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      connectSrc: ["'self'", "ws:", "wss:", "*"], // Allow WS connections
+      objectSrc: ["'none'"],
+      upgradeInsecureRequests: [],
+    },
+  },
 }));
 app.use(compression());
-app.use(limiter);
+app.use(xss()); // Prevent XSS attacks
+app.use(mongoSanitize()); // Prevent NoSQL injection
+app.use(hpp()); // Prevent HTTP Parameter Pollution
+app.use('/api/', generalLimiter); // Apply general limiter to all API routes
+app.use('/api/auth/', authLimiter); // Apply stricter limiter to auth routes
+
 app.use(cors({
   origin: [
     'http://localhost:5173',  // Vite dev server
@@ -95,8 +137,8 @@ app.use('/uploads', (req, res, next) => {
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   next();
-}, express.static(uploadsPath));
-logger.info(`Serving uploads from: ${uploadsPath}`);
+}, express.static(uploadsPathPrimary), express.static(uploadsPathFallback));
+logger.info(`Serving uploads from: ${uploadsPathPrimary}${uploadsPathFallback !== uploadsPathPrimary ? ` (fallback: ${uploadsPathFallback})` : ''}`);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -145,12 +187,29 @@ const startServer = async (): Promise<void> => {
     const { seedNotifications } = await import('./scripts/seedNotifications');
     await seedNotifications();
 
-    // Start listening
-    ws.httpServer.listen(PORT, '0.0.0.0', () => {
-      logger.info(`Server is running on port ${PORT} in ${process.env.NODE_ENV} mode`);
-      logger.info(`Health check available at http://localhost:${PORT}/health`);
-      logger.info(`Network access: http://0.0.0.0:${PORT}/health`);
-    });
+    const listenOnPort = (port: number) =>
+      new Promise<void>((resolve, reject) => {
+        const server = ws.httpServer.listen(port, '0.0.0.0', () => {
+          logger.info(`Server is running on port ${port} in ${process.env.NODE_ENV} mode`);
+          logger.info(`Health check available at http://localhost:${port}/health`);
+          logger.info(`Network access: http://0.0.0.0:${port}/health`);
+          resolve();
+        });
+        server.once('error', reject);
+      });
+
+    try {
+      await listenOnPort(PORT);
+    } catch (error: any) {
+      const isDev = process.env.NODE_ENV !== 'production';
+      const fallbackPort = 3101;
+      if (isDev && error?.code === 'EADDRINUSE' && PORT !== fallbackPort) {
+        logger.warn(`Port ${PORT} is already in use. Falling back to ${fallbackPort}.`);
+        await listenOnPort(fallbackPort);
+      } else {
+        throw error;
+      }
+    }
   } catch (error) {
     logger.error('Failed to start server:', error);
     process.exit(1);

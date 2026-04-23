@@ -117,7 +117,7 @@ router.put('/:id/review', authenticate, authorize('CUSTOMER'), validate(addRevie
 
 // Protected routes - Restaurant owners
 router.get('/restaurant/:restaurantId', authenticate, authorize('BRANCH_MANAGER', 'ADMIN', 'SUPER_ADMIN'), validateParams(restaurantParamsSchema), orderController.getRestaurantOrders);
-router.put('/:id/status', authenticate, authorize('BRANCH_MANAGER', 'ADMIN', 'CHEF', 'KITCHEN', 'COOK', 'HEAD_CHEF', 'SOUS_CHEF', 'KITCHEN_MANAGER', 'RIDER', 'WAITER', 'SUPER_ADMIN'), validate(updateStatusSchema), orderController.updateOrderStatus);
+router.put('/:id/status', authenticate, authorize('BRANCH_MANAGER', 'MANAGER', 'ADMIN', 'CHEF', 'KITCHEN', 'COOK', 'HEAD_CHEF', 'SOUS_CHEF', 'KITCHEN_MANAGER', 'RIDER', 'WAITER', 'SUPER_ADMIN'), validate(updateStatusSchema), orderController.updateOrderStatus);
 router.put('/:id/cancel-restaurant', authenticate, authorize('BRANCH_MANAGER', 'ADMIN', 'WAITER', 'SUPER_ADMIN'), validate(cancelOrderSchema), orderController.cancelOrder);
 router.get('/stats/:restaurantId', authenticate, authorize('BRANCH_MANAGER', 'ADMIN', 'SUPER_ADMIN'), validateParams(restaurantParamsSchema), orderController.getOrderStats);
 
@@ -151,9 +151,9 @@ router.get('/waiter/my-orders', authenticate, authorize('WAITER', 'SUPER_ADMIN')
 router.get('/branch/all', authenticate, authorize('WAITER', 'BRANCH_MANAGER', 'ADMIN', 'SUPER_ADMIN', 'CHEF'), orderController.getBranchOrders);
 
 // PATCH order status - Waiter can mark as PICKED_UP, CHEF can update kitchen status
-router.patch('/:orderId', authenticate, authorize('WAITER', 'BRANCH_MANAGER', 'ADMIN', 'CHEF', 'KITCHEN', 'COOK', 'HEAD_CHEF', 'SOUS_CHEF', 'KITCHEN_MANAGER', 'SUPER_ADMIN'), orderController.patchOrderStatus);
+router.patch('/:orderId', authenticate, authorize('WAITER', 'BRANCH_MANAGER', 'MANAGER', 'ADMIN', 'CHEF', 'KITCHEN', 'COOK', 'HEAD_CHEF', 'SOUS_CHEF', 'KITCHEN_MANAGER', 'SUPER_ADMIN'), orderController.patchOrderStatus);
 
 // PATCH order status with /status suffix - for CHEF role status updates
-router.patch('/:orderId/status', authenticate, authorize('BRANCH_MANAGER', 'ADMIN', 'CHEF', 'KITCHEN', 'COOK', 'HEAD_CHEF', 'SOUS_CHEF', 'KITCHEN_MANAGER', 'RIDER', 'SUPER_ADMIN'), orderController.patchOrderStatus);
+router.patch('/:orderId/status', authenticate, authorize('BRANCH_MANAGER', 'MANAGER', 'ADMIN', 'CHEF', 'KITCHEN', 'COOK', 'HEAD_CHEF', 'SOUS_CHEF', 'KITCHEN_MANAGER', 'RIDER', 'SUPER_ADMIN'), orderController.patchOrderStatus);
 
 export default router;

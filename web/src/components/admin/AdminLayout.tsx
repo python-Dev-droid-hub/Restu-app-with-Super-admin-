@@ -6,11 +6,15 @@ import AdminTopBar from './AdminTopBar';
 const SIDEBAR_WIDTH = 260;
 const TOPBAR_HEIGHT = 64;
 
+const Sidebar = AdminSidebar as React.ComponentType<{ mode?: 'admin' | 'manager' | 'chef' }>;
+const TopBar = AdminTopBar as React.ComponentType<{ mode?: 'admin' | 'manager' | 'chef' }>;
+
 interface AdminLayoutProps {
   children: React.ReactNode;
+  mode?: 'admin' | 'manager' | 'chef';
 }
 
-const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
+const AdminLayout: React.FC<AdminLayoutProps> = ({ children, mode = 'admin' }) => {
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
       {/* Sidebar */}
@@ -23,7 +27,7 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
           zIndex: 200,
         }}
       >
-        <AdminSidebar />
+        <Sidebar mode={mode} />
       </Box>
 
       {/* Main Content Area */}
@@ -38,7 +42,7 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
       >
         {/* Top Bar */}
         <Box sx={{ height: TOPBAR_HEIGHT, zIndex: 100 }}>
-          <AdminTopBar />
+          <TopBar mode={mode} />
         </Box>
 
         {/* Page Content */}

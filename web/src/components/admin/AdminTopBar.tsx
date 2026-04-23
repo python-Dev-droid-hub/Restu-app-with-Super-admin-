@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   AppBar,
   Toolbar,
@@ -17,9 +17,11 @@ import {
   Notifications as NotificationIcon,
   ShoppingCart,
   Search,
+  Close,
   KeyboardArrowDown,
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { io, type Socket } from 'socket.io-client';
 import { api } from '../../services/api';
 
 const SIDEBAR_WIDTH = 260;
@@ -33,49 +35,95 @@ const sanitizeWebImageSrc = (src: unknown): string | null => {
   return trimmed;
 };
 
-const AdminTopBar: React.FC = () => {
+const AdminTopBar: React.FC<{ mode?: 'admin' | 'manager' | 'chef' }> = ({ mode = 'admin' }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [profileMenuAnchor, setProfileMenuAnchor] = useState<null | HTMLElement>(null);
   const [notificationCount, setNotificationCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [adminName, setAdminName] = useState('Admin');
   const [profileImage, setProfileImage] = useState<string | null>(null);
+  const socketRef = useRef<Socket | null>(null);
+  const urlQuery = useMemo(() => new URLSearchParams(location.search).get('q') || '', [location.search]);
+  const [searchValue, setSearchValue] = useState(urlQuery);
+
+  useEffect(() => {
+    setSearchValue((prev) => (prev === urlQuery ? prev : urlQuery));
+  }, [urlQuery]);
 
   // Fetch notification counts and user data
   useEffect(() => {
-    const fetchData = async () => {
+    setLoading(true);
+    const userData = localStorage.getItem('userData');
+    if (userData) {
       try {
-        setLoading(true);
-
-        // Load user data from localStorage
-        const userData = localStorage.getItem('userData');
-        if (userData) {
-          try {
-            const parsed = JSON.parse(userData);
-            setAdminName(parsed.name || parsed.displayName || 'Admin');
-            setProfileImage(sanitizeWebImageSrc(parsed.avatar || parsed.image || parsed.profileImage));
-          } catch (e) {
-            console.error('Error parsing user data:', e);
-          }
-        }
-
-        // Fetch notification count
-        const notifRes = await api.getNotificationUnreadCount().catch(() => ({ success: false, data: null }));
-        if (notifRes.success && notifRes.data) {
-          const data = notifRes.data as { unreadCount?: number; count?: number };
-          setNotificationCount(data.unreadCount || data.count || 0);
-        }
-      } catch (err) {
-        console.error('[TopBar Error]', err);
-      } finally {
-        setLoading(false);
+        const parsed = JSON.parse(userData);
+        setAdminName(parsed.name || parsed.displayName || 'Admin');
+        setProfileImage(sanitizeWebImageSrc(parsed.avatar || parsed.image || parsed.profileImage));
+      } catch (e) {
+        console.error('Error parsing user data:', e);
       }
+    }
+    setLoading(false);
+
+    if (mode === 'chef') {
+      let cancelled = false;
+
+      const fetchUnread = async () => {
+        const res = await api.get<any>('/notifications/chef/unread-count');
+        if (cancelled) return;
+        if (res?.success) {
+          setNotificationCount(Number(res?.data?.unreadCount ?? 0));
+        } else {
+          setNotificationCount(0);
+        }
+      };
+
+      void fetchUnread();
+      const intervalId = window.setInterval(() => {
+        void fetchUnread();
+      }, 30000);
+
+      return () => {
+        cancelled = true;
+        window.clearInterval(intervalId);
+      };
+    }
+
+    if (socketRef.current) return;
+
+    const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken') || '';
+    const rawApiUrl = (import.meta as any)?.env?.VITE_API_URL as string | undefined;
+    const rawProxyTarget = (import.meta as any)?.env?.VITE_PROXY_TARGET as string | undefined;
+
+    const normalizeHost = (value?: string): string => {
+      const v = (value || '').trim();
+      if (!v) return '';
+      return v.replace(/\/?api\/?$/, '').replace(/\/$/, '');
     };
 
-    fetchData();
-    const interval = setInterval(fetchData, 30000); // Refresh every 30 seconds
-    return () => clearInterval(interval);
-  }, []);
+    const socketUrl = normalizeHost(rawProxyTarget) || normalizeHost(rawApiUrl) || 'http://localhost:3101';
+
+    const socket = io(socketUrl, {
+      path: '/socket.io',
+      transports: ['websocket', 'polling'],
+      auth: token ? { token } : undefined,
+    });
+    socketRef.current = socket;
+
+    const requestUnread = () => socket.emit('admin_unread_count:get');
+
+    socket.on('connect', requestUnread);
+    socket.on('admin_unread_count:data', (payload: any) => {
+      setNotificationCount(typeof payload?.unreadCount === 'number' ? payload.unreadCount : 0);
+    });
+    socket.on('notification', requestUnread);
+
+    return () => {
+      socketRef.current?.disconnect();
+      socketRef.current = null;
+    };
+  }, [mode]);
 
   const handleProfileMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
     setProfileMenuAnchor(event.currentTarget);
@@ -98,6 +146,26 @@ const AdminTopBar: React.FC = () => {
     handleProfileMenuClose();
   };
 
+  const basePath = mode === 'manager' ? '/manager' : mode === 'chef' ? '/chef' : '/admin';
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const params = new URLSearchParams(location.search);
+      const trimmed = searchValue.trim();
+      if (trimmed) params.set('q', trimmed);
+      else params.delete('q');
+      const nextSearch = params.toString();
+      const normalizedNext = nextSearch ? `?${nextSearch}` : '';
+      if (normalizedNext !== location.search) {
+        navigate({ pathname: location.pathname, search: normalizedNext }, { replace: true });
+      }
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [location.pathname, location.search, navigate, searchValue]);
+
   return (
     <AppBar
       position="fixed"
@@ -119,6 +187,20 @@ const AdminTopBar: React.FC = () => {
           variant="outlined"
           placeholder="Search..."
           size="small"
+          value={searchValue}
+          onChange={(e) => setSearchValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter') return;
+            const params = new URLSearchParams(location.search);
+            const trimmed = searchValue.trim();
+            if (trimmed) params.set('q', trimmed);
+            else params.delete('q');
+            const nextSearch = params.toString();
+            const normalizedNext = nextSearch ? `?${nextSearch}` : '';
+            if (normalizedNext !== location.search) {
+              navigate({ pathname: location.pathname, search: normalizedNext }, { replace: true });
+            }
+          }}
           sx={{
             width: 400,
             maxWidth: 500,
@@ -145,6 +227,18 @@ const AdminTopBar: React.FC = () => {
                 <Search sx={{ color: '#999', fontSize: 20 }} />
               </InputAdornment>
             ),
+            endAdornment: searchValue.trim() ? (
+              <InputAdornment position="end">
+                <IconButton
+                  size="small"
+                  aria-label="Clear search"
+                  onClick={() => setSearchValue('')}
+                  sx={{ color: '#999' }}
+                >
+                  <Close sx={{ fontSize: 18 }} />
+                </IconButton>
+              </InputAdornment>
+            ) : undefined,
           }}
         />
 
@@ -153,7 +247,7 @@ const AdminTopBar: React.FC = () => {
           {/* Notifications */}
           <IconButton
             size="small"
-            onClick={() => navigate('/admin/notifications')}
+            onClick={() => navigate(`${basePath}/notifications`)}
             sx={{
               color: '#666',
               width: 40,
@@ -163,15 +257,15 @@ const AdminTopBar: React.FC = () => {
               },
             }}
           >
-            <Badge 
-              badgeContent={notificationCount} 
+            <Badge
+              badgeContent={notificationCount}
               color="error"
               sx={{
                 '& .MuiBadge-badge': {
                   fontSize: 10,
                   minWidth: 16,
                   height: 16,
-                }
+                },
               }}
             >
               <NotificationIcon sx={{ fontSize: 20 }} />
@@ -179,21 +273,23 @@ const AdminTopBar: React.FC = () => {
           </IconButton>
 
           {/* Cart */}
-          <IconButton
-            size="small"
-            sx={{
-              color: '#666',
-              width: 40,
-              height: 40,
-              '&:hover': {
-                bgcolor: '#f5f5f5',
-              },
-            }}
-          >
-            <Badge badgeContent={0} color="error">
-              <ShoppingCart sx={{ fontSize: 20 }} />
-            </Badge>
-          </IconButton>
+          {mode === 'admin' && (
+            <IconButton
+              size="small"
+              sx={{
+                color: '#666',
+                width: 40,
+                height: 40,
+                '&:hover': {
+                  bgcolor: '#f5f5f5',
+                },
+              }}
+            >
+              <Badge badgeContent={0} color="error">
+                <ShoppingCart sx={{ fontSize: 20 }} />
+              </Badge>
+            </IconButton>
+          )}
 
           {/* Profile Dropdown */}
           <Box
@@ -229,6 +325,7 @@ const AdminTopBar: React.FC = () => {
                     cursor: 'pointer',
                   }}
                   src={profileImage || undefined}
+                  imgProps={{ loading: 'lazy', decoding: 'async' }}
                 >
                   {!profileImage && adminName.charAt(0).toUpperCase()}
                 </Avatar>
@@ -254,13 +351,13 @@ const AdminTopBar: React.FC = () => {
               },
             }}
           >
-            <MenuItem onClick={() => handleNavigate('/admin/settings')}>
+            <MenuItem onClick={() => handleNavigate(`${basePath}/settings`)}>
               Change profile name
             </MenuItem>
-            <MenuItem onClick={() => handleNavigate('/admin/settings')}>
+            <MenuItem onClick={() => handleNavigate(`${basePath}/settings`)}>
               Change profile image
             </MenuItem>
-            <MenuItem onClick={() => handleNavigate('/admin/settings')}>
+            <MenuItem onClick={() => handleNavigate(`${basePath}/settings`)}>
               Change password
             </MenuItem>
             <MenuItem onClick={handleLogout}>Logout</MenuItem>

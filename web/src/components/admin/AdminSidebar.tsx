@@ -38,29 +38,57 @@ interface MenuItem {
   key: string;
 }
 
-const AdminSidebar: React.FC = () => {
+const AdminSidebar: React.FC<{ mode?: 'admin' | 'manager' | 'chef' }> = ({ mode = 'admin' }) => {
   const navigate = useNavigate();
   const location = useLocation();
 
+  const basePath = mode === 'manager' ? '/manager' : mode === 'chef' ? '/chef' : '/admin';
+
   // All menu items visible directly - matching mobile admin interface
-  const menuItems: MenuItem[] = [
-    { label: 'Dashboard', icon: <Dashboard sx={{ fontSize: 20 }} />, path: '/admin/dashboard', key: 'dashboard' },
-    { label: 'Orders', icon: <ShoppingCart sx={{ fontSize: 20 }} />, path: '/admin/orders', key: 'orders' },
-    { label: 'Users', icon: <People sx={{ fontSize: 20 }} />, path: '/admin/customers', key: 'users' },
-    { label: 'Riders', icon: <TwoWheeler sx={{ fontSize: 20 }} />, path: '/admin/riders', key: 'riders' },
-    { label: 'Notifications', icon: <Notifications sx={{ fontSize: 20 }} />, path: '/admin/notifications', key: 'notifications' },
-    { label: 'Table Assignment', icon: <Apps sx={{ fontSize: 20 }} />, path: '/admin/table-assignment', key: 'table-assignment' },
-    { label: 'Categories', icon: <Category sx={{ fontSize: 20 }} />, path: '/admin/categories', key: 'categories' },
-    { label: 'Products', icon: <Fastfood sx={{ fontSize: 20 }} />, path: '/admin/products', key: 'products' },
-    { label: 'Menu', icon: <RestaurantMenu sx={{ fontSize: 20 }} />, path: '/admin/menu', key: 'menu' },
-    { label: 'Branches', icon: <Store sx={{ fontSize: 20 }} />, path: '/admin/branches', key: 'branches' },
-    { label: 'Banner Management', icon: <Image sx={{ fontSize: 20 }} />, path: '/admin/banners', key: 'banners' },
-    { label: 'Coupons', icon: <LocalOffer sx={{ fontSize: 20 }} />, path: '/admin/coupons', key: 'coupons' },
-    { label: 'Deals', icon: <Sell sx={{ fontSize: 20 }} />, path: '/admin/deals', key: 'deals' },
-    { label: 'Product Size', icon: <Fastfood sx={{ fontSize: 20 }} />, path: '/admin/product-size', key: 'product-size' },
-    { label: 'Reports', icon: <BarChart sx={{ fontSize: 20 }} />, path: '/admin/reports', key: 'reports' },
-    { label: 'Settings', icon: <Settings sx={{ fontSize: 20 }} />, path: '/admin/settings', key: 'settings' },
-  ];
+  const menuItems: MenuItem[] =
+    mode === 'chef'
+      ? [
+          { label: 'Home', icon: <Dashboard sx={{ fontSize: 20 }} />, path: `${basePath}/dashboard`, key: 'dashboard' },
+          { label: 'Cooking', icon: <RestaurantMenu sx={{ fontSize: 20 }} />, path: `${basePath}/cooking`, key: 'cooking' },
+          { label: 'Notifications', icon: <Notifications sx={{ fontSize: 20 }} />, path: `${basePath}/notifications`, key: 'notifications' },
+          { label: 'Profile', icon: <People sx={{ fontSize: 20 }} />, path: `${basePath}/profile`, key: 'profile' },
+        ]
+      : mode === 'manager'
+      ? [
+          { label: 'Dashboard', icon: <Dashboard sx={{ fontSize: 20 }} />, path: `${basePath}/dashboard`, key: 'dashboard' },
+          { label: 'Orders', icon: <ShoppingCart sx={{ fontSize: 20 }} />, path: `${basePath}/orders`, key: 'orders' },
+          { label: 'Users', icon: <People sx={{ fontSize: 20 }} />, path: `${basePath}/users`, key: 'users' },
+          { label: 'Riders', icon: <TwoWheeler sx={{ fontSize: 20 }} />, path: `${basePath}/riders`, key: 'riders' },
+          { label: 'Notifications', icon: <Notifications sx={{ fontSize: 20 }} />, path: `${basePath}/notifications`, key: 'notifications' },
+          { label: 'Table Assignment', icon: <Apps sx={{ fontSize: 20 }} />, path: `${basePath}/table-assignment`, key: 'table-assignment' },
+          { label: 'Categories', icon: <Category sx={{ fontSize: 20 }} />, path: `${basePath}/categories`, key: 'categories' },
+          { label: 'Products', icon: <Fastfood sx={{ fontSize: 20 }} />, path: `${basePath}/products`, key: 'products' },
+          { label: 'Menu', icon: <RestaurantMenu sx={{ fontSize: 20 }} />, path: `${basePath}/menu`, key: 'menu' },
+          { label: 'Banner Management', icon: <Image sx={{ fontSize: 20 }} />, path: `${basePath}/banners`, key: 'banners' },
+          { label: 'Coupons', icon: <LocalOffer sx={{ fontSize: 20 }} />, path: `${basePath}/coupons`, key: 'coupons' },
+          { label: 'Deals', icon: <Sell sx={{ fontSize: 20 }} />, path: `${basePath}/deals`, key: 'deals' },
+          { label: 'Product Size', icon: <Fastfood sx={{ fontSize: 20 }} />, path: `${basePath}/product-size`, key: 'product-size' },
+          { label: 'Reports', icon: <BarChart sx={{ fontSize: 20 }} />, path: `${basePath}/reports`, key: 'reports' },
+          { label: 'Settings', icon: <Settings sx={{ fontSize: 20 }} />, path: `${basePath}/settings`, key: 'settings' },
+        ]
+      : [
+          { label: 'Dashboard', icon: <Dashboard sx={{ fontSize: 20 }} />, path: `${basePath}/dashboard`, key: 'dashboard' },
+          { label: 'Orders', icon: <ShoppingCart sx={{ fontSize: 20 }} />, path: `${basePath}/orders`, key: 'orders' },
+          { label: 'Users', icon: <People sx={{ fontSize: 20 }} />, path: `${basePath}/customers`, key: 'users' },
+          { label: 'Riders', icon: <TwoWheeler sx={{ fontSize: 20 }} />, path: `${basePath}/riders`, key: 'riders' },
+          { label: 'Notifications', icon: <Notifications sx={{ fontSize: 20 }} />, path: `${basePath}/notifications`, key: 'notifications' },
+          { label: 'Table Assignment', icon: <Apps sx={{ fontSize: 20 }} />, path: `${basePath}/table-assignment`, key: 'table-assignment' },
+          { label: 'Categories', icon: <Category sx={{ fontSize: 20 }} />, path: `${basePath}/categories`, key: 'categories' },
+          { label: 'Products', icon: <Fastfood sx={{ fontSize: 20 }} />, path: `${basePath}/products`, key: 'products' },
+          { label: 'Menu', icon: <RestaurantMenu sx={{ fontSize: 20 }} />, path: `${basePath}/menu`, key: 'menu' },
+          { label: 'Branches', icon: <Store sx={{ fontSize: 20 }} />, path: `${basePath}/branches`, key: 'branches' },
+          { label: 'Banner Management', icon: <Image sx={{ fontSize: 20 }} />, path: `${basePath}/banners`, key: 'banners' },
+          { label: 'Coupons', icon: <LocalOffer sx={{ fontSize: 20 }} />, path: `${basePath}/coupons`, key: 'coupons' },
+          { label: 'Deals', icon: <Sell sx={{ fontSize: 20 }} />, path: `${basePath}/deals`, key: 'deals' },
+          { label: 'Product Size', icon: <Fastfood sx={{ fontSize: 20 }} />, path: `${basePath}/product-size`, key: 'product-size' },
+          { label: 'Reports', icon: <BarChart sx={{ fontSize: 20 }} />, path: `${basePath}/reports`, key: 'reports' },
+          { label: 'Settings', icon: <Settings sx={{ fontSize: 20 }} />, path: `${basePath}/settings`, key: 'settings' },
+        ];
 
   const isActive = (path: string): boolean => location.pathname === path;
 

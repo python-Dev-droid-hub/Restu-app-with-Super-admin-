@@ -1,12 +1,10 @@
 import type { ReactNode } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import {
   AppBar,
   Badge,
   Box,
   Button,
-  Stack,
-  Divider,
   Container,
   DialogActions,
   IconButton,
@@ -21,7 +19,6 @@ import {
   CircularProgress,
   FormControl,
   Grid,
-  TextField,
 } from '@mui/material';
 import {
   ExpandLess,
@@ -35,18 +32,13 @@ import {
   TempleBuddhist,
   LocationOn,
   Phone,
-  Add,
-  Remove,
-  Delete,
-  ShoppingBag,
   ShoppingCart,
-  ArrowForward,
   Close,
-  CheckCircle,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../services/api';
 import Footer from '../footer/Footer';
+import CustomerCartModal from './CustomerCartModal';
 
 type Branch = {
   _id: string;
@@ -70,60 +62,40 @@ type CartItem = {
   cartKey: string;
 };
 
-type SuggestedItem = {
-  id: string;
-  name: string;
-  price: number;
-  image?: string;
-};
-
-const extractImagePath = (raw: any): string => {
-  if (!raw) return '';
-  if (typeof raw === 'string') {
-    const trimmed = raw.trim();
-    if (!trimmed) return '';
-    if (trimmed.startsWith('data:image') || trimmed.startsWith('blob:') || trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('/')) {
-      return trimmed;
-    }
-    if ((trimmed.startsWith('[') && trimmed.endsWith(']')) || (trimmed.startsWith('{') && trimmed.endsWith('}'))) {
-      try {
-        return extractImagePath(JSON.parse(trimmed));
-      } catch {
-        return trimmed;
-      }
-    }
-    return trimmed;
-  }
-  if (Array.isArray(raw)) {
-    for (const item of raw) {
-      const found = extractImagePath(item);
-      if (found) return found;
-    }
-    return '';
-  }
-  if (typeof raw === 'object') {
-    return (
-      extractImagePath(raw.imageUrl) ||
-      extractImagePath(raw.image) ||
-      extractImagePath(raw.url) ||
-      extractImagePath(raw.src) ||
-      extractImagePath(raw.path) ||
-      ''
-    );
-  }
-  return '';
-};
-
 const extractCartArray = (parsed: any): any[] => {
+  if (!parsed) return [];
+  if (typeof parsed === 'string') {
+    const trimmed = parsed.trim();
+    if (!trimmed) return [];
+    try {
+      return extractCartArray(JSON.parse(trimmed));
+    } catch {
+      return [];
+    }
+  }
   if (Array.isArray(parsed)) return parsed;
-  if (!parsed || typeof parsed !== 'object') return [];
+  if (typeof parsed !== 'object') return [];
+
+  const arrayLikeLength = (parsed as any)?.length;
+  if (typeof arrayLikeLength === 'number' && Number.isFinite(arrayLikeLength) && arrayLikeLength > 0) {
+    const cap = Math.min(1000, Math.max(0, Math.floor(arrayLikeLength)));
+    const list: any[] = [];
+    for (let i = 0; i < cap; i += 1) {
+      const value = (parsed as any)[i];
+      if (value != null) list.push(value);
+    }
+    if (list.length > 0) return list;
+  }
+
   const nestedCandidates = [
     parsed?.items,
     parsed?.cartItems,
     parsed?.cart,
+    parsed?.cart?.items,
     parsed?.data?.items,
     parsed?.data?.cartItems,
     parsed?.data?.cart,
+    parsed?.data?.cart?.items,
   ];
   for (const candidate of nestedCandidates) {
     if (Array.isArray(candidate)) return candidate;
@@ -171,21 +143,6 @@ const toStoredCartItems = (items: CartItem[]) => {
     delete next.cartKey;
     return next;
   });
-};
-
-const readNormalizedCartFromStorage = () => {
-  try {
-    const raw = localStorage.getItem('customer_cart');
-    const parsed = raw ? JSON.parse(raw) : [];
-    const normalized = normalizeCartItems(parsed);
-    if (!Array.isArray(parsed) && normalized.length > 0) {
-      localStorage.setItem('customer_cart', JSON.stringify(toStoredCartItems(normalized)));
-    }
-    const count = normalized.reduce((sum, item) => sum + (Number(item?.quantity) || 0), 0);
-    return { normalized, count };
-  } catch {
-    return { normalized: [] as CartItem[], count: 0 };
-  }
 };
 
 const PHONE_NUMBER = '03044996996';
@@ -513,12 +470,9 @@ export default function CustomerLayout({ children }: { children: ReactNode }) {
   const [locationDialogOpen, setLocationDialogOpen] = useState(false);
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
   const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null);
-  const [cartCount, setCartCount] = useState(0);
   const [cartOpen, setCartOpen] = useState(false);
-  const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [taxRate, setTaxRate] = useState(0);
   const [deliveryFee, setDeliveryFee] = useState(0);
-  const [suggestedItems, setSuggestedItems] = useState<SuggestedItem[]>([]);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [checkoutName, setCheckoutName] = useState('');
   const [checkoutPhone, setCheckoutPhone] = useState('');
@@ -557,12 +511,44 @@ export default function CustomerLayout({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const cartStorageSnapshot = useSyncExternalStore(
+    (onStoreChange) => {
+      const onStorage = (e: StorageEvent) => {
+        if (e.key === 'customer_cart') onStoreChange();
+      };
+      const onCustom = () => onStoreChange();
+      window.addEventListener('storage', onStorage);
+      window.addEventListener('customer_cart_updated', onCustom as EventListener);
+      return () => {
+        window.removeEventListener('storage', onStorage);
+        window.removeEventListener('customer_cart_updated', onCustom as EventListener);
+      };
+    },
+    () => localStorage.getItem('customer_cart') || '[]',
+    () => '[]'
+  );
+
+  const storageCartItems = useMemo(() => {
+    try {
+      const parsed = JSON.parse(cartStorageSnapshot || '[]');
+      return normalizeCartItems(parsed);
+    } catch {
+      return [] as CartItem[];
+    }
+  }, [cartStorageSnapshot]);
+
+  const storageCartCount = useMemo(() => {
+    return storageCartItems.reduce((sum, item) => sum + (Number(item?.quantity) || 0), 0);
+  }, [storageCartItems]);
+
+  const openMiniCartFromStorage = () => {
+    setCheckoutOpen(false);
+    setCartOpen(true);
+  };
+
   useEffect(() => {
     const openCart = () => {
-      const { normalized, count } = readNormalizedCartFromStorage();
-      setCartCount(count);
-      setCartItems(normalized);
-      setCartOpen(true);
+      openMiniCartFromStorage();
     };
     window.addEventListener('open_mini_cart', openCart as EventListener);
     return () => {
@@ -586,45 +572,7 @@ export default function CustomerLayout({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  useEffect(() => {
-    const update = () => {
-      const { normalized, count } = readNormalizedCartFromStorage();
-      setCartCount(count);
-      setCartItems(normalized);
-    };
-    update();
-
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === 'customer_cart') update();
-    };
-    const onCustom = () => update();
-
-    window.addEventListener('storage', onStorage);
-    window.addEventListener('customer_cart_updated', onCustom as EventListener);
-
-    return () => {
-      window.removeEventListener('storage', onStorage);
-      window.removeEventListener('customer_cart_updated', onCustom as EventListener);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!cartOpen) return;
-    const { normalized, count } = readNormalizedCartFromStorage();
-    setCartCount(count);
-    setCartItems(normalized);
-  }, [cartOpen]);
-
-  const visibleCartItems = useMemo(() => {
-    if (cartItems.length > 0) return cartItems;
-    try {
-      const raw = localStorage.getItem('customer_cart');
-      if (!raw) return [];
-      return normalizeCartItems(JSON.parse(raw));
-    } catch {
-      return [];
-    }
-  }, [cartItems]);
+  const visibleCartItems = storageCartItems;
 
   useEffect(() => {
     const loadBranchCharges = async () => {
@@ -642,40 +590,9 @@ export default function CustomerLayout({ children }: { children: ReactNode }) {
     loadBranchCharges();
   }, [selectedBranchId]);
 
-  useEffect(() => {
-    const loadSuggestions = async () => {
-      if (!cartOpen || visibleCartItems.length === 0) return;
-      try {
-        const hasBranch = selectedBranchId && selectedBranchId !== 'all';
-        const menuUrl = hasBranch ? `/menu?branchId=${encodeURIComponent(selectedBranchId)}` : '/menu';
-        const menuRes: any = await api.get(menuUrl);
-        const categories = menuRes?.data?.categories || menuRes?.data?.data?.categories || [];
-        const cartIds = new Set(visibleCartItems.map((i) => i.productId));
-        const products: SuggestedItem[] = (Array.isArray(categories) ? categories : [])
-          .flatMap((cat: any) => {
-            const list = Array.isArray(cat?.products) ? cat.products : (Array.isArray(cat?.items) ? cat.items : []);
-            return list.map((p: any) => ({
-              id: String(p?._id || p?.id || ''),
-              name: String(p?.name || 'Item'),
-              price: Number(p?.price || 0),
-              image: extractImagePath([p?.images, p?.imageUrl, p?.image, p?.thumbnail, p?.media]),
-              isAvailable: p?.isAvailable !== false,
-            }));
-          })
-          .filter((p: any) => p.id && p.isAvailable && !cartIds.has(p.id))
-          .slice(0, 6);
-        setSuggestedItems(products);
-      } catch {
-        setSuggestedItems([]);
-      }
-    };
-    loadSuggestions();
-  }, [cartOpen, visibleCartItems, selectedBranchId]);
-
   const writeCart = (items: CartItem[]) => {
     const normalized = toStoredCartItems(items);
     localStorage.setItem('customer_cart', JSON.stringify(normalized));
-    setCartItems(normalizeCartItems(normalized));
     window.dispatchEvent(new Event('customer_cart_updated'));
   };
 
@@ -695,27 +612,6 @@ export default function CustomerLayout({ children }: { children: ReactNode }) {
   const cartSubtotal = visibleCartItems.reduce((sum, i) => sum + (Number(i.price) || 0) * (Number(i.quantity) || 0), 0);
   const taxAmount = (cartSubtotal * Number(taxRate || 0)) / 100;
   const grandTotal = cartSubtotal + taxAmount + Number(deliveryFee || 0);
-
-  const addSuggestedToCart = (item: SuggestedItem) => {
-    const idx = visibleCartItems.findIndex((i) => i.productId === item.id && !i.specialInstructions);
-    if (idx >= 0) {
-      const next = [...visibleCartItems];
-      next[idx] = { ...next[idx], quantity: Number(next[idx].quantity || 0) + 1 };
-      writeCart(next);
-      return;
-    }
-    writeCart([
-      ...visibleCartItems,
-      {
-        productId: item.id,
-        name: item.name,
-        price: Number(item.price || 0),
-        image: item.image,
-        quantity: 1,
-        cartKey: `${item.id}::`,
-      },
-    ]);
-  };
 
   const handleLocationClick = () => {
     setLocationDialogOpen(true);
@@ -747,26 +643,6 @@ export default function CustomerLayout({ children }: { children: ReactNode }) {
         }}
       >
         <Container maxWidth="lg">
-          <Box sx={{ pt: 1.2, pb: 0.6, px: { xs: 0, sm: 2 } }}>
-            <Box
-              sx={{
-                width: '100%',
-                borderRadius: 999,
-                px: { xs: 1.2, sm: 2.2 },
-                py: 0.6,
-                textAlign: 'center',
-                fontWeight: 900,
-                fontSize: { xs: 12, sm: 20 },
-                color: '#fff',
-                background: 'linear-gradient(90deg, #ffc36d 0%, #f78a53 28%, #b86bff 100%)',
-                boxShadow: '0 6px 18px rgba(187,104,255,0.35)',
-                border: '1px solid rgba(255,255,255,0.55)',
-                letterSpacing: 0.2,
-              }}
-            >
-              🌧️ Rain Alert: Delivery may be delayed &nbsp; | &nbsp; 🔥 20% OFF on Burgers
-            </Box>
-          </Box>
           <Toolbar sx={{ gap: { xs: 1, sm: 1.6 }, px: { xs: 0, sm: 2 }, py: 0.9, minHeight: 74 }}>
             {/* Logo */}
             <Box
@@ -893,11 +769,7 @@ export default function CustomerLayout({ children }: { children: ReactNode }) {
             >
               <IconButton
                 onClick={() => {
-                  const { normalized, count } = readNormalizedCartFromStorage();
-                  setCartCount(count);
-                  setCartItems(normalized);
-                  setCheckoutOpen(false);
-                  setCartOpen(true);
+                  openMiniCartFromStorage();
                 }}
                 sx={{
                   color: '#2f344a',
@@ -908,7 +780,7 @@ export default function CustomerLayout({ children }: { children: ReactNode }) {
                 }}
               >
                 <Badge
-                  badgeContent={cartCount}
+                  badgeContent={storageCartCount}
                   color="error"
                   sx={{
                     '& .MuiBadge-badge': {
@@ -936,409 +808,35 @@ export default function CustomerLayout({ children }: { children: ReactNode }) {
         onSelect={handleBranchSelect}
       />
 
-      <Dialog
+      <CustomerCartModal
         open={cartOpen}
-        onClose={() => {
-          setCartOpen(false);
-          setCheckoutOpen(false);
-        }}
-        maxWidth={checkoutOpen ? 'lg' : 'sm'}
-        fullWidth
-        sx={{
-          '& .MuiDialog-container': {
-            alignItems: checkoutOpen ? 'center' : 'stretch',
-            justifyContent: checkoutOpen ? 'center' : { xs: 'center', md: 'flex-end' },
-          },
-        }}
-        PaperProps={{
-          sx: {
-            width: checkoutOpen ? 'calc(100% - 16px)' : { xs: '100%', sm: 430, md: 460 },
-            maxWidth: checkoutOpen ? undefined : { xs: '100%', sm: 430, md: 460 },
-            height: checkoutOpen ? 'auto' : { xs: '100dvh', sm: '100dvh' },
-            maxHeight: checkoutOpen ? 'calc(100dvh - 32px)' : '100dvh',
-            m: checkoutOpen ? { xs: 1, sm: 2 } : 0,
-            borderRadius: checkoutOpen ? { xs: 3, sm: 5 } : { xs: 0, sm: 0 },
-            boxShadow: '0 18px 44px rgba(0,0,0,0.22)',
-            overflow: 'hidden',
-            display: 'flex',
-            flexDirection: 'column',
-          },
-        }}
-      >
-        <DialogTitle
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            pb: 1,
-          }}
-        >
-          <Typography component="span" variant="h6" sx={{ fontWeight: 800, color: 'var(--text-primary)' }}>
-            {checkoutOpen ? 'Checkout' : 'Your Cart'}
-          </Typography>
-          <IconButton
-            onClick={() => {
-              setCartOpen(false);
-              setCheckoutOpen(false);
-            }}
-            size="small"
-          >
-            <Close />
-          </IconButton>
-        </DialogTitle>
-        <DialogContent
-          sx={{
-            pt: 0,
-            px: checkoutOpen ? { xs: 1.25, sm: 3 } : { xs: 1.25, sm: 2 },
-            pb: checkoutOpen ? { xs: 1.5, sm: 2.5 } : { xs: 1.5, sm: 2 },
-            overflowX: 'hidden',
-            overflowY: checkoutOpen ? 'auto' : 'auto',
-            flex: 1,
-            '&::-webkit-scrollbar': { width: 7 },
-            '&::-webkit-scrollbar-thumb': { backgroundColor: '#c7c7c7', borderRadius: 999 },
-          }}
-        >
-          {checkoutOpen ? (
-            <Box sx={{ pb: 0.5 }}>
-              <Grid container spacing={2.5} alignItems="stretch">
-                <Grid size={{ xs: 12, md: 7.2 }}>
-                  <Typography sx={{ fontWeight: 800, fontSize: { xs: 32, sm: 44 }, lineHeight: 1.05, color: '#111', mb: 1 }}>
-                    Checkout
-                  </Typography>
-                  <Typography sx={{ fontWeight: 800, fontSize: 18, lineHeight: 1.1, color: '#2a2a2a', mb: 2 }}>Delivery Order</Typography>
-                  <Grid container spacing={1.5}>
-                    <Grid size={{ xs: 12, sm: 6 }}>
-                      <TextField
-                        placeholder="Full Name"
-                        value={checkoutName}
-                        onChange={(e) => setCheckoutName(e.target.value)}
-                        fullWidth
-                        sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2.5, fontWeight: 600, bgcolor: '#fff' } }}
-                      />
-                    </Grid>
-                    <Grid size={{ xs: 12, sm: 6 }}>
-                      <TextField
-                        placeholder="Email Address"
-                        value={checkoutEmail}
-                        onChange={(e) => setCheckoutEmail(e.target.value)}
-                        fullWidth
-                        sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2.5, fontWeight: 600, bgcolor: '#fff' } }}
-                      />
-                    </Grid>
-                    <Grid size={{ xs: 12, sm: 6 }}>
-                      <TextField
-                        placeholder="Mobile Number"
-                        value={checkoutPhone}
-                        onChange={(e) => setCheckoutPhone(e.target.value)}
-                        fullWidth
-                        sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2.5, fontWeight: 600, bgcolor: '#fff' } }}
-                      />
-                    </Grid>
-                    <Grid size={{ xs: 12, sm: 6 }}>
-                      <TextField
-                        placeholder="Alternate Number"
-                        value={checkoutAltPhone}
-                        onChange={(e) => setCheckoutAltPhone(e.target.value)}
-                        fullWidth
-                        sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2.5, fontWeight: 600, bgcolor: '#fff' } }}
-                      />
-                    </Grid>
-                    <Grid size={{ xs: 12 }}>
-                      <TextField
-                        placeholder="Delivery Address"
-                        value={checkoutAddress}
-                        onChange={(e) => setCheckoutAddress(e.target.value)}
-                        fullWidth
-                        sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2.5, fontWeight: 600, bgcolor: '#fff' } }}
-                      />
-                    </Grid>
-                    <Grid size={{ xs: 12, sm: 6 }}>
-                      <TextField
-                        placeholder="Nearest Landmark"
-                        value={checkoutLandmark}
-                        onChange={(e) => setCheckoutLandmark(e.target.value)}
-                        fullWidth
-                        sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2.5, fontWeight: 600, bgcolor: '#fff' } }}
-                      />
-                    </Grid>
-                    <Grid size={{ xs: 12, sm: 6 }}>
-                      <TextField
-                        placeholder="Delivery Instructions"
-                        value={deliveryInstructions}
-                        onChange={(e) => setDeliveryInstructions(e.target.value)}
-                        fullWidth
-                        sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2.5, fontWeight: 600, bgcolor: '#fff' } }}
-                      />
-                    </Grid>
-                  </Grid>
-                </Grid>
-                <Grid size={{ xs: 12, md: 4.8 }}>
-                  <Paper sx={{ border: '1px solid #e8e8e8', borderRadius: 4, p: 2.2, height: '100%' }}>
-                    <Typography sx={{ fontWeight: 900, fontSize: { xs: 30, sm: 42 }, lineHeight: 1, color: '#111', mb: 1.2 }}>
-                      Your Order
-                    </Typography>
-                    <Stack spacing={1} sx={{ mb: 1.8 }}>
-                      <Stack direction="row" justifyContent="space-between" alignItems="center">
-                        <Typography sx={{ color: '#3b3b3b', fontSize: 18, fontWeight: 700, lineHeight: 1 }}>Total</Typography>
-                        <Typography sx={{ color: '#111', fontWeight: 800, fontSize: 20, lineHeight: 1 }}>Rs. {cartSubtotal.toFixed(0)}</Typography>
-                      </Stack>
-                      <Stack direction="row" justifyContent="space-between" alignItems="center">
-                        <Typography sx={{ color: '#3b3b3b', fontSize: 18, fontWeight: 700, lineHeight: 1 }}>Tax {Number(taxRate || 0).toFixed(0)}%</Typography>
-                        <Typography sx={{ color: '#111', fontWeight: 800, fontSize: 20, lineHeight: 1 }}>Rs. {taxAmount.toFixed(0)}</Typography>
-                      </Stack>
-                      <Stack direction="row" justifyContent="space-between" alignItems="center">
-                        <Typography sx={{ color: '#3b3b3b', fontSize: 18, fontWeight: 700, lineHeight: 1 }}>Delivery Fee</Typography>
-                        <Typography sx={{ color: '#111', fontWeight: 800, fontSize: 20, lineHeight: 1 }}>Rs. {Number(deliveryFee || 0).toFixed(0)}</Typography>
-                      </Stack>
-                      <Divider sx={{ my: 0.5, borderColor: '#dedede' }} />
-                      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ gap: 1 }}>
-                        <Typography sx={{ color: '#111', fontSize: { xs: 30, sm: 46 }, fontWeight: 900, lineHeight: 1 }}>
-                          Grand Total
-                        </Typography>
-                        <Typography sx={{ color: '#111', fontSize: { xs: 34, sm: 54 }, fontWeight: 900, lineHeight: 1 }}>
-                          Rs. {grandTotal.toFixed(0)}
-                        </Typography>
-                      </Stack>
-                    </Stack>
-                    <Button
-                      fullWidth
-                      variant="contained"
-                      sx={{ bgcolor: 'var(--primary)', py: 1.3, borderRadius: 999, fontWeight: 900, fontSize: 18, '&:hover': { bgcolor: 'var(--primary-hover)' } }}
-                      onClick={() => {
-                        clearCart();
-                        setCheckoutOpen(false);
-                        setCartOpen(false);
-                      }}
-                    >
-                      Place Order
-                    </Button>
-                    <Paper sx={{ mt: 1.6, p: 1.5, bgcolor: '#f4f8ff', borderRadius: 3, border: '1px solid #dbe8ff' }}>
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <CheckCircle sx={{ color: '#2e7d32', fontSize: 20 }} />
-                        <Typography sx={{ color: '#123', fontWeight: 800, fontSize: 14, lineHeight: 1.25 }}>
-                          Your order will be delivered approximately in 45 minutes.
-                        </Typography>
-                      </Stack>
-                    </Paper>
-                  </Paper>
-                </Grid>
-              </Grid>
-            </Box>
-          ) : visibleCartItems.length === 0 ? (
-            <Box sx={{ py: 6, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
-              <ShoppingBag sx={{ fontSize: 72, color: 'var(--primary)' }} />
-              <Typography sx={{ mt: 2, fontWeight: 900, fontSize: 20, color: 'var(--text-primary)' }}>
-                Your Cart is Empty
-              </Typography>
-              <Typography sx={{ mt: 0.5, color: 'var(--text-secondary)', maxWidth: 360 }}>
-                Looks like you haven’t added anything to your cart yet. Start exploring and shop your favorite items!
-              </Typography>
-              <Button
-                variant="contained"
-                sx={{ mt: 2, bgcolor: 'var(--primary)', '&:hover': { bgcolor: 'var(--primary-hover)' } }}
-                onClick={() => {
-                  setCartOpen(false);
-                  navigate('/customer');
-                }}
-              >
-                Browse Products
-              </Button>
-            </Box>
-          ) : (
-            <Box sx={{ pb: 0, height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-              <Paper
-                sx={{
-                  border: '1px solid var(--border-color)',
-                  borderRadius: 2,
-                  boxShadow: 'var(--shadow-sm)',
-                  overflow: 'hidden',
-                  mb: 1.5,
-                  bgcolor: '#fff',
-                }}
-              >
-                <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
-                  <Typography sx={{ fontWeight: 800 }}>Selected items ({visibleCartItems.length})</Typography>
-                  <Stack direction="row" spacing={1} sx={{ width: { xs: '100%', sm: 'auto' }, justifyContent: { xs: 'flex-end', sm: 'flex-start' } }}>
-                    <Button size="small" onClick={() => setCartOpen(false)} sx={{ textTransform: 'none' }}>Add more items</Button>
-                    <Button size="small" color="error" onClick={clearCart} sx={{ textTransform: 'none' }}>Clear</Button>
-                  </Stack>
-                </Box>
-                <Divider />
-                <Box sx={{ maxHeight: { xs: '30dvh', sm: '32dvh' }, overflowY: 'auto', p: 1 }}>
-                  <Stack spacing={1.5}>
-                    {visibleCartItems.map((i) => {
-                      const rawImg = Array.isArray((i as any)?.images) ? (i as any).images[0] : (i.image as any);
-                      const imgUrl = api.getImageUrl(rawImg);
-                      return (
-                        <Box key={i.cartKey}>
-                          <Stack direction="row" alignItems="center" spacing={1.5} sx={{ flexWrap: { xs: 'wrap', sm: 'nowrap' } }}>
-                            <Box
-                              sx={{
-                                width: 56,
-                                height: 56,
-                                borderRadius: 2,
-                                border: '1px solid var(--border-color)',
-                                overflow: 'hidden',
-                                bgcolor: '#fff',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                              }}
-                            >
-                              {imgUrl ? (
-                                <Box component="img" src={imgUrl} alt={i.name} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                              ) : (
-                                <Box sx={{ width: '100%', height: '100%', bgcolor: 'var(--primary-light)' }} />
-                              )}
-                            </Box>
-                            <Box sx={{ flex: 1, minWidth: 0 }}>
-                              <Typography
-                                sx={{
-                                  fontWeight: 800,
-                                  color: 'var(--text-primary)',
-                                  display: '-webkit-box',
-                                  WebkitLineClamp: 2,
-                                  WebkitBoxOrient: 'vertical',
-                                  overflow: 'hidden',
-                                  lineHeight: 1.2,
-                                }}
-                              >
-                                {i.name}
-                              </Typography>
-                              <Typography sx={{ color: 'var(--primary)', fontWeight: 900 }}>₨{Number(i.price || 0).toFixed(0)}</Typography>
-                              {i.specialInstructions ? (
-                                <Typography sx={{ color: 'var(--text-secondary)', fontSize: 12, wordBreak: 'break-word' }}>
-                                  Note: {i.specialInstructions}
-                                </Typography>
-                              ) : null}
-                            </Box>
-                            <Stack
-                              direction="row"
-                              alignItems="center"
-                              spacing={0.5}
-                              sx={{ ml: { xs: 'auto', sm: 0 }, width: { xs: '100%', sm: 'auto' }, justifyContent: { xs: 'flex-end', sm: 'flex-start' } }}
-                            >
-                              <IconButton size="small" onClick={() => changeQty(i.cartKey, -1)}>
-                                <Remove fontSize="small" />
-                              </IconButton>
-                              <Typography sx={{ fontWeight: 900, minWidth: 22, textAlign: 'center' }}>{i.quantity}</Typography>
-                              <IconButton size="small" onClick={() => changeQty(i.cartKey, 1)}>
-                                <Add fontSize="small" />
-                              </IconButton>
-                              <IconButton size="small" color="error" onClick={() => removeItem(i.cartKey)}>
-                                <Delete fontSize="small" />
-                              </IconButton>
-                            </Stack>
-                          </Stack>
-                        </Box>
-                      );
-                    })}
-                  </Stack>
-                </Box>
-              </Paper>
-
-              {suggestedItems.length > 0 ? (
-                <Paper sx={{ border: '1px solid var(--border-color)', borderRadius: 2, boxShadow: 'var(--shadow-sm)', mb: 1.5, p: 1.5 }}>
-                  <Typography sx={{ fontWeight: 900, color: 'var(--text-primary)' }}>Popular with your order</Typography>
-                  <Typography sx={{ color: 'var(--text-secondary)', fontSize: 13, mb: 1 }}>
-                    Customers often buy these together
-                  </Typography>
-                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr' }, gap: 1 }}>
-                    {suggestedItems.map((s) => {
-                      const imgUrl = api.getImageUrl(s.image);
-                      return (
-                        <Paper key={s.id} sx={{ p: 1, borderRadius: 2, border: '1px solid var(--border-color)', boxShadow: 'none', overflow: 'hidden', minWidth: 0 }}>
-                          <Stack direction="row" spacing={1} alignItems="center">
-                            <Box sx={{ width: 44, height: 44, borderRadius: '50%', border: '1px solid var(--border-color)', overflow: 'hidden', bgcolor: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                              {imgUrl ? (
-                                <Box component="img" src={imgUrl} alt={s.name} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                              ) : (
-                                <Typography sx={{ fontWeight: 900, color: 'var(--primary)' }}>
-                                  {s.name?.charAt(0)?.toUpperCase?.() || '+'}
-                                </Typography>
-                              )}
-                            </Box>
-                            <Box sx={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
-                              <Typography sx={{ fontWeight: 700, fontSize: 14, color: '#2A2A2A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {s.name}
-                              </Typography>
-                              <Typography sx={{ color: '#121212', fontWeight: 800, fontSize: 13, letterSpacing: 0.2 }}>Rs {Number(s.price || 0).toFixed(0)}</Typography>
-                            </Box>
-                            <IconButton sx={{ color: 'var(--primary)' }} onClick={() => addSuggestedToCart(s)}>
-                              <Add />
-                            </IconButton>
-                          </Stack>
-                        </Paper>
-                      );
-                    })}
-                  </Box>
-                </Paper>
-              ) : null}
-
-              <Paper sx={{ border: '1px solid #ececec', borderRadius: 2, boxShadow: 'var(--shadow-sm)', p: 1.5, mt: 'auto' }}>
-                <Stack spacing={0.8}>
-                  <Stack direction="row" justifyContent="space-between">
-                    <Typography sx={{ color: '#111', fontWeight: 500, fontSize: { xs: 17, sm: 18 }, lineHeight: 1.2, fontFamily: "'Inter', sans-serif" }}>
-                      Total
-                    </Typography>
-                    <Typography sx={{ color: '#111', fontWeight: 600, fontSize: { xs: 17, sm: 18 }, letterSpacing: 0, lineHeight: 1.2, fontFamily: "'Inter', sans-serif" }}>
-                      Rs. {cartSubtotal.toFixed(0)}
-                    </Typography>
-                  </Stack>
-                  <Stack direction="row" justifyContent="space-between">
-                    <Typography sx={{ color: '#111', fontWeight: 500, fontSize: { xs: 17, sm: 18 }, lineHeight: 1.2, fontFamily: "'Inter', sans-serif" }}>
-                      Tax {Number(taxRate || 0).toFixed(0)}%
-                    </Typography>
-                    <Typography sx={{ color: '#111', fontWeight: 600, fontSize: { xs: 17, sm: 18 }, letterSpacing: 0, lineHeight: 1.2, fontFamily: "'Inter', sans-serif" }}>
-                      Rs. {taxAmount.toFixed(0)}
-                    </Typography>
-                  </Stack>
-                  <Stack direction="row" justifyContent="space-between">
-                    <Typography sx={{ color: '#111', fontWeight: 500, fontSize: { xs: 17, sm: 18 }, lineHeight: 1.2, fontFamily: "'Inter', sans-serif" }}>
-                      Delivery Fee
-                    </Typography>
-                    <Typography sx={{ color: '#111', fontWeight: 600, fontSize: { xs: 17, sm: 18 }, letterSpacing: 0, lineHeight: 1.2, fontFamily: "'Inter', sans-serif" }}>
-                      Rs. {Number(deliveryFee || 0).toFixed(0)}
-                    </Typography>
-                  </Stack>
-                  <Divider sx={{ my: 0.3 }} />
-                  <Stack direction="row" justifyContent="space-between" sx={{ mt: 0.5, gap: 1 }}>
-                    <Typography sx={{ color: '#111', fontWeight: 500, fontSize: { xs: 17, sm: 18 }, lineHeight: 1.2, fontFamily: "'Inter', sans-serif" }}>
-                      Grand Total
-                    </Typography>
-                    <Typography sx={{ color: '#111', fontWeight: 600, fontSize: { xs: 17, sm: 18 }, lineHeight: 1.2, fontFamily: "'Inter', sans-serif" }}>
-                      Rs. {grandTotal.toFixed(0)}
-                    </Typography>
-                  </Stack>
-                </Stack>
-                <Button
-                  fullWidth
-                  variant="contained"
-                  sx={{
-                    mt: 1.5,
-                    bgcolor: '#ef1b2d',
-                    py: 1.25,
-                    borderRadius: 2.2,
-                    '&:hover': { bgcolor: '#d91324' },
-                  }}
-                  onClick={() => {
-                    setCartOpen(false);
-                    setCheckoutOpen(false);
-                    navigate('/customer/checkout');
-                  }}
-                >
-                  <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ width: '100%' }}>
-                    <span style={{ fontSize: 'clamp(18px, 2.2vw, 20px)', lineHeight: 1.2, fontWeight: 700, fontFamily: 'Inter, sans-serif' }}>
-                      Checkout
-                    </span>
-                    <ArrowForward />
-                  </Stack>
-                </Button>
-              </Paper>
-            </Box>
-          )}
-        </DialogContent>
-      </Dialog>
+        onClose={() => setCartOpen(false)}
+        checkoutOpen={checkoutOpen}
+        setCheckoutOpen={setCheckoutOpen}
+        checkoutName={checkoutName}
+        setCheckoutName={setCheckoutName}
+        checkoutEmail={checkoutEmail}
+        setCheckoutEmail={setCheckoutEmail}
+        checkoutPhone={checkoutPhone}
+        setCheckoutPhone={setCheckoutPhone}
+        checkoutAltPhone={checkoutAltPhone}
+        setCheckoutAltPhone={setCheckoutAltPhone}
+        checkoutAddress={checkoutAddress}
+        setCheckoutAddress={setCheckoutAddress}
+        checkoutLandmark={checkoutLandmark}
+        setCheckoutLandmark={setCheckoutLandmark}
+        deliveryInstructions={deliveryInstructions}
+        setDeliveryInstructions={setDeliveryInstructions}
+        visibleCartItems={visibleCartItems}
+        taxRate={taxRate}
+        deliveryFee={deliveryFee}
+        cartSubtotal={cartSubtotal}
+        taxAmount={taxAmount}
+        grandTotal={grandTotal}
+        clearCart={clearCart}
+        changeQty={changeQty}
+        removeItem={removeItem}
+      />
 
       <Container maxWidth="lg" sx={{ py: 2, animation: 'fadeInUp .35s ease', minHeight: 'calc(100vh - 400px)', '@keyframes fadeInUp': { from: { opacity: 0, transform: 'translateY(8px)' }, to: { opacity: 1, transform: 'translateY(0)' } } }}>
         {children}
