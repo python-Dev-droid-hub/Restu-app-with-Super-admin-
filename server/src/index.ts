@@ -109,18 +109,30 @@ app.use(hpp()); // Prevent HTTP Parameter Pollution
 app.use('/api/', generalLimiter); // Apply general limiter to all API routes
 app.use('/api/auth/', authLimiter); // Apply stricter limiter to auth routes
 
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:5175',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:5175',
+  'http://localhost:3000',
+  'http://localhost:3001',
+];
+
+if (process.env.CORS_ORIGIN) {
+  allowedOrigins.push(...process.env.CORS_ORIGIN.split(',').map(o => o.trim()));
+}
+
 app.use(cors({
-  origin: [
-    'http://localhost:5173',  // Vite dev server
-    'http://localhost:5175',
-    'http://localhost:3001',  // Original dev server
-    'http://localhost:3000',  // Another common port
-    'http://127.0.0.1:5173',  // Browser preview
-    'http://127.0.0.1:5174',  // Browser preview alternate
-    'http://127.0.0.1:5175',
-    'http://127.0.0.1:55245', // Cascade browser preview
-    ...(process.env.CORS_ORIGIN ? [process.env.CORS_ORIGIN] : [])
-  ],
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV === 'development') {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],

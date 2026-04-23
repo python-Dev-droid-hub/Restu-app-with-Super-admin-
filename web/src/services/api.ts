@@ -16,15 +16,19 @@ const sanitizeApiBaseUrl = (rawUrl?: string): string | null => {
 
 const resolveApiBaseUrl = (): string => {
   const envUrl = sanitizeApiBaseUrl(import.meta.env.VITE_API_URL);
-  if (envUrl) return envUrl;
+  if (envUrl) return envUrl.endsWith('/api') ? envUrl : `${envUrl}/api`;
+  
   if (import.meta.env.DEV) {
     return '/api';
   }
+  
   if (typeof window !== 'undefined') {
-    const host = window.location.hostname;
-    const isLocal = host === 'localhost' || host === '127.0.0.1';
-    return isLocal ? 'http://localhost:3101/api' : `${window.location.protocol}//${host}:3101/api`;
+    const { protocol, host } = window.location;
+    // Default to the same host but port 3101 if no env var is provided
+    // This is a common fallback but VITE_API_URL should ideally be set in production
+    return `${protocol}//${host.split(':')[0]}:3101/api`;
   }
+  
   return 'http://localhost:3101/api';
 };
 

@@ -36,7 +36,7 @@ class ApiClient {
         : `${trimmedValue.replace(/\/+$/, '')}/api`;
     };
 
-    const PRODUCTION_API_FALLBACK = 'http://31.97.189.252:3101/api';
+    const PRODUCTION_API_FALLBACK = 'https://api.your-restaurant-app.com/api';
 
     const isLocalOrPrivateNetworkUrl = (value: string): boolean => {
       try {
