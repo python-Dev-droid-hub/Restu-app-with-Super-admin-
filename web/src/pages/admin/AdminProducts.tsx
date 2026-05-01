@@ -361,8 +361,8 @@ const AdminProducts: React.FC<AdminProductsProps> = ({ pageTitle = 'Products' })
   const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
 
   return (
-    <Box sx={{ p: 3, bgcolor: '#f8f5ff', minHeight: '100vh' }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+    <Box sx={{ px: { xs: 2, md: 3 }, pb: { xs: 2, md: 3 }, pt: 0, bgcolor: '#f8f5ff', minHeight: '100vh' }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 1.5 }}>
         <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#333' }}>
           {pageTitle}
         </Typography>
@@ -391,8 +391,8 @@ const AdminProducts: React.FC<AdminProductsProps> = ({ pageTitle = 'Products' })
           onChange={(e) => setSearchQuery(e.target.value)}
           sx={{
             flex: 1,
-            minWidth: 200,
-            maxWidth: 300,
+            minWidth: { xs: '100%', sm: 200 },
+            maxWidth: { xs: '100%', sm: 300 },
             bgcolor: 'white',
             borderRadius: 2,
             '& .MuiOutlinedInput-root': {

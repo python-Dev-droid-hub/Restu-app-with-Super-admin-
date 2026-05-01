@@ -25,7 +25,9 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  useMediaQuery,
 } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import {
   Search,
   FilterList,
@@ -91,6 +93,8 @@ type OrderDetails = {
 
 const AdminOrders: React.FC = () => {
   const { formatPrice } = useSettings();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState<Order[]>([]);
   const [filteredOrders, setFilteredOrders] = useState<Order[]>([]);
@@ -546,8 +550,8 @@ const AdminOrders: React.FC = () => {
   };
 
   return (
-    <Box sx={{ p: 3, bgcolor: '#f8f5ff', minHeight: '100vh' }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+    <Box sx={{ px: { xs: 2, md: 3 }, pb: { xs: 2, md: 3 }, pt: 0, bgcolor: '#f8f5ff', minHeight: '100vh' }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 1 }}>
         <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#333' }}>
           Orders
         </Typography>
@@ -592,7 +596,7 @@ const AdminOrders: React.FC = () => {
       </Box>
 
       <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap', alignItems: 'center' }}>
-        <FormControl size="small" sx={{ minWidth: 150 }}>
+        <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 150 } }}>
           <Select
             value={branchFilter}
             onChange={(e) => setBranchFilter(e.target.value)}
@@ -619,7 +623,7 @@ const AdminOrders: React.FC = () => {
           </Select>
         </FormControl>
 
-        <FormControl size="small" sx={{ minWidth: 150 }}>
+        <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 150 } }}>
           <Select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
@@ -645,7 +649,7 @@ const AdminOrders: React.FC = () => {
           </Select>
         </FormControl>
 
-        <FormControl size="small" sx={{ minWidth: 150 }}>
+        <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 150 } }}>
           <Select
             value={dateFilter}
             onChange={(e) => setDateFilter(e.target.value)}
@@ -676,7 +680,7 @@ const AdminOrders: React.FC = () => {
           onChange={(e) => setSearchQuery(e.target.value)}
           sx={{
             flex: 1,
-            minWidth: 200,
+            minWidth: { xs: '100%', sm: 200 },
             bgcolor: 'white',
             borderRadius: 2,
             '& .MuiOutlinedInput-root': {
@@ -700,10 +704,12 @@ const AdminOrders: React.FC = () => {
           bgcolor: 'white',
           borderRadius: 3,
           boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-          overflow: 'hidden',
+          overflowY: 'hidden',
+          overflowX: 'auto',
+          WebkitOverflowScrolling: 'touch',
         }}
       >
-        <Table>
+        <Table size={isMobile ? 'small' : 'medium'} sx={{ minWidth: 760 }}>
           <TableHead>
             <TableRow sx={{ bgcolor: '#f8f9fa' }}>
               <TableCell sx={{ fontWeight: 600, color: '#666', fontSize: 13, py: 2 }}>
@@ -883,10 +889,10 @@ const AdminOrders: React.FC = () => {
       </Menu>
 
       {/* Status Update Dialog */}
-      <Dialog open={statusDialogOpen} onClose={() => setStatusDialogOpen(false)}>
+      <Dialog open={statusDialogOpen} onClose={() => setStatusDialogOpen(false)} fullScreen={isMobile}>
         <DialogTitle>Update Order Status</DialogTitle>
         <DialogContent>
-          <Box sx={{ minWidth: 320 }}>
+          <Box sx={{ minWidth: { xs: '100%', sm: 320 } }}>
             <Typography sx={{ mb: 1 }}>
               Order <strong>{selectedOrder?.orderNumber}</strong>
             </Typography>
@@ -917,7 +923,7 @@ const AdminOrders: React.FC = () => {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={detailsOpen} onClose={closeOrderDetails} fullWidth maxWidth="sm">
+      <Dialog open={detailsOpen} onClose={closeOrderDetails} fullWidth maxWidth="sm" fullScreen={isMobile}>
         <DialogTitle sx={{ fontWeight: 800 }}>
           Order Details
         </DialogTitle>
@@ -1003,7 +1009,7 @@ const AdminOrders: React.FC = () => {
 
                   <Divider sx={{ my: 2 }} />
 
-                  <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
+                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
                     <Box>
                       <Typography sx={{ fontSize: 12, color: '#777', fontWeight: 700 }}>Order Type</Typography>
                       <Typography sx={{ fontSize: 13, color: '#111', fontWeight: 700 }}>

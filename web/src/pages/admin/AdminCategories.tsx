@@ -217,8 +217,8 @@ const AdminCategories: React.FC = () => {
   };
 
   return (
-    <Box sx={{ p: 3, bgcolor: '#f8f5ff', minHeight: '100vh' }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+    <Box sx={{ px: { xs: 2, md: 3 }, pb: { xs: 2, md: 3 }, pt: 0, bgcolor: '#f8f5ff', minHeight: '100vh' }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 1.5 }}>
         <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#333' }}>
           Categories
         </Typography>

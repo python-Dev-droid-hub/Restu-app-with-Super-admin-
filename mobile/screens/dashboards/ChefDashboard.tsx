@@ -34,6 +34,7 @@ import KitchenSettingsScreen from '../profile/KitchenSettingsScreen';
 import NotificationHistoryScreen from '../profile/NotificationHistoryScreen';
 import LogoutConfirmScreen from '../profile/LogoutConfirmScreen';
 import { getNotifications } from '../../services/notificationService';
+import { getSocket, initializeSocket } from '../../services/realtimeService';
 import * as ImagePicker from 'expo-image-picker';
 
 // Notification types with colors and icons
@@ -187,7 +188,7 @@ export default function ChefDashboard() {
   };
 
   // Update individual item status (for chef to mark items as PREPARING, READY, SERVED)
-  const updateItemStatus = async (orderId: string, itemId: string, status: 'PREPARING' | 'READY' | 'SERVED') => {
+  const updateItemStatus = async (orderId: string, itemId: string, status: 'PREPARING' | 'READY' | 'SERVED' | 'RETURNED') => {
     console.log('[updateItemStatus] Starting:', { orderId, itemId, status });
     
     if (!orderId || !itemId) {
@@ -258,11 +259,10 @@ export default function ChefDashboard() {
     };
 
     load();
-    const interval = setInterval(load, 15000);
+    // Notifications now received via WebSocket 'chef_dashboard:data' event
 
     return () => {
       isMounted = false;
-      clearInterval(interval);
     };
   }, []);
 
@@ -290,12 +290,39 @@ export default function ChefDashboard() {
     }
   };
 
+  // WebSocket listener for real-time updates (replaces 5-second polling)
   useEffect(() => {
-    loadDashboardData();
-    const interval = setInterval(() => {
-      loadDashboardData();
-    }, 5000);
-    return () => clearInterval(interval);
+    const setupSocket = async () => {
+      const token = await AsyncStorage.getItem('authToken');
+      const userRaw = await AsyncStorage.getItem('userData');
+      const parsedUser = userRaw ? JSON.parse(userRaw) : null;
+      const userId = parsedUser?._id || parsedUser?.id;
+      const role = parsedUser?.role;
+      if (userId && role) {
+        initializeSocket(userId, role, token || undefined);
+      }
+
+      const socket = getSocket();
+      if (!socket) return;
+
+      socket.on('chef_dashboard:data', (payload: any) => {
+        setOrders(payload?.orders || []);
+        setCookingOrders(payload?.cookingOrders || []);
+        setMostOrdered(payload?.mostOrdered || []);
+        setNotificationList(payload?.notifications || []);
+        setUnreadCount(payload?.unreadCount || 0);
+      });
+
+      socket.emit('chef_dashboard:get');
+    };
+    setupSocket();
+
+    return () => {
+      const socket = getSocket();
+      if (socket) {
+        socket.off('chef_dashboard:data');
+      }
+    };
   }, [userData?.assignedBranch?._id, userData?.branchId]);
 
   const [homeActiveTab, setHomeActiveTab] = useState('Active');

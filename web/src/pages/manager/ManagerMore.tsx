@@ -26,7 +26,7 @@ const ManagerMore: React.FC = () => {
   ];
 
   return (
-    <Container maxWidth="lg" sx={{ py: 3 }}>
+    <Container maxWidth="lg" sx={{ pb: 3, pt: 0 }}>
       <Box sx={{ mb: 2 }}>
         <Typography sx={{ fontWeight: 900, fontSize: { xs: 22, sm: 28 }, color: '#111' }}>
           More
@@ -64,4 +64,3 @@ const ManagerMore: React.FC = () => {
 };
 
 export default ManagerMore;
-

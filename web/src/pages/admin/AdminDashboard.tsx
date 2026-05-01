@@ -22,6 +22,7 @@ import {
   Select,
   MenuItem,
   Paper,
+  useMediaQuery,
 } from '@mui/material';
 import type { SelectChangeEvent } from '@mui/material';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -33,6 +34,7 @@ import {
   RestaurantMenu,
   ReceiptLong,
 } from '@mui/icons-material';
+import { useTheme } from '@mui/material/styles';
 
 import { useSettings } from '../../context/SettingsContext';
 import { io, type Socket } from 'socket.io-client';
@@ -153,6 +155,8 @@ const StatCard = ({ icon, value, label, sublabel, bgcolor, loading }: StatCardPr
 
 // ==================== COMPONENT ====================
 const AdminDashboard: React.FC = () => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const navigate = useNavigate();
   const location = useLocation();
   const { refreshSettings } = useSettings();
@@ -509,7 +513,7 @@ const AdminDashboard: React.FC = () => {
   }, [globalQuery, recentOrders]);
 
   return (
-    <Box sx={{ bgcolor: '#f5f5f5', minHeight: '100vh', px: 3, py: 3, width: '100%' }}>
+    <Box sx={{ bgcolor: '#f5f5f5', minHeight: '100vh', px: { xs: 2, md: 3 }, pb: { xs: 2, md: 3 }, pt: 0, width: '100%' }}>
       <Container maxWidth={false} disableGutters>
         {/* Header */}
         <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2, flexWrap: 'wrap' }}>
@@ -539,6 +543,9 @@ const AdminDashboard: React.FC = () => {
             <Tabs
               value={activePeriod}
               onChange={handlePeriodChange}
+              variant={isMobile ? 'scrollable' : 'standard'}
+              scrollButtons={isMobile ? 'auto' : false}
+              allowScrollButtonsMobile
               sx={{
                 minHeight: 36,
                 '& .MuiTabs-flexContainer': { gap: 1 },
@@ -563,7 +570,7 @@ const AdminDashboard: React.FC = () => {
               ))}
             </Tabs>
 
-            <FormControl size="small" sx={{ minWidth: 200 }}>
+            <FormControl size="small" sx={{ minWidth: isMobile ? 160 : 200, width: isMobile ? '100%' : 'auto' }}>
               <Select
                 value={selectedBranch}
                 onChange={handleBranchChange}
@@ -676,8 +683,8 @@ const AdminDashboard: React.FC = () => {
                 </Box>
 
                 {/* Branch Table */}
-                <TableContainer component={Paper} sx={{ boxShadow: 'none' }}>
-                  <Table>
+                <TableContainer component={Paper} sx={{ boxShadow: 'none', overflowX: 'auto' }}>
+                  <Table size={isMobile ? 'small' : 'medium'} sx={{ minWidth: 720 }}>
                     <TableHead>
                       <TableRow>
                         <TableCell sx={{ fontWeight: 600, color: '#666', borderBottom: '2px solid #f0f0f0' }}>Branch Name</TableCell>
@@ -741,8 +748,8 @@ const AdminDashboard: React.FC = () => {
                   </Typography>
                 </Box>
 
-                <TableContainer component={Paper} sx={{ boxShadow: 'none' }}>
-                  <Table>
+                <TableContainer component={Paper} sx={{ boxShadow: 'none', overflowX: 'auto' }}>
+                  <Table size={isMobile ? 'small' : 'medium'} sx={{ minWidth: 560 }}>
                     <TableHead>
                       <TableRow>
                         <TableCell sx={{ fontWeight: 600, color: '#666', borderBottom: '2px solid #f0f0f0' }}>Waiter</TableCell>
@@ -803,8 +810,8 @@ const AdminDashboard: React.FC = () => {
                   </Typography>
                 </Box>
 
-                <TableContainer component={Paper} sx={{ boxShadow: 'none' }}>
-                  <Table>
+                <TableContainer component={Paper} sx={{ boxShadow: 'none', overflowX: 'auto' }}>
+                  <Table size={isMobile ? 'small' : 'medium'} sx={{ minWidth: 560 }}>
                     <TableHead>
                       <TableRow>
                         <TableCell sx={{ fontWeight: 600, color: '#666', borderBottom: '2px solid #f0f0f0' }}>Rider</TableCell>
@@ -864,8 +871,8 @@ const AdminDashboard: React.FC = () => {
                 </Box>
 
                 {/* Orders Table */}
-                <TableContainer>
-                  <Table>
+                <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
+                  <Table size={isMobile ? 'small' : 'medium'} sx={{ minWidth: 780 }}>
                     <TableHead>
                       <TableRow sx={{ bgcolor: '#fafafa' }}>
                         <TableCell sx={{ fontWeight: 600, color: '#666', fontSize: 13 }}>Order ID</TableCell>

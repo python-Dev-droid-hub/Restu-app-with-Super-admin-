@@ -20,7 +20,9 @@ import {
   TextField,
   Chip,
   Skeleton,
+  useMediaQuery,
 } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import { Add, Edit, Delete } from '@mui/icons-material';
 import { api } from '../../services/api';
 
@@ -33,6 +35,8 @@ interface ProductSize {
 }
 
 const AdminProductSize: React.FC = () => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [sizes, setSizes] = useState<ProductSize[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -111,7 +115,7 @@ const AdminProductSize: React.FC = () => {
   };
 
   return (
-    <Box sx={{ bgcolor: '#f5f5f5', minHeight: '100vh', py: 3 }}>
+    <Box sx={{ bgcolor: '#f5f5f5', minHeight: '100vh', pb: 3, pt: 0 }}>
       <Container maxWidth="xl">
         <Card sx={{ borderRadius: 2, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
           <CardContent>
@@ -132,8 +136,8 @@ const AdminProductSize: React.FC = () => {
             {loading ? (
               <Skeleton variant="rectangular" height={300} />
             ) : (
-              <TableContainer>
-                <Table>
+              <TableContainer sx={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                <Table size={isMobile ? 'small' : 'medium'} sx={{ minWidth: 640 }}>
                   <TableHead>
                     <TableRow sx={{ bgcolor: '#f5f5f5' }}>
                       <TableCell sx={{ fontWeight: 'bold' }}>Name</TableCell>

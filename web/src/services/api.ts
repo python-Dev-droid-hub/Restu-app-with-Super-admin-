@@ -26,10 +26,10 @@ const resolveApiBaseUrl = (): string => {
     const { protocol, host } = window.location;
     // Default to the same host but port 3101 if no env var is provided
     // This is a common fallback but VITE_API_URL should ideally be set in production
-    return `${protocol}//${host.split(':')[0]}:3101/api`;
+    return `${protocol}//${host.split(':')[0]}:3000/api`;
   }
   
-  return 'http://localhost:3101/api';
+  return 'http://localhost:3000/api';
 };
 
 const API_BASE_URL = resolveApiBaseUrl();

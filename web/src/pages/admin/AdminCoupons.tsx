@@ -26,7 +26,9 @@ import {
   Switch,
   FormControlLabel,
   Alert,
+  useMediaQuery,
 } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import {
   Add,
   Edit,
@@ -54,6 +56,8 @@ interface CouponItem {
 }
 
 const AdminCoupons: React.FC = () => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [coupons, setCoupons] = useState<CouponItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -195,8 +199,8 @@ const AdminCoupons: React.FC = () => {
   const isExpired = (expiryDate: string) => new Date(expiryDate) < new Date();
 
   return (
-    <Box sx={{ p: 3, bgcolor: '#f8f5ff', minHeight: '100vh' }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+    <Box sx={{ px: { xs: 2, md: 3 }, pb: { xs: 2, md: 3 }, pt: 0, bgcolor: '#f8f5ff', minHeight: '100vh' }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 1.5 }}>
         <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#333' }}>
           Coupons
         </Typography>
@@ -217,8 +221,11 @@ const AdminCoupons: React.FC = () => {
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-      <TableContainer component={Paper} sx={{ borderRadius: 2, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
-        <Table>
+      <TableContainer
+        component={Paper}
+        sx={{ borderRadius: 2, boxShadow: '0 2px 12px rgba(0,0,0,0.08)', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}
+      >
+        <Table size={isMobile ? 'small' : 'medium'} sx={{ minWidth: 860 }}>
           <TableHead>
             <TableRow sx={{ bgcolor: '#f5f5f5' }}>
               <TableCell sx={{ fontWeight: 600 }}>Code</TableCell>
@@ -350,7 +357,7 @@ const AdminCoupons: React.FC = () => {
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
             />
             <Grid container spacing={2}>
-              <Grid size={6}>
+              <Grid size={{ xs: 12, sm: 6 }}>
                 <FormControl fullWidth>
                   <InputLabel>Discount Type</InputLabel>
                   <Select
@@ -363,7 +370,7 @@ const AdminCoupons: React.FC = () => {
                   </Select>
                 </FormControl>
               </Grid>
-              <Grid size={6}>
+              <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
                   label="Discount Value"
                   type="number"
@@ -377,7 +384,7 @@ const AdminCoupons: React.FC = () => {
               </Grid>
             </Grid>
             <Grid container spacing={2}>
-              <Grid size={6}>
+              <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
                   label="Min Order Amount"
                   type="number"
@@ -386,7 +393,7 @@ const AdminCoupons: React.FC = () => {
                   onChange={(e) => setFormData({ ...formData, minOrderAmount: parseFloat(e.target.value) || 0 })}
                 />
               </Grid>
-              <Grid size={6}>
+              <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
                   label="Max Discount"
                   type="number"
@@ -397,7 +404,7 @@ const AdminCoupons: React.FC = () => {
               </Grid>
             </Grid>
             <Grid container spacing={2}>
-              <Grid size={6}>
+              <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
                   label="Max Usage"
                   type="number"
@@ -406,7 +413,7 @@ const AdminCoupons: React.FC = () => {
                   onChange={(e) => setFormData({ ...formData, maxUsage: parseInt(e.target.value) || 100 })}
                 />
               </Grid>
-              <Grid size={6}>
+              <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
                   label="Max Per Customer"
                   type="number"
@@ -417,7 +424,7 @@ const AdminCoupons: React.FC = () => {
               </Grid>
             </Grid>
             <Grid container spacing={2}>
-              <Grid size={6}>
+              <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
                   label="Start Date"
                   type="date"
@@ -427,7 +434,7 @@ const AdminCoupons: React.FC = () => {
                   InputLabelProps={{ shrink: true }}
                 />
               </Grid>
-              <Grid size={6}>
+              <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
                   label="Expiry Date"
                   type="date"

@@ -635,7 +635,7 @@ const AdminDealCampaigns: React.FC = () => {
   // Campaign List View
   if (viewMode === 'list') {
     return (
-      <Box sx={{ p: 3 }}>
+      <Box sx={{ px: 3, pb: 3, pt: 0 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
           <Typography variant="h4" sx={{ fontWeight: 'bold', color: '#1a1a2e' }}>
             Deal Campaigns
@@ -718,7 +718,7 @@ const AdminDealCampaigns: React.FC = () => {
               ))}
             </Grid>
           ) : filteredCampaigns.length === 0 ? (
-            <Paper sx={{ p: 6, textAlign: 'center', borderRadius: 2, width: '100%' }}>
+            <Paper sx={{ p: { xs: 3, md: 6 }, textAlign: 'center', borderRadius: 2, width: '100%' }}>
               <LocalOffer sx={{ fontSize: 64, color: '#ddd', mb: 2 }} />
               <Typography variant="h6" color="textSecondary">
                 No campaigns found
@@ -1061,7 +1061,7 @@ const AdminDealCampaigns: React.FC = () => {
 
   // Campaign Detail View
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ px: 3, pb: 3, pt: 0 }}>
       {/* Header */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
         <IconButton onClick={handleBackToList} sx={{ bgcolor: '#f5f5f5' }}>

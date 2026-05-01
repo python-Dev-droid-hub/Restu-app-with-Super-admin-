@@ -246,12 +246,12 @@ const AdminSettings: React.FC = () => {
   };
 
   return (
-    <Box sx={{ p: 3, bgcolor: '#f8f5ff', minHeight: '100vh' }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+    <Box sx={{ px: { xs: 2, md: 3 }, pb: { xs: 2, md: 3 }, pt: 0, bgcolor: '#f8f5ff', minHeight: '100vh' }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 1.5 }}>
         <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#333' }}>
           Settings
         </Typography>
-        <Box sx={{ display: 'flex', gap: 2 }}>
+        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
           <Button variant="outlined" onClick={handleReset} disabled={loading}>
             Reset to Defaults
           </Button>
@@ -276,7 +276,7 @@ const AdminSettings: React.FC = () => {
         <Grid container spacing={3}>
           {/* General Settings */}
           <Grid size={{ xs: 12, md: 6 }}>
-            <Paper sx={{ p: 3, borderRadius: 2, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
+            <Paper sx={{ p: { xs: 2, md: 3 }, borderRadius: 2, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
                 <SettingsIcon sx={{ color: '#FF6B35' }} />
                 <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
@@ -390,7 +390,7 @@ const AdminSettings: React.FC = () => {
 
           {/* Delivery Settings */}
           <Grid size={{ xs: 12, md: 6 }}>
-            <Paper sx={{ p: 3, borderRadius: 2, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
+            <Paper sx={{ p: { xs: 2, md: 3 }, borderRadius: 2, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
                 <LocalShipping sx={{ color: '#2196F3' }} />
                 <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
@@ -433,7 +433,7 @@ const AdminSettings: React.FC = () => {
 
           {/* Contact Settings */}
           <Grid size={{ xs: 12, md: 6 }}>
-            <Paper sx={{ p: 3, borderRadius: 2, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
+            <Paper sx={{ p: { xs: 2, md: 3 }, borderRadius: 2, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
                 <Email sx={{ color: '#4CAF50' }} />
                 <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
@@ -503,7 +503,7 @@ const AdminSettings: React.FC = () => {
 
           {/* System Settings */}
           <Grid size={{ xs: 12, md: 6 }}>
-            <Paper sx={{ p: 3, borderRadius: 2, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
+            <Paper sx={{ p: { xs: 2, md: 3 }, borderRadius: 2, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
                 <Payment sx={{ color: '#9C27B0' }} />
                 <Typography variant="h6" sx={{ fontWeight: 'bold' }}>

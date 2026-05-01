@@ -11,6 +11,7 @@ import { DealCampaign } from '@/models/DealCampaign';
 import { DashboardService } from '@/modules/dashboard/dashboard.service';
 import { MenuRepository } from '@/modules/menu/menu.repository';
 import { OrderRepository } from '@/modules/order/order.repository';
+import { TableRepository } from '@/modules/table/table.repository';
 import { NotificationService } from '@/modules/notification/notification.service';
 import { Types } from 'mongoose';
 import BranchProduct from '@/models/BranchProduct';
@@ -30,6 +31,7 @@ export const initWebSocket = (app: Express) => {
   const dashboardService = new DashboardService();
   const menuRepository = new MenuRepository();
   const orderRepository = new OrderRepository();
+  const tableRepository = new TableRepository();
   const notificationService = new NotificationService();
 
   const io = new SocketIOServer(httpServer, {
@@ -147,6 +149,47 @@ export const initWebSocket = (app: Express) => {
         });
       } catch (e) {
         socket.emit('chef_dashboard:error', { message: 'Failed to load chef dashboard' });
+      }
+    });
+
+    socket.on('waiter_dashboard:get', async () => {
+      const allowedRoles = new Set(['WAITER', 'ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER']);
+      if (!role || !allowedRoles.has(role)) return;
+
+      if (!userId) {
+        socket.emit('waiter_dashboard:data', { stats: null, orders: [], tables: [], timestamp: new Date().toISOString() });
+        return;
+      }
+
+      try {
+        const stats = await dashboardService.getWaiterStats(userId);
+
+        const branchId = assignedBranchId || '';
+        const branchObjectId = branchId && Types.ObjectId.isValid(branchId) ? new Types.ObjectId(branchId) : undefined;
+        const branchMatch = branchId
+          ? { $in: [...(branchObjectId ? [branchObjectId] : []), branchId] }
+          : undefined;
+
+        const [ordersList, tablesList] = await Promise.all([
+          orderRepository.findAllOrders(
+            {
+              ...(branchMatch ? { branch: branchMatch } : {}),
+              orderType: 'DINE_IN',
+            },
+            1,
+            500
+          ),
+          branchId ? tableRepository.findAll({ branch: branchObjectId || branchId }) : [],
+        ]);
+
+        socket.emit('waiter_dashboard:data', {
+          stats,
+          orders: ordersList || [],
+          tables: tablesList || [],
+          timestamp: new Date().toISOString(),
+        });
+      } catch (e) {
+        socket.emit('waiter_dashboard:error', { message: 'Failed to load waiter dashboard' });
       }
     });
 

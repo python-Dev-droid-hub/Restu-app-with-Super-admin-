@@ -114,7 +114,7 @@ export default function RiderDashboard() {
   const [activeTab, setActiveTab] = useState<TabType>('Home');
   const [loading, setLoading] = useState(true);
 
-  const bottomInset = Platform.OS === 'ios' ? Math.min(Math.max(0, insets.bottom), 10) : 0;
+  const bottomInset = Math.max(0, insets.bottom);
 
   const [showChangeName, setShowChangeName] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
@@ -1045,7 +1045,7 @@ export default function RiderDashboard() {
           styles.footer,
           {
             paddingBottom: bottomInset,
-            height: SPACING.footerHeight,
+            minHeight: SPACING.footerHeight + bottomInset,
           },
         ]}
       >

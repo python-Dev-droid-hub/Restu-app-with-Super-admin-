@@ -32,8 +32,10 @@ import {
   Skeleton,
   Alert,
   AlertTitle,
+  useMediaQuery,
 } from '@mui/material';
 import type { SelectChangeEvent } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import {
   ArrowBack,
   TwoWheeler,
@@ -94,6 +96,8 @@ interface Order {
 const AdminRiders: React.FC = () => {
   const navigate = useNavigate();
   const { formatPrice } = useSettings();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const socketRef = useRef<Socket | null>(null);
   const selectedBranchRef = useRef<string>('all');
   
@@ -325,9 +329,9 @@ const AdminRiders: React.FC = () => {
   };
 
   return (
-    <Box sx={{ p: 3, bgcolor: '#f5f5f5', minHeight: '100vh' }}>
+    <Box sx={{ px: { xs: 2, md: 3 }, pb: { xs: 2, md: 3 }, pt: 0, bgcolor: '#f5f5f5', minHeight: '100vh' }}>
       {/* Header */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3, flexWrap: 'wrap' }}>
         <Button startIcon={<ArrowBack />} onClick={() => navigate('/admin/dashboard')}>
           Back
         </Button>
@@ -338,11 +342,11 @@ const AdminRiders: React.FC = () => {
 
       {/* Branch Filter */}
       <Card sx={{ borderRadius: 3, mb: 3, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
-        <CardContent sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
+        <CardContent sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
           <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
             Branch:
           </Typography>
-          <FormControl size="small" sx={{ minWidth: 250 }}>
+          <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 250 } }}>
             <Select
               value={selectedBranch}
               onChange={handleBranchChange}
@@ -378,11 +382,11 @@ const AdminRiders: React.FC = () => {
           </Tabs>
         </Box>
 
-        <CardContent sx={{ p: 3 }}>
+        <CardContent sx={{ p: { xs: 2, md: 3 } }}>
           {activeTab === 'riders' ? (
             // Riders Tab
-            <TableContainer component={Paper} sx={{ boxShadow: 'none' }}>
-              <Table>
+            <TableContainer component={Paper} sx={{ boxShadow: 'none', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+              <Table size={isMobile ? 'small' : 'medium'} sx={{ minWidth: 720 }}>
                 <TableHead>
                   <TableRow>
                     <TableCell sx={{ fontWeight: 700, color: '#666' }}>Rider</TableCell>
@@ -474,8 +478,8 @@ const AdminRiders: React.FC = () => {
                 </Alert>
               )}
               
-              <TableContainer component={Paper} sx={{ boxShadow: 'none' }}>
-                <Table>
+              <TableContainer component={Paper} sx={{ boxShadow: 'none', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                <Table size={isMobile ? 'small' : 'medium'} sx={{ minWidth: 860 }}>
                   <TableHead>
                     <TableRow>
                       <TableCell sx={{ fontWeight: 700, color: '#666' }}>Order</TableCell>

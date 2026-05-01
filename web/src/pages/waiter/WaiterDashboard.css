@@ -1,0 +1,154 @@
+/* Waiter Dashboard Styles */
+
+.waiter-dashboard {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+}
+
+/* Stats Cards */
+.waiter-dashboard .stats-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.waiter-dashboard .stats-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* Order Items */
+.waiter-dashboard .order-item {
+  transition: background-color 0.2s ease;
+}
+
+.waiter-dashboard .order-item:hover {
+  background-color: #f8f9fa;
+}
+
+/* Table Cards */
+.waiter-dashboard .table-card {
+  transition: all 0.2s ease;
+}
+
+.waiter-dashboard .table-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* Status Badges */
+.waiter-dashboard .status-badge {
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.5px;
+}
+
+/* Animations */
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.waiter-dashboard .animate-in {
+  animation: slideIn 0.3s ease forwards;
+}
+
+/* Print Styles */
+@media print {
+  .waiter-dashboard {
+    background: white !important;
+  }
+  
+  .waiter-dashboard .no-print {
+    display: none !important;
+  }
+  
+  .waiter-dashboard .print-only {
+    display: block !important;
+  }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .waiter-dashboard {
+    padding: 8px;
+  }
+  
+  .waiter-dashboard .MuiTableCell-root {
+    padding: 8px;
+    font-size: 0.875rem;
+  }
+  
+  .waiter-dashboard .MuiCard-root {
+    margin-bottom: 8px;
+  }
+}
+
+/* Tab Styles */
+.waiter-dashboard .MuiTabs-root {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.waiter-dashboard .MuiTab-root {
+  text-transform: none;
+  font-weight: 500;
+  min-height: 48px;
+}
+
+.waiter-dashboard .Mui-selected {
+  color: #f57c00 !important;
+}
+
+.waiter-dashboard .MuiTabs-indicator {
+  background-color: #f57c00;
+}
+
+/* Button Styles */
+.waiter-dashboard .MuiButton-containedPrimary {
+  background-color: #f57c00;
+}
+
+.waiter-dashboard .MuiButton-containedPrimary:hover {
+  background-color: #e65100;
+}
+
+/* Chip Styles */
+.waiter-dashboard .MuiChip-root {
+  font-weight: 500;
+}
+
+/* Dialog Styles */
+.waiter-dashboard .MuiDialog-paper {
+  border-radius: 12px;
+}
+
+/* Table Styles */
+.waiter-dashboard .MuiTableHead-root .MuiTableCell-root {
+  font-weight: 600;
+  background-color: #f8f9fa;
+  color: #1a1a2e;
+}
+
+/* Scrollbar */
+.waiter-dashboard ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.waiter-dashboard ::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.waiter-dashboard ::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+.waiter-dashboard ::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}

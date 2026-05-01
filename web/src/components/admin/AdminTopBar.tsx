@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AppBar,
   Toolbar,
@@ -14,6 +14,7 @@ import {
   CircularProgress,
 } from '@mui/material';
 import {
+  Menu as MenuIcon,
   Notifications as NotificationIcon,
   ShoppingCart,
   Search,
@@ -35,7 +36,11 @@ const sanitizeWebImageSrc = (src: unknown): string | null => {
   return trimmed;
 };
 
-const AdminTopBar: React.FC<{ mode?: 'admin' | 'manager' | 'chef' }> = ({ mode = 'admin' }) => {
+const AdminTopBar: React.FC<{
+  mode?: 'admin' | 'manager' | 'chef' | 'waiter' | 'rider';
+  isMobile?: boolean;
+  onMenuClick?: () => void;
+}> = ({ mode = 'admin', isMobile = false, onMenuClick }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [profileMenuAnchor, setProfileMenuAnchor] = useState<null | HTMLElement>(null);
@@ -44,6 +49,7 @@ const AdminTopBar: React.FC<{ mode?: 'admin' | 'manager' | 'chef' }> = ({ mode =
   const [adminName, setAdminName] = useState('Admin');
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  const lastUserKeyRef = useRef<string>('');
   const urlQuery = useMemo(() => new URLSearchParams(location.search).get('q') || '', [location.search]);
   const [searchValue, setSearchValue] = useState(urlQuery);
 
@@ -51,26 +57,106 @@ const AdminTopBar: React.FC<{ mode?: 'admin' | 'manager' | 'chef' }> = ({ mode =
     setSearchValue((prev) => (prev === urlQuery ? prev : urlQuery));
   }, [urlQuery]);
 
-  // Fetch notification counts and user data
-  useEffect(() => {
-    setLoading(true);
-    const userData = localStorage.getItem('userData');
-    if (userData) {
+  const normalizeAvatarSrc = useCallback((src: unknown): string | null => {
+    const sanitized = sanitizeWebImageSrc(src);
+    if (!sanitized) return null;
+    const lower = sanitized.toLowerCase();
+    if (lower.startsWith('data:image/')) return sanitized;
+    if (/^https?:\/\//i.test(sanitized)) return sanitized;
+    return api.getImageUrl(sanitized);
+  }, []);
+
+  const syncUserFromStorage = useCallback(() => {
+    const raw = localStorage.getItem('userData');
+    let nextName = 'Admin';
+    let nextImage: string | null = null;
+
+    if (raw) {
       try {
-        const parsed = JSON.parse(userData);
-        setAdminName(parsed.name || parsed.displayName || 'Admin');
-        setProfileImage(sanitizeWebImageSrc(parsed.avatar || parsed.image || parsed.profileImage));
+        const parsed = JSON.parse(raw);
+        nextName = String(parsed?.name || parsed?.displayName || 'Admin');
+        nextImage = normalizeAvatarSrc(parsed?.avatar || parsed?.image || parsed?.profileImage);
       } catch (e) {
         console.error('Error parsing user data:', e);
       }
     }
-    setLoading(false);
 
-    if (mode === 'chef') {
+    const key = `${nextName}::${nextImage || ''}`;
+    if (key === lastUserKeyRef.current) return;
+    lastUserKeyRef.current = key;
+    setAdminName(nextName || 'Admin');
+    setProfileImage(nextImage);
+  }, [normalizeAvatarSrc]);
+
+  useEffect(() => {
+    syncUserFromStorage();
+
+    const handle = () => syncUserFromStorage();
+    window.addEventListener('storage', handle);
+    window.addEventListener('profileUpdated', handle as EventListener);
+    window.addEventListener('userDataUpdated', handle as EventListener);
+
+    const userSyncIntervalId = window.setInterval(() => {
+      syncUserFromStorage();
+    }, 1000);
+
+    let cancelled = false;
+    const refreshFromApi = async () => {
+      setLoading(true);
+      try {
+        const res = await api.get<any>('/users/profile');
+        if (!res?.success || cancelled) return;
+        const d = res?.data || {};
+        const rawImage = d?.profileImage || d?.avatar || d?.image || '';
+        const patch = {
+          name: d?.displayName || d?.name,
+          displayName: d?.displayName || d?.name,
+          avatar: rawImage,
+          image: rawImage,
+          profileImage: rawImage,
+        };
+
+        const existingRaw = localStorage.getItem('userData');
+        const existing = existingRaw ? (() => { try { return JSON.parse(existingRaw); } catch { return {}; } })() : {};
+        const next = { ...existing, ...patch };
+        const nextRaw = JSON.stringify(next);
+        if (existingRaw !== nextRaw) {
+          localStorage.setItem('userData', nextRaw);
+          window.dispatchEvent(new Event('profileUpdated'));
+          window.dispatchEvent(new Event('userDataUpdated'));
+        }
+      } catch {
+        return;
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    void refreshFromApi();
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(userSyncIntervalId);
+      window.removeEventListener('storage', handle);
+      window.removeEventListener('profileUpdated', handle as EventListener);
+      window.removeEventListener('userDataUpdated', handle as EventListener);
+    };
+  }, [syncUserFromStorage]);
+
+  useEffect(() => {
+    if (mode === 'chef' || mode === 'waiter' || mode === 'rider') {
+      socketRef.current?.disconnect();
+      socketRef.current = null;
+
       let cancelled = false;
-
       const fetchUnread = async () => {
-        const res = await api.get<any>('/notifications/chef/unread-count');
+        const url =
+          mode === 'chef'
+            ? '/notifications/chef/unread-count'
+            : mode === 'waiter'
+            ? '/notifications/waiter/unread-count'
+            : '/notifications/rider/unread-count';
+        const res = await api.get<any>(url);
         if (cancelled) return;
         if (res?.success) {
           setNotificationCount(Number(res?.data?.unreadCount ?? 0));
@@ -135,6 +221,8 @@ const AdminTopBar: React.FC<{ mode?: 'admin' | 'manager' | 'chef' }> = ({ mode =
 
   const handleLogout = () => {
     localStorage.removeItem('auth_token');
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('userId');
     localStorage.removeItem('userRole');
     localStorage.removeItem('userData');
     navigate('/login');
@@ -146,7 +234,8 @@ const AdminTopBar: React.FC<{ mode?: 'admin' | 'manager' | 'chef' }> = ({ mode =
     handleProfileMenuClose();
   };
 
-  const basePath = mode === 'manager' ? '/manager' : mode === 'chef' ? '/chef' : '/admin';
+  const basePath =
+    mode === 'manager' ? '/manager' : mode === 'chef' ? '/chef' : mode === 'waiter' ? '/waiter' : mode === 'rider' ? '/rider' : '/admin';
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -174,73 +263,85 @@ const AdminTopBar: React.FC<{ mode?: 'admin' | 'manager' | 'chef' }> = ({ mode =
         color: '#666',
         boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
         zIndex: 100,
-              ml: `${SIDEBAR_WIDTH}px`,
-        width: `calc(100% - ${SIDEBAR_WIDTH}px)`,
+        ml: isMobile ? 0 : `${SIDEBAR_WIDTH}px`,
+        width: isMobile ? '100%' : `calc(100% - ${SIDEBAR_WIDTH}px)`,
       }}
     >
-      <Toolbar sx={{ display: 'flex', justifyContent: 'space-between', px: 3, minHeight: '64px' }}>
-        {/* Left - Empty space where logo was (sidebar has logo) */}
-        <Box sx={{ minWidth: 20 }} />
+      <Toolbar sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: isMobile ? 2 : 3, minHeight: '64px', gap: isMobile ? 1.5 : 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', minWidth: isMobile ? 'auto' : 20 }}>
+          {isMobile ? (
+            <IconButton
+              size="small"
+              onClick={onMenuClick}
+              sx={{ color: '#666', width: 40, height: 40, '&:hover': { bgcolor: '#f5f5f5' } }}
+            >
+              <MenuIcon sx={{ fontSize: 22 }} />
+            </IconButton>
+          ) : null}
+        </Box>
 
-        {/* Center - Search Bar */}
-        <TextField
-          variant="outlined"
-          placeholder="Search..."
-          size="small"
-          value={searchValue}
-          onChange={(e) => setSearchValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key !== 'Enter') return;
-            const params = new URLSearchParams(location.search);
-            const trimmed = searchValue.trim();
-            if (trimmed) params.set('q', trimmed);
-            else params.delete('q');
-            const nextSearch = params.toString();
-            const normalizedNext = nextSearch ? `?${nextSearch}` : '';
-            if (normalizedNext !== location.search) {
-              navigate({ pathname: location.pathname, search: normalizedNext }, { replace: true });
-            }
-          }}
-          sx={{
-            width: 400,
-            maxWidth: 500,
-            flex: 1,
-            mx: 4,
-            '& .MuiOutlinedInput-root': {
-              bgcolor: '#f5f5f5',
-              borderRadius: 3,
-              height: 44,
-              '& fieldset': {
-                border: 'none',
+        {mode !== 'waiter' && mode !== 'rider' ? (
+          <TextField
+            variant="outlined"
+            placeholder="Search..."
+            size="small"
+            value={searchValue}
+            onChange={(e) => setSearchValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return;
+              const params = new URLSearchParams(location.search);
+              const trimmed = searchValue.trim();
+              if (trimmed) params.set('q', trimmed);
+              else params.delete('q');
+              const nextSearch = params.toString();
+              const normalizedNext = nextSearch ? `?${nextSearch}` : '';
+              if (normalizedNext !== location.search) {
+                navigate({ pathname: location.pathname, search: normalizedNext }, { replace: true });
+              }
+            }}
+            sx={{
+              flex: 1,
+              mx: isMobile ? 1 : 4,
+              minWidth: isMobile ? 120 : 280,
+              maxWidth: isMobile ? 520 : 500,
+              '& .MuiOutlinedInput-root': {
+                bgcolor: '#f5f5f5',
+                borderRadius: 3,
+                height: 44,
+                '& fieldset': {
+                  border: 'none',
+                },
+                '&:hover fieldset': {
+                  border: 'none',
+                },
+                '&.Mui-focused fieldset': {
+                  border: '1px solid #FF6B35',
+                },
               },
-              '&:hover fieldset': {
-                border: 'none',
-              },
-              '&.Mui-focused fieldset': {
-                border: '1px solid #FF6B35',
-              },
-            },
-          }}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <Search sx={{ color: '#999', fontSize: 20 }} />
-              </InputAdornment>
-            ),
-            endAdornment: searchValue.trim() ? (
-              <InputAdornment position="end">
-                <IconButton
-                  size="small"
-                  aria-label="Clear search"
-                  onClick={() => setSearchValue('')}
-                  sx={{ color: '#999' }}
-                >
-                  <Close sx={{ fontSize: 18 }} />
-                </IconButton>
-              </InputAdornment>
-            ) : undefined,
-          }}
-        />
+            }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Search sx={{ color: '#999', fontSize: 20 }} />
+                </InputAdornment>
+              ),
+              endAdornment: searchValue.trim() ? (
+                <InputAdornment position="end">
+                  <IconButton
+                    size="small"
+                    aria-label="Clear search"
+                    onClick={() => setSearchValue('')}
+                    sx={{ color: '#999' }}
+                  >
+                    <Close sx={{ fontSize: 18 }} />
+                  </IconButton>
+                </InputAdornment>
+              ) : undefined,
+            }}
+          />
+        ) : (
+          <Box sx={{ flex: 1 }} />
+        )}
 
         {/* Right Icons */}
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
@@ -329,12 +430,16 @@ const AdminTopBar: React.FC<{ mode?: 'admin' | 'manager' | 'chef' }> = ({ mode =
                 >
                   {!profileImage && adminName.charAt(0).toUpperCase()}
                 </Avatar>
-                <Box>
-                  <Typography sx={{ fontSize: 13, fontWeight: 500, color: '#333' }}>
-                    {adminName}
-                  </Typography>
-                </Box>
-                <KeyboardArrowDown sx={{ fontSize: 18, color: '#999' }} />
+                {!isMobile ? (
+                  <>
+                    <Box>
+                      <Typography sx={{ fontSize: 13, fontWeight: 500, color: '#333' }}>
+                        {adminName}
+                      </Typography>
+                    </Box>
+                    <KeyboardArrowDown sx={{ fontSize: 18, color: '#999' }} />
+                  </>
+                ) : null}
               </>
             )}
           </Box>
@@ -351,16 +456,19 @@ const AdminTopBar: React.FC<{ mode?: 'admin' | 'manager' | 'chef' }> = ({ mode =
               },
             }}
           >
-            <MenuItem onClick={() => handleNavigate(`${basePath}/settings`)}>
-              Change profile name
-            </MenuItem>
-            <MenuItem onClick={() => handleNavigate(`${basePath}/settings`)}>
-              Change profile image
-            </MenuItem>
-            <MenuItem onClick={() => handleNavigate(`${basePath}/settings`)}>
-              Change password
-            </MenuItem>
-            <MenuItem onClick={handleLogout}>Logout</MenuItem>
+            {mode === 'waiter' || mode === 'rider' ? (
+              <>
+                <MenuItem onClick={() => handleNavigate(`${basePath}/profile`)}>Profile</MenuItem>
+                <MenuItem onClick={handleLogout}>Logout</MenuItem>
+              </>
+            ) : (
+              <>
+                <MenuItem onClick={() => handleNavigate(`${basePath}/settings`)}>Change profile name</MenuItem>
+                <MenuItem onClick={() => handleNavigate(`${basePath}/settings`)}>Change profile image</MenuItem>
+                <MenuItem onClick={() => handleNavigate(`${basePath}/settings`)}>Change password</MenuItem>
+                <MenuItem onClick={handleLogout}>Logout</MenuItem>
+              </>
+            )}
           </Menu>
         </Box>
       </Toolbar>

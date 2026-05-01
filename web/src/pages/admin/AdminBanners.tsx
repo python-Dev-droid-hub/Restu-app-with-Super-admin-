@@ -158,7 +158,7 @@ const AdminBanners: React.FC = () => {
   };
 
   return (
-    <Box sx={{ bgcolor: '#f5f5f5', minHeight: '100vh', py: 3 }}>
+    <Box sx={{ bgcolor: '#f5f5f5', minHeight: '100vh', pb: 3, pt: 0 }}>
       <Container maxWidth="xl">
         <Card sx={{ borderRadius: 2, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
           <CardContent>

@@ -48,7 +48,10 @@ const CustomerHome = lazy(() => import('./pages/customer/CustomerHome'));
 const CustomerMenu = lazy(() => import('./pages/customer/CustomerMenu'));
 const CustomerCart = lazy(() => import('./pages/customer/CustomerCart'));
 const CustomerOrders = lazy(() => import('./pages/customer/CustomerOrders'));
+
+const WaiterDashboard = lazy(() => import('./pages/waiter/WaiterDashboard'));
 const CheckoutPage = lazy(() => import('./pages/customer/CheckoutPage'));
+const RiderDashboard = lazy(() => import('./pages/rider/RiderDashboard'));
 
 const ManagerDashboard = lazy(() => import('./pages/manager/ManagerDashboard'));
 const ManagerMore = lazy(() => import('./pages/manager/ManagerMore'));
@@ -103,6 +106,30 @@ function RequireChefAuth({ children }: { children: ReactElement }) {
   return children;
 }
 
+function RequireWaiterAuth({ children }: { children: ReactElement }) {
+  const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
+  const role = getStoredRole();
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
+  if (role !== 'WAITER' && role !== 'ADMIN' && role !== 'SUPER_ADMIN' && role !== 'BRANCH_MANAGER') {
+    return <Navigate to="/" replace />;
+  }
+  return children;
+}
+
+function RequireRiderAuth({ children }: { children: ReactElement }) {
+  const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
+  const role = getStoredRole();
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
+  if (role !== 'RIDER' && role !== 'SUPER_ADMIN') {
+    return <Navigate to="/" replace />;
+  }
+  return children;
+}
+
 function RootRedirect() {
   const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
   const role = getStoredRole();
@@ -123,6 +150,14 @@ function RootRedirect() {
     return <Navigate to="/chef/dashboard" replace />;
   }
 
+  if (role === 'WAITER') {
+    return <Navigate to="/waiter" replace />;
+  }
+
+  if (role === 'RIDER') {
+    return <Navigate to="/rider" replace />;
+  }
+
   return <Navigate to="/customer" replace />;
 }
 
@@ -134,6 +169,30 @@ function App() {
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/mobile-required" element={<MobileRequired />} />
+              <Route
+                path="/waiter/*"
+                element={
+                  <RequireWaiterAuth>
+                    <AdminLayout mode="waiter">
+                      <Suspense fallback={<div>Loading...</div>}>
+                        <WaiterDashboard />
+                      </Suspense>
+                    </AdminLayout>
+                  </RequireWaiterAuth>
+                }
+              />
+              <Route
+                path="/rider/*"
+                element={
+                  <RequireRiderAuth>
+                    <AdminLayout mode="rider">
+                      <Suspense fallback={<div>Loading...</div>}>
+                        <RiderDashboard />
+                      </Suspense>
+                    </AdminLayout>
+                  </RequireRiderAuth>
+                }
+              />
 
             <Route
               path="/customer"

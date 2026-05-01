@@ -676,6 +676,8 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
     const current = parseStoredUser() || {};
     const next = { ...current, ...patch };
     localStorage.setItem('userData', JSON.stringify(next));
+    window.dispatchEvent(new Event('profileUpdated'));
+    window.dispatchEvent(new Event('userDataUpdated'));
     setUser(next);
   }, []);
 
@@ -764,7 +766,7 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
   }, [currentPassword, newPassword]);
 
   return (
-    <Box sx={{ width: '100%', bgcolor: '#f8f5ff', minHeight: '100%', p: 3, boxSizing: 'border-box' }}>
+    <Box sx={{ width: '100%', bgcolor: '#f8f5ff', minHeight: '100%', px: { xs: 2, md: 3 }, pb: { xs: 2, md: 3 }, pt: 0, boxSizing: 'border-box' }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 2 }}>
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 900, color: '#111' }}>
@@ -985,7 +987,7 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
         ) : null}
 
         {mainTab === 'notifications' ? (
-          <Box sx={{ p: 3 }}>
+          <Box sx={{ p: { xs: 2, md: 3 } }}>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 2, flexWrap: 'wrap' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <Notifications sx={{ color: '#FF6B35' }} />
@@ -1105,7 +1107,7 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
         ) : null}
 
         {mainTab === 'profile' ? (
-          <Box sx={{ p: 3 }}>
+          <Box sx={{ p: { xs: 2, md: 3 } }}>
             <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
               <Avatar
                 src={profileImage ? api.getImageUrl(profileImage) : undefined}

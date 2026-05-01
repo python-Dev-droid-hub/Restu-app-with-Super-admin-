@@ -34,6 +34,9 @@ export function Login() {
       const user = result?.user || result;
       if (user && typeof user === 'object') {
         localStorage.setItem('userData', JSON.stringify(user));
+        if ((user as any)?._id || (user as any)?.id) {
+          localStorage.setItem('userId', String((user as any)?._id || (user as any)?.id));
+        }
         if (user?.role) {
           localStorage.setItem('userRole', String(user.role));
         }
@@ -54,6 +57,9 @@ export function Login() {
       const meRes: any = await api.get('/auth/me');
       if (meRes?.success && meRes?.data) {
         localStorage.setItem('userData', JSON.stringify(meRes.data));
+        if ((meRes.data as any)?._id || (meRes.data as any)?.id) {
+          localStorage.setItem('userId', String((meRes.data as any)?._id || (meRes.data as any)?.id));
+        }
         if ((meRes.data as any)?.role) {
           localStorage.setItem('userRole', String((meRes.data as any).role));
         }
@@ -92,6 +98,10 @@ export function Login() {
           navigate('/manager/dashboard');
         } else if (normalizedRole === 'CHEF') {
           navigate('/chef/dashboard');
+        } else if (normalizedRole === 'WAITER') {
+          navigate('/waiter');
+        } else if (normalizedRole === 'RIDER') {
+          navigate('/rider');
         } else {
           navigate('/customer');
         }

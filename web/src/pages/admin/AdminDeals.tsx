@@ -31,7 +31,9 @@ import {
   Tooltip,
   Alert,
   CircularProgress,
+  useMediaQuery,
 } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import { Add, Edit, Delete, Refresh, CloudUpload } from '@mui/icons-material';
 import { api } from '../../services/api';
 import { useSettings } from '../../context/SettingsContext';
@@ -66,6 +68,8 @@ interface ProductOption {
 
 const AdminDeals: React.FC = () => {
   const { currencySymbol } = useSettings();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [deals, setDeals] = useState<Deal[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [products, setProducts] = useState<ProductOption[]>([]);
@@ -327,11 +331,11 @@ const AdminDeals: React.FC = () => {
   };
 
   return (
-    <Container maxWidth="lg" sx={{ py: 3 }}>
+    <Container maxWidth="lg" sx={{ pb: { xs: 2, md: 3 }, pt: 0 }}>
       <Card sx={{ borderRadius: 3, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
         <CardContent>
           {/* Header */}
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 1.5 }}>
             <Box>
               <Typography variant="h5" sx={{ fontWeight: 700, color: '#1a1a2e' }}>
                 Deals Management
@@ -340,7 +344,7 @@ const AdminDeals: React.FC = () => {
                 Manage promotional deals and discounts
               </Typography>
             </Box>
-            <Box sx={{ display: 'flex', gap: 1 }}>
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
               <Button
                 variant="outlined"
                 startIcon={<Refresh />}
@@ -368,20 +372,20 @@ const AdminDeals: React.FC = () => {
           )}
 
           {/* Stats */}
-          <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
-            <Paper sx={{ p: 2, borderRadius: 2, flex: 1, bgcolor: '#FFF3E0' }}>
+          <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
+            <Paper sx={{ p: 2, borderRadius: 2, flex: '1 1 220px', bgcolor: '#FFF3E0' }}>
               <Typography variant="h4" sx={{ fontWeight: 700, color: '#FF6B35' }}>
                 {loading ? <Skeleton width={40} /> : deals.length}
               </Typography>
               <Typography variant="body2" color="textSecondary">Total Deals</Typography>
             </Paper>
-            <Paper sx={{ p: 2, borderRadius: 2, flex: 1, bgcolor: '#E8F5E9' }}>
+            <Paper sx={{ p: 2, borderRadius: 2, flex: '1 1 220px', bgcolor: '#E8F5E9' }}>
               <Typography variant="h4" sx={{ fontWeight: 700, color: '#4CAF50' }}>
                 {loading ? <Skeleton width={40} /> : deals.filter(d => d.isActive).length}
               </Typography>
               <Typography variant="body2" color="textSecondary">Active Deals</Typography>
             </Paper>
-            <Paper sx={{ p: 2, borderRadius: 2, flex: 1, bgcolor: '#FFEBEE' }}>
+            <Paper sx={{ p: 2, borderRadius: 2, flex: '1 1 220px', bgcolor: '#FFEBEE' }}>
               <Typography variant="h4" sx={{ fontWeight: 700, color: '#F44336' }}>
                 {loading ? <Skeleton width={40} /> : deals.filter(d => !d.isActive).length}
               </Typography>
@@ -390,8 +394,11 @@ const AdminDeals: React.FC = () => {
           </Box>
 
           {/* Table */}
-          <TableContainer component={Paper} sx={{ borderRadius: 2, boxShadow: 'none', border: '1px solid #f0f0f0' }}>
-            <Table>
+          <TableContainer
+            component={Paper}
+            sx={{ borderRadius: 2, boxShadow: 'none', border: '1px solid #f0f0f0', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}
+          >
+            <Table size={isMobile ? 'small' : 'medium'} sx={{ minWidth: 980 }}>
               <TableHead sx={{ bgcolor: '#f8f5ff' }}>
                 <TableRow>
                   <TableCell sx={{ fontWeight: 600 }}>Title</TableCell>

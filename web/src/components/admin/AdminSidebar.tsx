@@ -38,15 +38,36 @@ interface MenuItem {
   key: string;
 }
 
-const AdminSidebar: React.FC<{ mode?: 'admin' | 'manager' | 'chef' }> = ({ mode = 'admin' }) => {
+const AdminSidebar: React.FC<{
+  mode?: 'admin' | 'manager' | 'chef' | 'waiter' | 'rider';
+  variant?: 'permanent' | 'temporary';
+  open?: boolean;
+  onClose?: () => void;
+}> = ({ mode = 'admin', variant = 'permanent', open = false, onClose }) => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const basePath = mode === 'manager' ? '/manager' : mode === 'chef' ? '/chef' : '/admin';
+  const basePath =
+    mode === 'manager' ? '/manager' : mode === 'chef' ? '/chef' : mode === 'waiter' ? '/waiter' : mode === 'rider' ? '/rider' : '/admin';
 
   // All menu items visible directly - matching mobile admin interface
   const menuItems: MenuItem[] =
-    mode === 'chef'
+    mode === 'rider'
+      ? [
+          { label: 'Home', icon: <Dashboard sx={{ fontSize: 20 }} />, path: `${basePath}/home`, key: 'home' },
+          { label: 'Orders', icon: <ShoppingCart sx={{ fontSize: 20 }} />, path: `${basePath}/orders`, key: 'orders' },
+          { label: 'Earnings', icon: <BarChart sx={{ fontSize: 20 }} />, path: `${basePath}/earnings`, key: 'earnings' },
+          { label: 'Notifications', icon: <Notifications sx={{ fontSize: 20 }} />, path: `${basePath}/notifications`, key: 'notifications' },
+          { label: 'Profile', icon: <People sx={{ fontSize: 20 }} />, path: `${basePath}/profile`, key: 'profile' },
+        ]
+      : mode === 'waiter'
+      ? [
+          { label: 'Orders', icon: <ShoppingCart sx={{ fontSize: 20 }} />, path: `${basePath}/orders`, key: 'orders' },
+          { label: 'Tables', icon: <Apps sx={{ fontSize: 20 }} />, path: `${basePath}/tables`, key: 'tables' },
+          { label: 'Notifications', icon: <Notifications sx={{ fontSize: 20 }} />, path: `${basePath}/notifications`, key: 'notifications' },
+          { label: 'Profile', icon: <People sx={{ fontSize: 20 }} />, path: `${basePath}/profile`, key: 'profile' },
+        ]
+      : mode === 'chef'
       ? [
           { label: 'Home', icon: <Dashboard sx={{ fontSize: 20 }} />, path: `${basePath}/dashboard`, key: 'dashboard' },
           { label: 'Cooking', icon: <RestaurantMenu sx={{ fontSize: 20 }} />, path: `${basePath}/cooking`, key: 'cooking' },
@@ -94,14 +115,20 @@ const AdminSidebar: React.FC<{ mode?: 'admin' | 'manager' | 'chef' }> = ({ mode 
 
   const handleLogout = () => {
     localStorage.removeItem('auth_token');
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('userId');
     localStorage.removeItem('userRole');
     localStorage.removeItem('userData');
     navigate('/login');
+    if (variant === 'temporary') onClose?.();
   };
 
   return (
     <Drawer
-      variant="permanent"
+      variant={variant}
+      open={variant === 'temporary' ? open : true}
+      onClose={variant === 'temporary' ? onClose : undefined}
+      ModalProps={variant === 'temporary' ? { keepMounted: true } : undefined}
       sx={{
         width: SIDEBAR_WIDTH,
         flexShrink: 0,
@@ -156,7 +183,10 @@ const AdminSidebar: React.FC<{ mode?: 'admin' | 'manager' | 'chef' }> = ({ mode 
         {menuItems.map(item => (
           <ListItemButton
             key={item.key}
-            onClick={() => navigate(item.path)}
+            onClick={() => {
+              navigate(item.path);
+              if (variant === 'temporary') onClose?.();
+            }}
             sx={{
               bgcolor: isActive(item.path) ? '#FFE8E0' : 'transparent',
               color: isActive(item.path) ? '#FF6B35' : '#666',

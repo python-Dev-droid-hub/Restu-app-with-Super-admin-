@@ -24,7 +24,9 @@ import {
   Select,
   MenuItem,
   Alert,
+  useMediaQuery,
 } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import {
   Search,
   Delete,
@@ -58,6 +60,8 @@ interface BranchItem {
 }
 
 const AdminCustomers: React.FC = () => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [users, setUsers] = useState<UserItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -268,8 +272,8 @@ const AdminCustomers: React.FC = () => {
   };
 
   return (
-    <Box sx={{ p: 3, bgcolor: '#f8f5ff', minHeight: '100vh' }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+    <Box sx={{ px: { xs: 2, md: 3 }, pb: { xs: 2, md: 3 }, pt: 0, bgcolor: '#f8f5ff', minHeight: '100vh' }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 1.5 }}>
         <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#333' }}>
           Users & Customers
         </Typography>
@@ -428,7 +432,7 @@ const AdminCustomers: React.FC = () => {
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
       {/* Filters */}
-      <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+      <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
         <TextField
           placeholder="Search users..."
           size="small"
@@ -437,9 +441,9 @@ const AdminCustomers: React.FC = () => {
           InputProps={{
             startAdornment: <InputAdornment position="start"><Search /></InputAdornment>,
           }}
-          sx={{ minWidth: 300, bgcolor: 'white', borderRadius: 1 }}
+          sx={{ flex: 1, minWidth: { xs: '100%', sm: 300 }, bgcolor: 'white', borderRadius: 1 }}
         />
-        <FormControl size="small" sx={{ minWidth: 150, bgcolor: 'white', borderRadius: 1 }}>
+        <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 150 }, bgcolor: 'white', borderRadius: 1 }}>
           <Select
             value={roleFilter}
             onChange={(e) => setRoleFilter(e.target.value)}
@@ -457,8 +461,11 @@ const AdminCustomers: React.FC = () => {
       </Box>
 
       {/* Users Table */}
-      <TableContainer component={Paper} sx={{ borderRadius: 2, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
-        <Table>
+      <TableContainer
+        component={Paper}
+        sx={{ borderRadius: 2, boxShadow: '0 2px 12px rgba(0,0,0,0.08)', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}
+      >
+        <Table size={isMobile ? 'small' : 'medium'} sx={{ minWidth: 820 }}>
           <TableHead>
             <TableRow sx={{ bgcolor: '#f5f5f5' }}>
               <TableCell sx={{ fontWeight: 600 }}>User</TableCell>

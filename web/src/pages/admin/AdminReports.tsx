@@ -163,13 +163,13 @@ const AdminReports: React.FC = () => {
   );
 
   return (
-    <Box sx={{ p: 3, bgcolor: '#f5f5f5', minHeight: '100vh' }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+    <Box sx={{ px: { xs: 2, md: 3 }, pb: { xs: 2, md: 3 }, pt: 0, bgcolor: '#f5f5f5', minHeight: '100vh' }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 1.5 }}>
         <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#333' }}>
           Reports & Analytics
         </Typography>
-        <Box sx={{ display: 'flex', gap: 2 }}>
-          <FormControl size="small" sx={{ minWidth: 150 }}>
+        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+          <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 150 } }}>
             <InputLabel>Date Range</InputLabel>
             <Select value={dateRange} label="Date Range" onChange={(e) => setDateRange(e.target.value)}>
               <MenuItem value="today">Today</MenuItem>
@@ -179,7 +179,7 @@ const AdminReports: React.FC = () => {
               <MenuItem value="year">This Year</MenuItem>
             </Select>
           </FormControl>
-          <FormControl size="small" sx={{ minWidth: 150 }}>
+          <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 150 } }}>
             <InputLabel>Branch</InputLabel>
             <Select value={branchId} label="Branch" onChange={(e) => setBranchId(e.target.value)}>
               <MenuItem value="all">All Branches</MenuItem>
@@ -244,15 +244,15 @@ const AdminReports: React.FC = () => {
       <Grid container spacing={3}>
         {/* Top Products */}
         <Grid size={{ xs: 12, md: 6 }}>
-          <Paper sx={{ p: 3, borderRadius: 2, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
+          <Paper sx={{ p: { xs: 2, md: 3 }, borderRadius: 2, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
             <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 2 }}>
               Top Selling Products
             </Typography>
             {loading ? (
               <Skeleton variant="rectangular" height={200} />
             ) : (
-              <TableContainer>
-                <Table size="small">
+              <TableContainer sx={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                <Table size="small" sx={{ minWidth: 420 }}>
                   <TableHead>
                     <TableRow>
                       <TableCell>Product</TableCell>
@@ -286,15 +286,15 @@ const AdminReports: React.FC = () => {
 
         {/* Revenue by Branch */}
         <Grid size={{ xs: 12, md: 6 }}>
-          <Paper sx={{ p: 3, borderRadius: 2, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
+          <Paper sx={{ p: { xs: 2, md: 3 }, borderRadius: 2, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
             <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 2 }}>
               Revenue by Branch
             </Typography>
             {loading ? (
               <Skeleton variant="rectangular" height={200} />
             ) : (
-              <TableContainer>
-                <Table size="small">
+              <TableContainer sx={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                <Table size="small" sx={{ minWidth: 360 }}>
                   <TableHead>
                     <TableRow>
                       <TableCell>Branch</TableCell>

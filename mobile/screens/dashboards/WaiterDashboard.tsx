@@ -25,7 +25,7 @@ import { api } from '../../components/api/client';
 import { CommonActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import OrderCard from '../../components/ChefDashboard/OrderCard';
-import { getChefOrders, populateOrdersWithProductDetails } from '../../services/orderService';
+import { getSocket, initializeSocket } from '../../services/realtimeService';
 import PaymentHistoryScreen from '../profile/PaymentHistoryScreen';
 import NotificationHistoryScreen from '../profile/NotificationHistoryScreen';
 import ChangePasswordScreen from '../profile/ChangePasswordScreen';
@@ -188,13 +188,38 @@ export default function WaiterDashboard() {
     loadDashboardData();
   }, []);
 
+  // WebSocket listener for real-time updates (replaces 3-second polling)
   useEffect(() => {
-    const POLL_MS = 3000; // Poll every 3 seconds for near real-time updates
-    const id = setInterval(() => {
-      loadDashboardData({ silent: true });
-    }, POLL_MS);
+    const setupSocket = async () => {
+      const token = await AsyncStorage.getItem('authToken');
+      const userRaw = await AsyncStorage.getItem('userData');
+      const parsedUser = userRaw ? JSON.parse(userRaw) : null;
+      const userId = parsedUser?._id || parsedUser?.id;
+      const role = parsedUser?.role;
+      if (userId && role) {
+        initializeSocket(userId, role, token || undefined);
+      }
 
-    return () => clearInterval(id);
+      const socket = getSocket();
+      if (!socket) return;
+
+      socket.on('waiter_dashboard:data', (payload: any) => {
+        setStats(payload?.stats || { active_orders: 0, ready_to_serve: 0, served_today: 0 });
+        setOrders(payload?.orders || []);
+        setTables(payload?.tables || []);
+        setLastUpdatedAt(Date.now());
+      });
+
+      socket.emit('waiter_dashboard:get');
+    };
+    setupSocket();
+
+    return () => {
+      const socket = getSocket();
+      if (socket) {
+        socket.off('waiter_dashboard:data');
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -207,7 +232,10 @@ export default function WaiterDashboard() {
 
   useEffect(() => {
     if (appState === 'active') {
-      loadDashboardData({ silent: true });
+      const socket = getSocket();
+      if (socket) {
+        socket.emit('waiter_dashboard:get');
+      }
     }
   }, [appState]);
 
@@ -240,100 +268,14 @@ export default function WaiterDashboard() {
         // ignore
       }
 
-      const statsResponse = await api.get('/dashboard/waiter/stats');
-      if (statsResponse.success && statsResponse.data) {
-        setStats({
-          active_orders: statsResponse.data.active_orders ?? statsResponse.data.activeOrders ?? 0,
-          ready_to_serve: statsResponse.data.ready_to_serve ?? statsResponse.data.ordersToServe ?? 0,
-          served_today: statsResponse.data.served_today ?? statsResponse.data.ordersServed ?? 0,
-        });
+      // Request dashboard data via WebSocket (replaces HTTPS polling)
+      const socket = getSocket();
+      if (socket) {
+        socket.emit('waiter_dashboard:get');
       }
 
-      const ordersResponse = await api.get('/orders/branch/all?limit=500');
-      if (ordersResponse.success && ordersResponse.data) {
-        const rawOrders = ordersResponse.data.orders || [];
-        const totalOrdersFromDb = ordersResponse.data.pagination?.total;
-        console.log('[WAITER] Branch orders count:', rawOrders.length);
-        
-        // Populate product details for orders with incomplete product data
-        const populatedOrders = await populateOrdersWithProductDetails(rawOrders);
-        
-        const formattedOrders: SqlOrder[] = populatedOrders.map((order: any) => {
-          const id = order.id || order._id;
-          const createdAt = order.created_at || order.createdAt;
-          const orderNumber = order.order_number || order.orderNumber || `ORD-${String(id).slice(-6).toUpperCase()}`;
-          const status = String(order.status || 'PENDING').toUpperCase() as SqlOrderStatus;
-          const orderType = (order.order_type || order.orderType || 'DINE_IN') as SqlOrderType;
-          const itemsRaw = order.items || order.orderItems || [];
-          const items: SqlOrderItem[] = itemsRaw.map((item: any) => ({
-            id: item.id || item._id || `${id}-${item.product_id || item.productId || item.product_name || item.productName}`,
-            product_name: item.productName || item.product_name || item.name || (item.product?.name) || 'Item',
-            size_name: item.size_name || item.sizeName || null,
-            quantity: Number(item.quantity) || 1,
-            status: String(item.status || 'PENDING').toUpperCase() as any,
-            price: Number(item.price || item.unitPrice || item.unit_price || item.totalPrice || item.total_price || 0),
-            unit_price: Number(item.unitPrice || item.unit_price || item.price || 0),
-            total_price: Number(item.totalPrice || item.total_price || (item.price * item.quantity) || 0),
-            image: item.image || item.product?.image || item.product?.imageUrl || null,
-          }));
-          return {
-            id: String(id),
-            order_number: String(orderNumber),
-            order_type: orderType,
-            status,
-            table_id: order.table_id || order.tableId || null,
-            table_number: order.table_number || order.tableNumber || null,
-            special_instructions: order.special_instructions || order.specialInstructions || null,
-            created_at: createdAt || new Date().toISOString(),
-            items,
-            total_amount: order.total_amount ?? order.totalAmount,
-          };
-        });
-
-        setOrders(formattedOrders);
-
-        const activeOrders = formattedOrders.filter(o => o.status !== 'COMPLETED' && o.status !== 'CANCELLED' && o.status !== 'SERVED');
-        const readyToServe = formattedOrders.filter(o => o.status === 'READY');
-        const servedToday = formattedOrders.filter(o =>
-          (o.status === 'COMPLETED' || o.status === 'SERVED') &&
-          new Date(o.created_at).toDateString() === new Date().toDateString()
-        ).length;
-
-        setStats(prev => {
-          const activeFromApi = typeof prev.active_orders === 'number' ? prev.active_orders : 0;
-          const readyFromApi = typeof prev.ready_to_serve === 'number' ? prev.ready_to_serve : 0;
-          const servedFromApi = typeof prev.served_today === 'number' ? prev.served_today : 0;
-
-          return {
-            active_orders: activeFromApi || activeOrders.length,
-            ready_to_serve: readyFromApi || readyToServe.length,
-            served_today: servedFromApi || servedToday,
-            total_orders: typeof totalOrdersFromDb === 'number' ? totalOrdersFromDb : (prev as any)?.total_orders,
-          } as any;
-        });
-      }
-
-      const tablesResponse = await api.get('/tables');
-      if (tablesResponse.success && tablesResponse.data) {
-        const rawTables = tablesResponse.data.tables || tablesResponse.data || [];
-        const formattedTables: SqlRestaurantTable[] = rawTables.map((t: any) => ({
-          id: String(t.id || t._id),
-          table_number: t.table_number || t.tableNumber || t.number || '1',
-          seating_capacity: t.seating_capacity || t.seatingCapacity || 4,
-          section: t.section,
-          status: t.status || 'AVAILABLE',
-          current_waiter_id: t.current_waiter_id || t.currentWaiterId || null,
-        }));
-        setTables(formattedTables);
-      } else if (tables.length === 0) {
-        setTables([
-          { id: '1', table_number: '6', seating_capacity: 4, section: 'Main', status: 'OCCUPIED' },
-          { id: '2', table_number: '2', seating_capacity: 2, section: 'Main', status: 'AVAILABLE' },
-          { id: '3', table_number: '18', seating_capacity: 6, section: 'VIP', status: 'RESERVED' },
-        ]);
-      }
-
-      setLastUpdatedAt(Date.now());
+      // Data is now received via WebSocket 'waiter_dashboard:data' event
+      // No HTTPS calls needed for dashboard data
     } catch (error) {
       console.error('Error loading dashboard data:', error);
     } finally {
@@ -344,7 +286,10 @@ export default function WaiterDashboard() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadDashboardData();
+    const socket = getSocket();
+    if (socket) {
+      socket.emit('waiter_dashboard:get');
+    }
     setRefreshing(false);
   };
 

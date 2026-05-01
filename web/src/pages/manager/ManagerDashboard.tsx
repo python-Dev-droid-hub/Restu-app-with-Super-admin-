@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Card, CardContent, Chip, Container, Grid, Paper, Skeleton, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material';
+import { Box, Card, CardContent, Chip, Container, Grid, Paper, Skeleton, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography, useMediaQuery } from '@mui/material';
 import { AccountBalanceWallet, People, ReceiptLong, RestaurantMenu } from '@mui/icons-material';
 import { useLocation } from 'react-router-dom';
 import { api } from '../../services/api';
 import { io, type Socket } from 'socket.io-client';
+import { useTheme } from '@mui/material/styles';
+import { useSettings } from '../../context/SettingsContext';
 
 type ManagerStats = {
   totalOrders: number;
@@ -119,6 +121,9 @@ const StatCard = ({
 );
 
 const ManagerDashboard: React.FC = () => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const { formatPrice } = useSettings();
   const location = useLocation();
   const globalQuery = useMemo(() => (new URLSearchParams(location.search).get('q') || '').trim().toLowerCase(), [location.search]);
   const [{ branchId, branchName }, setBranch] = useState(getBranchContext());
@@ -255,7 +260,7 @@ const ManagerDashboard: React.FC = () => {
   }, [branchName]);
 
   return (
-    <Container maxWidth="lg" sx={{ py: 3 }}>
+    <Container maxWidth="lg" sx={{ pb: { xs: 2, md: 3 }, pt: 0 }}>
       <Box sx={{ mb: 2 }}>
         <Typography sx={{ fontWeight: 900, fontSize: { xs: 22, sm: 28 }, color: '#111' }}>
           {title}
@@ -269,7 +274,7 @@ const ManagerDashboard: React.FC = () => {
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatCard
             icon={<AccountBalanceWallet sx={{ fontSize: 24, color: 'white' }} />}
-            value={loading ? '' : `Rs. ${stats.totalRevenue.toFixed(0)}`}
+            value={loading ? '' : formatPrice(Number(stats.totalRevenue || 0))}
             label="Total Revenue"
             sublabel=""
             loading={loading}
@@ -309,15 +314,15 @@ const ManagerDashboard: React.FC = () => {
       </Grid>
 
       <Card sx={{ borderRadius: 4, boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}>
-        <CardContent sx={{ p: 3 }}>
+        <CardContent sx={{ p: { xs: 2, md: 3 } }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
             <Typography sx={{ fontWeight: 600, color: '#1a1a2e', fontSize: 18 }}>
               Recent Orders
             </Typography>
           </Box>
 
-          <TableContainer component={Paper} sx={{ boxShadow: 'none' }}>
-            <Table size="small">
+          <TableContainer component={Paper} sx={{ boxShadow: 'none', overflowX: 'auto' }}>
+            <Table size={isMobile ? 'small' : 'medium'} sx={{ minWidth: 560 }}>
               <TableHead>
                 <TableRow>
                   <TableCell sx={{ fontWeight: 600, color: '#666', borderBottom: '2px solid #f0f0f0' }}>Order</TableCell>
@@ -344,7 +349,7 @@ const ManagerDashboard: React.FC = () => {
                           <Chip size="small" label={chip.label} color={chip.color} />
                         </TableCell>
                         <TableCell align="right" sx={{ fontWeight: 800, color: '#111' }}>
-                          Rs. {Number(o.total || 0).toFixed(0)}
+                          {formatPrice(Number(o.total || 0))}
                         </TableCell>
                       </TableRow>
                     );
@@ -365,15 +370,15 @@ const ManagerDashboard: React.FC = () => {
       </Card>
 
       <Card sx={{ borderRadius: 4, boxShadow: '0 4px 20px rgba(0,0,0,0.08)', mt: 3 }}>
-        <CardContent sx={{ p: 3 }}>
+        <CardContent sx={{ p: { xs: 2, md: 3 } }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
             <Typography sx={{ fontWeight: 600, color: '#1a1a2e', fontSize: 18 }}>
               Waiters Performance
             </Typography>
           </Box>
 
-          <TableContainer component={Paper} sx={{ boxShadow: 'none' }}>
-            <Table>
+          <TableContainer component={Paper} sx={{ boxShadow: 'none', overflowX: 'auto' }}>
+            <Table size={isMobile ? 'small' : 'medium'} sx={{ minWidth: 520 }}>
               <TableHead>
                 <TableRow>
                   <TableCell sx={{ fontWeight: 600, color: '#666', borderBottom: '2px solid #f0f0f0' }}>Waiter</TableCell>
@@ -406,7 +411,7 @@ const ManagerDashboard: React.FC = () => {
                         {(w.servedOrders ?? 0).toLocaleString()}
                       </TableCell>
                       <TableCell align="right" sx={{ fontWeight: 500, color: '#1a1a2e', py: 2, borderBottom: '1px solid #f5f5f5' }}>
-                        Rs. {Number(w.revenue || 0).toFixed(0)}
+                        {formatPrice(Number(w.revenue || 0))}
                       </TableCell>
                     </TableRow>
                   ))
@@ -424,7 +429,7 @@ const ManagerDashboard: React.FC = () => {
       </Card>
 
       <Card sx={{ borderRadius: 4, boxShadow: '0 4px 20px rgba(0,0,0,0.08)', mt: 3 }}>
-        <CardContent sx={{ p: 3 }}>
+        <CardContent sx={{ p: { xs: 2, md: 3 } }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
             <Typography sx={{ fontWeight: 600, color: '#1a1a2e', fontSize: 18 }}>
               Riders Performance
@@ -434,8 +439,8 @@ const ManagerDashboard: React.FC = () => {
             </Typography>
           </Box>
 
-          <TableContainer component={Paper} sx={{ boxShadow: 'none' }}>
-            <Table>
+          <TableContainer component={Paper} sx={{ boxShadow: 'none', overflowX: 'auto' }}>
+            <Table size={isMobile ? 'small' : 'medium'} sx={{ minWidth: 520 }}>
               <TableHead>
                 <TableRow>
                   <TableCell sx={{ fontWeight: 600, color: '#666', borderBottom: '2px solid #f0f0f0' }}>Rider</TableCell>
@@ -468,7 +473,7 @@ const ManagerDashboard: React.FC = () => {
                         {(r.deliveredOrders ?? 0).toLocaleString()}
                       </TableCell>
                       <TableCell align="right" sx={{ fontWeight: 500, color: '#1a1a2e', py: 2, borderBottom: '1px solid #f5f5f5' }}>
-                        Rs. {Number(r.revenue || 0).toFixed(0)}
+                        {formatPrice(Number(r.revenue || 0))}
                       </TableCell>
                     </TableRow>
                   ))

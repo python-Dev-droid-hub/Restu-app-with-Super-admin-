@@ -70,7 +70,7 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     backgroundColor: COLORS.white,
-    height: 60,
+    minHeight: 60,
     borderTopWidth: 1,
     borderTopColor: COLORS.lightGray,
     position: 'absolute',

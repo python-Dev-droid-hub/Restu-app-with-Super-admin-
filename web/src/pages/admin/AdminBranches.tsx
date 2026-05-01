@@ -260,8 +260,8 @@ const AdminBranches: React.FC = () => {
   };
 
   return (
-    <Box sx={{ p: 3, bgcolor: '#f8f5ff', minHeight: '100vh' }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+    <Box sx={{ px: { xs: 2, md: 3 }, pb: { xs: 2, md: 3 }, pt: 0, bgcolor: '#f8f5ff', minHeight: '100vh' }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 1.5 }}>
         <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#333' }}>
           Branches
         </Typography>
@@ -431,7 +431,7 @@ const AdminBranches: React.FC = () => {
         <DialogContent>
           {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
           <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid size={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
                 label="Branch Code"
                 fullWidth
@@ -441,7 +441,7 @@ const AdminBranches: React.FC = () => {
                 required
               />
             </Grid>
-            <Grid size={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
                 label="Branch Name"
                 fullWidth
@@ -459,7 +459,7 @@ const AdminBranches: React.FC = () => {
                 required
               />
             </Grid>
-            <Grid size={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
                 label="City"
                 fullWidth
@@ -468,7 +468,7 @@ const AdminBranches: React.FC = () => {
                 required
               />
             </Grid>
-            <Grid size={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
                 label="State/Province"
                 fullWidth
@@ -476,7 +476,7 @@ const AdminBranches: React.FC = () => {
                 onChange={(e) => setFormData({ ...formData, state: e.target.value })}
               />
             </Grid>
-            <Grid size={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
                 label="Phone"
                 fullWidth
@@ -484,7 +484,7 @@ const AdminBranches: React.FC = () => {
                 onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value })}
               />
             </Grid>
-            <Grid size={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
                 label="Email"
                 fullWidth
@@ -492,7 +492,7 @@ const AdminBranches: React.FC = () => {
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
               />
             </Grid>
-            <Grid size={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
                 label="Currency"
                 select
@@ -509,7 +509,7 @@ const AdminBranches: React.FC = () => {
                 <MenuItem value="INR">INR - Indian Rupee</MenuItem>
               </TextField>
             </Grid>
-            <Grid size={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
                 label="Delivery Radius (meters)"
                 type="number"
@@ -519,7 +519,7 @@ const AdminBranches: React.FC = () => {
               />
             </Grid>
             <Grid size={12}>
-              <Box sx={{ display: 'flex', gap: 2 }}>
+              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
                 <FormControlLabel
                   control={<Switch checked={formData.isActive} onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })} />}
                   label="Active"

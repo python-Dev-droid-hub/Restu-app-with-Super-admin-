@@ -16,7 +16,9 @@ import {
   Button,
   Tabs,
   Tab,
+  useMediaQuery,
 } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import {
   Notifications as NotificationsIcon,
   MarkEmailRead,
@@ -43,6 +45,8 @@ interface NotificationItem {
 }
 
 const AdminNotifications: React.FC = () => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -201,8 +205,8 @@ const AdminNotifications: React.FC = () => {
   });
 
   return (
-    <Box sx={{ p: 3, bgcolor: '#f8f5ff', minHeight: '100vh' }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+    <Box sx={{ px: { xs: 2, md: 3 }, pb: { xs: 2, md: 3 }, pt: 0, bgcolor: '#f8f5ff', minHeight: '100vh' }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 1.5 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <Badge badgeContent={unreadCount} color="error">
             <NotificationsIcon sx={{ fontSize: 28, color: '#FF6B35' }} />
@@ -226,6 +230,8 @@ const AdminNotifications: React.FC = () => {
           value={tabValue}
           onChange={(_, v) => setTabValue(v)}
           sx={{ borderBottom: 1, borderColor: 'divider' }}
+          variant={isMobile ? 'scrollable' : 'standard'}
+          allowScrollButtonsMobile
         >
           <Tab label={`All (${notifications.length})`} />
           <Tab label={`Unread (${unreadCount})`} />
@@ -236,7 +242,7 @@ const AdminNotifications: React.FC = () => {
           {loading ? (
             Array.from({ length: 5 }).map((_, i) => (
               <React.Fragment key={i}>
-                <ListItem sx={{ px: 3 }}>
+                <ListItem sx={{ px: { xs: 2, md: 3 } }}>
                   <ListItemAvatar>
                     <Skeleton variant="circular" width={40} height={40} />
                   </ListItemAvatar>
@@ -258,7 +264,7 @@ const AdminNotifications: React.FC = () => {
               <React.Fragment key={notification._id}>
                 <ListItem
                   sx={{
-                    px: 3,
+                    px: { xs: 2, md: 3 },
                     bgcolor: notification.read ? 'transparent' : getNotificationColor(notification.type),
                     '&:hover': { bgcolor: '#f5f5f5' },
                   }}

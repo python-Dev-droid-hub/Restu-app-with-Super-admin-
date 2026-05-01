@@ -49,6 +49,7 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
   });
   const [isLoading, setIsLoading] = useState(true);
   const socketRef = useRef<Socket | null>(null);
+  const lastBranchKeyRef = useRef<string>('');
 
   const loadSettings = async () => {
     try {
@@ -66,10 +67,12 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
       const userRole = parsedUserData?.role;
       const branchId =
         parsedUserData?.assignedBranch?._id ||
+        parsedUserData?.assignedBranchId ||
         parsedUserData?.assignedBranch ||
+        parsedUserData?.assigned_branch ||
         parsedUserData?.branch?._id ||
-        parsedUserData?.branch ||
-        parsedUserData?.branchId;
+        parsedUserData?.branchId ||
+        parsedUserData?.branch;
 
       // For all users including CUSTOMER, fetch branch settings if there's a selected branch
       const selectedBranchId = localStorage.getItem('selectedBranchId');
@@ -140,15 +143,49 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
     };
     
     window.addEventListener('storage', handleStorageChange);
+    const intervalId = window.setInterval(() => {
+      try {
+        const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken') || '';
+        const storedUserData = localStorage.getItem('userData');
+        const parsedUserData = storedUserData ? JSON.parse(storedUserData) : null;
+        const branchId =
+          parsedUserData?.assignedBranch?._id ||
+          parsedUserData?.assignedBranchId ||
+          parsedUserData?.assignedBranch ||
+          parsedUserData?.assigned_branch ||
+          parsedUserData?.branch?._id ||
+          parsedUserData?.branchId ||
+          parsedUserData?.branch;
+        const selectedBranchId = localStorage.getItem('selectedBranchId');
+        const userBranchId = branchId || selectedBranchId || '';
+        const nextKey = `${token}::${String(userBranchId)}`;
+        if (nextKey !== lastBranchKeyRef.current) {
+          lastBranchKeyRef.current = nextKey;
+          loadSettings();
+        }
+      } catch {
+        // ignore
+      }
+    }, 1000);
     return () => {
       window.removeEventListener('storage', handleStorageChange);
+      window.clearInterval(intervalId);
       socketRef.current?.disconnect();
       socketRef.current = null;
     };
   }, []);
 
   const formatPrice = (price: number): string => {
-    return `${settings.currencySymbol}${price.toFixed(2)}`;
+    try {
+      return new Intl.NumberFormat(undefined, {
+        style: 'currency',
+        currency: settings.defaultCurrency,
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(Number(price || 0));
+    } catch {
+      return `${settings.currencySymbol}${Number(price || 0).toFixed(2)}`;
+    }
   };
 
   return (

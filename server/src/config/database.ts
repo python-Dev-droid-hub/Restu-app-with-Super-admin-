@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import { logger } from '@/utils/logger';
 import { logRegisteredModels } from './models';
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27019/restaurant_app';
+const DEFAULT_MONGODB_URI = 'mongodb://localhost:27019/restaurant_app';
 
 export const connectDatabase = async (): Promise<void> => {
   try {
@@ -13,7 +13,30 @@ export const connectDatabase = async (): Promise<void> => {
       bufferCommands: false,
     };
 
-    await mongoose.connect(MONGODB_URI, options);
+    const primaryUri = process.env.MONGODB_URI || DEFAULT_MONGODB_URI;
+    try {
+      await mongoose.connect(primaryUri, options);
+    } catch (error: any) {
+      const message = String(error?.message || '');
+      const shouldTryFallback =
+        message.includes('ECONNREFUSED') ||
+        message.includes('MongoServerSelectionError') ||
+        message.includes('Server selection timed out') ||
+        message.includes('ENOTFOUND');
+
+      if (!shouldTryFallback) throw error;
+
+      const fallbackUri =
+        primaryUri.includes('localhost:27019') || primaryUri.includes('127.0.0.1:27019')
+          ? primaryUri.replace(':27019', ':27017')
+          : primaryUri.includes('localhost:27017') || primaryUri.includes('127.0.0.1:27017')
+          ? primaryUri.replace(':27017', ':27019')
+          : '';
+
+      if (!fallbackUri || fallbackUri === primaryUri) throw error;
+
+      await mongoose.connect(fallbackUri, options);
+    }
     
     logger.info(`MongoDB connected: ${mongoose.connection.host}`);
     
