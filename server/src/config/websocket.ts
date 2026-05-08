@@ -414,14 +414,10 @@ export const initWebSocket = (app: Express) => {
               ],
             };
 
-            if (activatedProductIds !== null) {
+            // Only restrict by activated IDs if there are actually some.
+            // Empty array would match nothing — fall back to showing all products.
+            if (activatedProductIds !== null && activatedProductIds.length > 0) {
               productFilter._id = { $in: activatedProductIds };
-            }
-
-            if (branchFilter) {
-              productFilter.$and.push({
-                $or: [{ branchId: { $exists: false } }, { branchId: null }, { branchId: branchFilter }],
-              });
             }
 
             const products = await menuRepository.findAllProducts(productFilter, 1, 100);
@@ -443,10 +439,14 @@ export const initWebSocket = (app: Express) => {
           $and: [{ $or: [{ startDate: null }, { startDate: { $lte: now } }] }, { $or: [{ endDate: null }, { endDate: { $gte: now } }] }],
         };
         if (branchFilter) {
-          campaignFilter.branch = { $in: [new Types.ObjectId(branchFilter)] };
-        } else {
-          campaignFilter.branch = { $size: 0 };
+          // Show campaigns for this specific branch OR campaigns with no branch restriction
+          campaignFilter.$or = [
+            { branch: { $in: [new Types.ObjectId(branchFilter)] } },
+            { branch: { $size: 0 } },
+            { branch: { $exists: false } },
+          ];
         }
+        // When no branch selected, show ALL active campaigns (no branch filter applied)
         const campaigns = await DealCampaign.find(campaignFilter)
           .populate('branch', 'branchName branchCode')
           .sort({ displayOrder: 1, createdAt: -1 })

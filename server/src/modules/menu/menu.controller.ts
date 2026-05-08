@@ -411,25 +411,15 @@ export class MenuController {
           ],
         };
 
-        // If branch is selected, filter by activated products
-        if (activatedProductIds !== null) {
+        // If branch is selected AND has activated products, filter to only those products.
+        // If activatedProductIds is empty (no activations configured yet), fall back to
+        // showing ALL available products so the menu is never silently empty.
+        if (activatedProductIds !== null && activatedProductIds.length > 0) {
           productFilter._id = { $in: activatedProductIds };
-        }
-        
-        // ALSO: If branch is selected, exclude products assigned to OTHER branches
-        // Products can have branchId field indicating they belong to a specific branch
-        if (branchFilter && branchFilter !== 'all') {
-          productFilter.$and.push({
-            $or: [
-              { branchId: { $exists: false } }, // No branch assigned (global product)
-              { branchId: null },               // Explicitly null (global product)
-              { branchId: branchFilter }        // Assigned to this specific branch
-            ]
-          });
         }
 
         console.log('🔍 [SERVER MENU DEBUG] Product filter for category', category.name + ':', JSON.stringify(productFilter));
-        console.log('🔍 [SERVER MENU DEBUG] Activated IDs filter:', activatedProductIds ? `active, count: ${activatedProductIds.length}` : 'null (showing all)');
+        console.log('🔍 [SERVER MENU DEBUG] Activated IDs filter:', activatedProductIds !== null ? `active, count: ${activatedProductIds.length}${activatedProductIds.length === 0 ? ' (empty → showing all)' : ''}` : 'null (showing all)');
 
         const products = await this.menuRepository.findAllProducts(
           productFilter,

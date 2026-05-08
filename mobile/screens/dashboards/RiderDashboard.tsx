@@ -114,7 +114,9 @@ export default function RiderDashboard() {
   const [activeTab, setActiveTab] = useState<TabType>('Home');
   const [loading, setLoading] = useState(true);
 
+  const topInset = Math.max(0, insets.top);
   const bottomInset = Math.max(0, insets.bottom);
+  const footerBottomPadding = bottomInset + 8;
 
   const [showChangeName, setShowChangeName] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
@@ -911,7 +913,7 @@ export default function RiderDashboard() {
   };
 
   return (
-    <SafeAreaView style={[styles.container]}>
+    <SafeAreaView style={[styles.container, { paddingTop: topInset }]}>
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
 
       {/* Professional Header */}
@@ -1044,8 +1046,8 @@ export default function RiderDashboard() {
         style={[
           styles.footer,
           {
-            paddingBottom: bottomInset,
-            minHeight: SPACING.footerHeight + bottomInset,
+            paddingBottom: footerBottomPadding,
+            minHeight: SPACING.footerHeight + footerBottomPadding,
           },
         ]}
       >
@@ -1212,7 +1214,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.lightBg,
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
+    paddingTop: 0,
   },
   content: {
     flex: 1,

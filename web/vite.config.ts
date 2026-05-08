@@ -18,6 +18,13 @@ export default defineConfig(({ mode }) => {
           target: proxyTarget,
           changeOrigin: true,
         },
+        // Proxy Socket.IO WebSocket through Vite so the frontend never needs
+        // to know the backend port — it always connects to localhost:5173.
+        '/socket.io': {
+          target: proxyTarget,
+          changeOrigin: true,
+          ws: true,
+        },
       },
     },
     build: {

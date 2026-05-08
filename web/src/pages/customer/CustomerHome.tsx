@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Button, Card, CardActionArea, CardContent, CardMedia, Grid, IconButton, Paper, Stack, TextField, Typography, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
 import { Add as AddIcon, Remove as RemoveIcon, Close as CloseIcon } from '@mui/icons-material';
 import SearchIcon from '@mui/icons-material/Search';
-import { io, type Socket } from 'socket.io-client';
+import { api } from '../../services/api';
 
 type HomeBanner = {
   id: string;
@@ -168,27 +168,8 @@ export default function CustomerHome() {
   const [pendingItem, setPendingItem] = useState<{ id: string; name: string; description?: string; price: number; image?: string } | null>(null);
   const [pendingQty, setPendingQty] = useState(1);
   const [pendingNote, setPendingNote] = useState('');
-  const socketRef = useRef<Socket | null>(null);
 
   const normalizedSearch = useMemo(() => search.trim(), [search]);
-
-  const getServerHost = (): string => {
-    const rawApiUrl = (import.meta as any)?.env?.VITE_API_URL as string | undefined;
-    const rawProxyTarget = (import.meta as any)?.env?.VITE_PROXY_TARGET as string | undefined;
-
-    const normalizeHost = (value?: string): string => {
-      const v = (value || '').trim();
-      if (!v) return '';
-      return v.replace(/\/?api\/?$/, '').replace(/\/$/, '');
-    };
-
-    const fromEnv = normalizeHost(rawProxyTarget) || normalizeHost(rawApiUrl);
-    if (fromEnv) return fromEnv;
-
-    const protocol = window.location.protocol || 'http:';
-    const hostname = window.location.hostname || 'localhost';
-    return `${protocol}//${hostname}:3101`;
-  };
 
   const normalizeMediaUrl = (uri?: string): string => {
     if (!uri) return '';
@@ -203,7 +184,7 @@ export default function CustomerHome() {
           ? `/${value.replace(/^src\//, '')}`
           : value;
     if (!normalizedPath.startsWith('/')) return normalizedPath;
-    return `${getServerHost()}${normalizedPath}`;
+    return `${window.location.origin}${normalizedPath}`;
   };
 
   useEffect(() => {
@@ -221,176 +202,128 @@ export default function CustomerHome() {
     };
   }, []);
 
+  // Load menu + deals via REST API — reliable in all environments.
   useEffect(() => {
-    return () => {
-      socketRef.current?.disconnect();
-      socketRef.current = null;
-    };
-  }, []);
+    let cancelled = false;
 
-  useEffect(() => {
-    const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
-    if (!socketRef.current) {
-      socketRef.current = io(getServerHost(), {
-        path: '/socket.io',
-        transports: ['websocket', 'polling'],
-        auth: token ? { token } : undefined,
-      });
-    }
+    const loadData = async () => {
+      setLoading(true);
+      try {
+        const hasBranch = selectedBranchId && selectedBranchId !== 'all';
+        const branchParam = hasBranch ? `?branchId=${encodeURIComponent(selectedBranchId)}` : '';
+        const dealsBranchParam = hasBranch ? `?branch=${encodeURIComponent(selectedBranchId)}` : '';
 
-    const socket = socketRef.current;
-    const normalizeHomeBanners = (raw: any[]): HomeBanner[] => {
-      return raw
-        .map((item: any, index: number) => ({
-          id: String(item?.id || item?._id || `banner-${index}`),
-          title: String(item?.title || 'Banner'),
-          subtitle: item?.subtitle || item?.description || '',
-          image: extractImagePath([item?.image, item?.imageUrl]),
-          discount: Number(item?.discount || 0) || undefined,
-        }))
-        .filter((item) => Boolean(item.image));
-    };
+        const [menuRes, dealsRes, bannersRes] = await Promise.allSettled([
+          api.get<any>(`/menu${branchParam}`),
+          api.get<any>(`/deals/campaigns/active${dealsBranchParam}`),
+          api.get<any>('/banners/active'),
+        ]);
 
-    const normalizeActiveBanners = (raw: any[]): HomeBanner[] => {
-      return raw
-        .filter((item: ActiveBannerApiItem) => item?.isActive !== false)
-        .sort((a: ActiveBannerApiItem, b: ActiveBannerApiItem) => Number(a?.displayOrder || 0) - Number(b?.displayOrder || 0))
-        .map((item: ActiveBannerApiItem, index: number) => ({
-          id: String(item.id || item._id || `banner-active-${index}`),
-          title: String(item.title || 'Banner'),
-          subtitle: item.subtitle || '',
-          image: extractImagePath([item?.imageUrl, item?.image]),
-        }))
-        .filter((item) => Boolean(item.image));
-    };
+        if (cancelled) return;
 
-    const onData = (payload: any) => {
-      const activeBannersRaw = payload?.activeBanners || payload?.activeBanners?.banners || [];
-      const menuRaw = payload?.menu || {};
-      const dealsRaw = payload?.dealCampaigns || {};
-      const customerDealsRaw = payload?.customerDeals || {};
+        // ── Menu / products ──────────────────────────────────────────────
+        const menuData = menuRes.status === 'fulfilled' && menuRes.value?.success ? menuRes.value : null;
+        const apiCategories: MenuCategory[] = menuData?.data?.categories || menuData?.data || [];
+        const sections: CategorySection[] = [...(Array.isArray(apiCategories) ? apiCategories : [])]
+          .sort(compareByDisplayOrder)
+          .map((cat: any, catIndex: number) => {
+            const categoryProducts = Array.isArray(cat.products) ? cat.products : [];
+            const mappedProducts: HomeProduct[] = [...categoryProducts]
+              .sort(compareByDisplayOrder)
+              .map((p: any, productIndex: number) => ({
+                id: String(p?._id || p?.id || `${catIndex}-${productIndex}`),
+                name: String(p?.name || 'Product'),
+                description: p?.description || '',
+                price: Number(p?.effectivePrice ?? p?.price ?? 0),
+                originalPrice: Number(p?.originalPrice ?? p?.effectivePrice ?? p?.price ?? 0),
+                image: extractImagePath([p?.images, p?.image, p?.imageUrl, p?.thumbnail, p?.media]),
+                rating: Number(p?.rating || 0),
+                reviews: Number(p?.reviews || 0),
+                category: String(cat?.name || 'Food'),
+                displayOrder: Number.isFinite(Number(p?.displayOrder)) ? Number(p.displayOrder) : undefined,
+              }));
+            return {
+              id: String(cat._id || cat.id || `cat-${catIndex}`),
+              name: String(cat.name || 'Category'),
+              imageUrl: extractImagePath(cat.imageUrl),
+              displayOrder: Number.isFinite(Number(cat?.displayOrder)) ? Number(cat.displayOrder) : undefined,
+              products: mappedProducts,
+            };
+          });
+        setCategorySections(sections);
 
-      const activeBanners = normalizeActiveBanners(Array.isArray(activeBannersRaw) ? activeBannersRaw : []);
-      const homeBanners = normalizeHomeBanners([]);
-      const finalBanners = activeBanners.length > 0 ? activeBanners : homeBanners;
+        // ── Banners ──────────────────────────────────────────────────────
+        const bannersData = bannersRes.status === 'fulfilled' && bannersRes.value?.success ? bannersRes.value : null;
+        const rawBanners: ActiveBannerApiItem[] = bannersData?.data?.banners || bannersData?.data || [];
+        const banners: HomeBanner[] = (Array.isArray(rawBanners) ? rawBanners : [])
+          .filter((b: ActiveBannerApiItem) => b?.isActive !== false)
+          .sort((a: ActiveBannerApiItem, b: ActiveBannerApiItem) => Number(a?.displayOrder || 0) - Number(b?.displayOrder || 0))
+          .map((b: ActiveBannerApiItem, i: number) => ({
+            id: String(b.id || b._id || `banner-${i}`),
+            title: String(b.title || 'Banner'),
+            subtitle: b.subtitle || '',
+            image: extractImagePath([b?.imageUrl, b?.image]),
+          }))
+          .filter((b) => Boolean(b.image));
+        setHome({ banners });
 
-      const apiCategories: MenuCategory[] = (menuRaw as any)?.categories || (menuRaw as any)?.data?.categories || [];
-      const sections: CategorySection[] = [...apiCategories]
-        .sort(compareByDisplayOrder)
-        .map((cat, catIndex) => {
-          const categoryProducts = Array.isArray(cat.products) ? cat.products : (Array.isArray(cat.items) ? cat.items : []);
-          const mappedProducts: HomeProduct[] = [...categoryProducts]
-            .sort(compareByDisplayOrder)
-            .map((p: any, productIndex: number) => ({
-              id: String(p?._id || p?.id || `${catIndex}-${productIndex}`),
-              name: String(p?.name || 'Product'),
-              description: p?.description || '',
-              price: Number(p?.effectivePrice ?? p?.price ?? 0),
-              originalPrice: Number(p?.originalPrice ?? p?.effectivePrice ?? p?.price ?? 0),
-              image: extractImagePath([p?.images, p?.image, p?.imageUrl, p?.thumbnail, p?.media]),
-              rating: Number(p?.rating || 0),
-              reviews: Number(p?.reviews || 0),
-              category: String(cat?.name || 'Food'),
-              displayOrder: Number.isFinite(Number(p?.displayOrder)) ? Number(p.displayOrder) : undefined,
-            }));
+        // ── Deals ────────────────────────────────────────────────────────
+        const dealsData = dealsRes.status === 'fulfilled' && dealsRes.value?.success ? dealsRes.value : null;
+        const campaigns = dealsData?.data?.campaigns;
+        const activeCampaigns = Array.isArray(campaigns)
+          ? campaigns.filter((c: any) => c?.status === 'ACTIVE' || c?.status === undefined).sort(compareByDisplayOrder)
+          : [];
 
-          return {
-            id: String(cat._id || cat.id || `cat-${catIndex}`),
-            name: String(cat.name || 'Category'),
-            imageUrl: extractImagePath(cat.imageUrl),
-            displayOrder: Number.isFinite(Number(cat?.displayOrder)) ? Number(cat.displayOrder) : undefined,
-            products: mappedProducts,
-          };
-        });
-      setCategorySections(sections);
-      setHome({ banners: finalBanners });
-
-      const campaigns = (dealsRaw as any)?.campaigns;
-      const activeCampaigns = Array.isArray(campaigns)
-        ? campaigns.filter((c: any) => c?.status === 'ACTIVE' || c?.status === undefined).sort(compareByDisplayOrder)
-        : [];
-
-      const normalizedCampaigns: DealCampaign[] = [];
-      for (const campaign of activeCampaigns) {
-        const dealList = Array.isArray(campaign?.deals) ? [...campaign.deals].sort(compareByDisplayOrder) : [];
-        const normalizedDeals: DealItem[] = [];
-        for (const deal of dealList) {
-          if (deal?.isActive === false) continue;
-          if (!deal?._id || !deal?.title) continue;
-          const configuredItems = Array.isArray(deal?.items) ? deal.items.filter((item: any) => item?.productId) : [];
-          normalizedDeals.push({
-            _id: String(deal._id),
-            title: String(deal.title),
-            description: deal.description || '',
-            imageUrl: deal.imageUrl || deal.image,
-            price: Number(deal.price || 0) || undefined,
-            originalPrice: Number(deal.originalPrice || 0) || undefined,
-            discount: Number(deal.discount || 0) || undefined,
-            isActive: deal.isActive,
-            isOrderable: configuredItems.length > 0,
-            displayOrder: Number.isFinite(Number(deal?.displayOrder)) ? Number(deal.displayOrder) : undefined,
-            items: configuredItems.map((item: any) => ({
-              productId: item?.productId ? String(item.productId) : undefined,
-              quantity: Number(item?.quantity || 1),
-            })),
+        const normalizedCampaigns: DealCampaign[] = [];
+        for (const campaign of activeCampaigns) {
+          const dealList = Array.isArray(campaign?.deals) ? [...campaign.deals].sort(compareByDisplayOrder) : [];
+          const normalizedDeals: DealItem[] = [];
+          for (const deal of dealList) {
+            if (deal?.isActive === false) continue;
+            if (!deal?._id || !deal?.title) continue;
+            const configuredItems = Array.isArray(deal?.items) ? deal.items.filter((item: any) => item?.productId) : [];
+            normalizedDeals.push({
+              _id: String(deal._id),
+              title: String(deal.title),
+              description: deal.description || '',
+              imageUrl: deal.imageUrl || deal.image,
+              price: Number(deal.price || 0) || undefined,
+              originalPrice: Number(deal.originalPrice || 0) || undefined,
+              discount: Number(deal.discount || 0) || undefined,
+              isActive: deal.isActive,
+              isOrderable: configuredItems.length > 0,
+              displayOrder: Number.isFinite(Number(deal?.displayOrder)) ? Number(deal.displayOrder) : undefined,
+              items: configuredItems.map((item: any) => ({
+                productId: item?.productId ? String(item.productId) : undefined,
+                quantity: Number(item?.quantity || 1),
+              })),
+            });
+          }
+          if (normalizedDeals.length === 0) continue;
+          normalizedCampaigns.push({
+            _id: String(campaign?._id || campaign?.id || `campaign-${normalizedCampaigns.length}`),
+            name: String(campaign?.name || 'Campaign'),
+            displayOrder: Number.isFinite(Number(campaign?.displayOrder)) ? Number(campaign.displayOrder) : undefined,
+            status: campaign?.status,
+            heroBanner: campaign?.heroBanner ? {
+              imageUrl: campaign.heroBanner.imageUrl,
+              title: campaign.heroBanner.title,
+              subtitle: campaign.heroBanner.subtitle,
+              bgColor: campaign.heroBanner.bgColor,
+            } : undefined,
+            deals: normalizedDeals,
           });
         }
-        if (normalizedDeals.length === 0) continue;
-        normalizedCampaigns.push({
-          _id: String(campaign?._id || campaign?.id || `campaign-${normalizedCampaigns.length}`),
-          name: String(campaign?.name || 'Campaign'),
-          displayOrder: Number.isFinite(Number(campaign?.displayOrder)) ? Number(campaign.displayOrder) : undefined,
-          status: campaign?.status,
-          heroBanner: campaign?.heroBanner
-            ? {
-                imageUrl: campaign.heroBanner.imageUrl,
-                title: campaign.heroBanner.title,
-                subtitle: campaign.heroBanner.subtitle,
-                bgColor: campaign.heroBanner.bgColor,
-              }
-            : undefined,
-          deals: normalizedDeals,
-        });
-      }
-
-      if (normalizedCampaigns.length > 0) {
         setDealCampaigns(normalizedCampaigns);
-      } else {
-        const fallbackDeals: DealItem[] = ((customerDealsRaw as any)?.deals || []).map((d: any) => ({
-          _id: String(d?.id || d?._id),
-          title: String(d?.title || 'Deal'),
-          description: d?.description || '',
-          imageUrl: d?.image || d?.imageUrl,
-          discount: Number(d?.discount || 0),
-        }));
-        setDealCampaigns(fallbackDeals.length > 0 ? [{ _id: 'fallback-campaign', name: 'Deals', deals: fallbackDeals }] : []);
+      } catch {
+        // silently fail — empty state is already set
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-
-      setLoading(false);
     };
 
-    const onError = () => {
-      setLoading(false);
-    };
-
-    socket.off('customer_home:data');
-    socket.on('customer_home:data', onData);
-    socket.on('connect_error', onError);
-
-    const hasBranch = selectedBranchId && selectedBranchId !== 'all';
-    const request = () => {
-      setLoading(true);
-      socket.emit('customer_home:get', { branchId: hasBranch ? selectedBranchId : undefined });
-    };
-
-    if (socket.connected) request();
-    else socket.once('connect', request);
-
-    return () => {
-      socket.off('customer_home:data', onData);
-      socket.off('connect_error', onError);
-      socket.off('connect', request);
-    };
+    loadData();
+    return () => { cancelled = true; };
   }, [selectedBranchId]);
 
   const bannerItems = home.banners;

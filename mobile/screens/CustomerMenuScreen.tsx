@@ -105,7 +105,8 @@ export default function CustomerMenuScreen() {
   const [deals, setDeals] = useState<DealItem[]>([]);
   const [dealCampaigns, setDealCampaigns] = useState<DealCampaign[]>([]);
   const [dealsLoading, setDealsLoading] = useState(false);
-  const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null);
+  // undefined = not yet checked, null = checked but no branch, string = branch selected
+  const [selectedBranchId, setSelectedBranchId] = useState<string | null | undefined>(undefined);
 
   useEffect(() => {
     loadSelectedBranchId();
@@ -114,14 +115,17 @@ export default function CustomerMenuScreen() {
   const loadSelectedBranchId = async () => {
     try {
       const stored = await AsyncStorage.getItem('selectedBranchId');
-      if (stored) setSelectedBranchId(stored);
+      // Always update state after checking — null means "no branch, show all products"
+      setSelectedBranchId(stored ?? null);
     } catch {
-      // ignore
+      setSelectedBranchId(null);
     }
   };
 
   useEffect(() => {
-    if (selectedBranchId !== null) {
+    // undefined = AsyncStorage not yet checked, skip
+    // null or string = checked, load menu (null shows all products, string filters by branch)
+    if (selectedBranchId !== undefined) {
       loadMenuData();
       loadDeals();
     }

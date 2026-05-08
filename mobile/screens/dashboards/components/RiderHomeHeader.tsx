@@ -6,8 +6,6 @@ import {
   Image,
   StyleSheet,
   Dimensions,
-  Platform,
-  StatusBar,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -165,7 +163,7 @@ const RiderHomeHeader: React.FC<RiderHomeHeaderProps> = ({
 const styles = StyleSheet.create({
   container: {
     backgroundColor: COLORS.white,
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
+    paddingTop: 0,
   },
   profileSection: {
     flexDirection: 'row',

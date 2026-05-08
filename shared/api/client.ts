@@ -10,7 +10,9 @@ const resolveApiBaseUrl = (): string => {
   if (typeof window !== 'undefined') {
     const host = window.location.hostname;
     const isLocal = host === 'localhost' || host === '127.0.0.1';
-    return isLocal ? 'http://localhost:3000/api' : `${window.location.protocol}//${host}:3101/api`;
+    // Use relative /api on localhost so Vite dev proxy forwards to the backend.
+    // This removes any hardcoded port dependency — the proxy config owns routing.
+    return isLocal ? '/api' : `${window.location.protocol}//${host}:3101/api`;
   }
   return 'http://localhost:3101/api';
 };

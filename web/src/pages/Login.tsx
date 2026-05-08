@@ -1,13 +1,13 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useLogin } from '@restaurant-app/shared';
 import { api } from '../services/api';
 import './Login.css';
 
 export function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const { login, isLoading, error } = useLogin();
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
 
   const waitForAuthToken = async (maxWaitMs: number) => {
@@ -24,14 +24,30 @@ export function Login() {
     e.preventDefault();
     if (!email || !password) return;
 
+    setIsLoading(true);
+    setError(null);
+
     try {
       localStorage.removeItem('userRole');
       localStorage.removeItem('userData');
-      const result: any = await login({ email, password });
+      const result: any = await api.post('/auth/login', { email, password });
+      if (!result?.success) {
+        setError(result?.message || 'Login failed. Please check your credentials.');
+        setIsLoading(false);
+        return;
+      }
+
+      // Store auth token immediately
+      const accessToken = result?.data?.tokens?.accessToken || result?.data?.token;
+      if (accessToken) {
+        localStorage.setItem('auth_token', accessToken);
+        localStorage.setItem('authToken', accessToken);
+      }
+
       console.log('Login result:', result);
 
       // Persist user data for web pages that depend on it
-      const user = result?.user || result;
+      const user = result?.data?.user || result?.user || result?.data;
       if (user && typeof user === 'object') {
         localStorage.setItem('userData', JSON.stringify(user));
         if ((user as any)?._id || (user as any)?.id) {
@@ -42,8 +58,8 @@ export function Login() {
         }
       }
 
-      // Fallback: if token is returned but not yet stored (should be handled by shared hook)
-      const token = result?.tokens?.accessToken || result?.accessToken || result?.token;
+      // Fallback token storage
+      const token = result?.data?.tokens?.accessToken || result?.tokens?.accessToken || result?.accessToken || result?.token;
       if (token && !localStorage.getItem('auth_token')) {
         localStorage.setItem('auth_token', String(token));
       }
@@ -81,8 +97,8 @@ export function Login() {
         }
 
         // If not found, try to extract from login result or auth state
-        if (!userRole && result && typeof result === 'object' && result.user?.role) {
-          userRole = result.user.role;
+        if (!userRole && result && typeof result === 'object' && (result.data?.user?.role || result.user?.role)) {
+          userRole = result.data?.user?.role || result.user?.role;
           if (userRole) {
             localStorage.setItem('userRole', userRole);
           }
@@ -109,9 +125,11 @@ export function Login() {
 
       // Check immediately, then retry after a short delay
       checkUserRole();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Login error:', err);
-      // Error is handled by useLogin hook
+      setError(err?.message || 'Login failed. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   };
 

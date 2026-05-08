@@ -130,8 +130,10 @@ export default function CustomerDashboard() {
   };
 
   const tabBarBaseHeight = Platform.OS === 'android' ? 70 : 60;
-  const tabBarHeight = tabBarBaseHeight + (insets.bottom || 0);
-  const tabBarPaddingBottom = (insets.bottom || 0) + (Platform.OS === 'android' ? 10 : 0);
+  const navBottomGap = Platform.OS === 'android' ? 12 : 0;
+  const safeBottom = Math.max(insets.bottom || 0, Platform.OS === 'android' ? 12 : 0);
+  const tabBarHeight = tabBarBaseHeight + safeBottom;
+  const tabBarPaddingBottom = safeBottom + (Platform.OS === 'android' ? 10 : 0);
 
   const handleBranchSelected = (branch: Branch) => {
     setSelectedBranch(branch);
@@ -301,7 +303,7 @@ export default function CustomerDashboard() {
       />
 
       {/* Tab Content */}
-      <View style={[styles.content, { paddingBottom: tabBarHeight }]}>
+      <View style={[styles.content, { paddingBottom: tabBarHeight + navBottomGap }]}>
         {renderTabContent()}
       </View>
 
@@ -312,6 +314,7 @@ export default function CustomerDashboard() {
           {
             paddingBottom: tabBarPaddingBottom,
             height: tabBarHeight,
+            bottom: navBottomGap,
           },
         ]}
       >
@@ -401,7 +404,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     flexDirection: 'row',
     justifyContent: 'space-around',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     backgroundColor: '#fff',
     paddingTop: 10,
     paddingHorizontal: 20,

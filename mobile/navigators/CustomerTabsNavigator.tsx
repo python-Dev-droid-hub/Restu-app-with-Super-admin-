@@ -2,7 +2,7 @@ import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
-import { View, Text, StyleSheet } from 'react-native';
+import { Platform, View, Text, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, typography } from '../theme';
 import { useWebSocket } from '../context/WebSocketContext';
@@ -44,7 +44,9 @@ function MainTabsNavigator() {
   const cartItemCount = getCartCount();
   const insets = useSafeAreaInsets();
   const tabBarBaseHeight = 60;
-  const tabBarHeight = tabBarBaseHeight + Math.max(insets.bottom, 0);
+  const tabBarGap = Platform.OS === 'android' ? 14 : 0;
+  const safeBottom = Math.max(insets.bottom, 0);
+  const tabBarHeight = tabBarBaseHeight + safeBottom + tabBarGap;
   
   return (
     <Tab.Navigator
@@ -54,7 +56,8 @@ function MainTabsNavigator() {
           styles.tabBar, 
           {
             height: tabBarHeight,
-            paddingBottom: Math.max(12, insets.bottom),
+            paddingBottom: Math.max(12, safeBottom) + tabBarGap,
+            marginBottom: tabBarGap,
           }
         ],
         tabBarActiveTintColor: colors.primary,
