@@ -21,9 +21,9 @@ services:
       PORT: "3101"
       UPLOAD_PATH: /app/uploads
       MONGODB_URI: mongodb://mongo:27017/restaurant_app
-      SERVER_URL: ${SERVER_URL:-http://localhost:3101}
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5175}
-      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5175}
+      SERVER_URL: ${SERVER_URL:-http://${PUBLIC_HOST:-31.97.189.252}:3101}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://${PUBLIC_HOST:-31.97.189.252}:5175}
+      FRONTEND_URL: ${FRONTEND_URL:-http://${PUBLIC_HOST:-31.97.189.252}:5175}
       JWT_SECRET: ${JWT_SECRET:-}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
@@ -47,6 +47,8 @@ services:
       args:
         VITE_API_URL: ${VITE_API_URL:-/api}
     environment:
+      HOST: 0.0.0.0
+      PORT: "5175"
       VITE_PROXY_TARGET: http://server:3101
     restart: unless-stopped
     depends_on:

@@ -56,11 +56,21 @@ app.use('/socket.io', apiProxy);
 
 app.use(express.static(distDir, { index: false, fallthrough: true }));
 
+app.get('/health', (_req, res) => {
+  res.json({ ok: true, service: 'web', port });
+});
+
 app.get(/^(?!\/api|\/uploads|\/socket\.io).*/, (_req, res) => {
   res.sendFile(path.join(distDir, 'index.html'));
 });
 
+if (!fs.existsSync(path.join(distDir, 'index.html'))) {
+  console.error(`[web] Missing ${path.join(distDir, 'index.html')} — run: pnpm build`);
+  process.exit(1);
+}
+
 app.listen(port, host, () => {
-  console.log(`[web] http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`);
+  console.log(`[web] listening on ${host}:${port} (public: http://<your-vps-ip>:${port})`);
   console.log(`[web] API proxy → ${apiTarget}`);
+  console.log(`[web] health → http://<your-vps-ip>:${port}/health`);
 });

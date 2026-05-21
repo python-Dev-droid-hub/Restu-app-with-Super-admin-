@@ -21,4 +21,6 @@ Start-Process powershell -ArgumentList '-NoExit', '-Command', "cd '$((Get-Locati
 
 Write-Host ''
 Write-Host 'Open: http://YOUR_VPS_IP:5175' -ForegroundColor Green
-Write-Host 'server/.env: SERVER_URL=http://YOUR_VPS_IP:3101, CORS_ORIGIN=http://YOUR_VPS_IP:5175, COOKIE_SECURE=false' -ForegroundColor Yellow
+Write-Host 'On VPS firewall: allow TCP 5175 and 3101 (ufw / hosting panel)' -ForegroundColor Yellow
+Write-Host 'Root .env: PUBLIC_HOST=YOUR_VPS_IP, CORS_ORIGIN=http://YOUR_VPS_IP:5175, COOKIE_SECURE=false' -ForegroundColor Yellow
+Write-Host 'Linux VPS (recommended): docker compose up -d --build' -ForegroundColor Cyan

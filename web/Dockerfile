@@ -25,6 +25,7 @@ ENV HOST=0.0.0.0
 
 COPY --from=build /app/web/package.json ./package.json
 COPY --from=build /app/web/scripts ./scripts
+COPY --from=build /app/web/.env.production ./.env.production
 COPY --from=build /app/web/node_modules ./node_modules
 COPY --from=build /app/web/dist ./dist
 
