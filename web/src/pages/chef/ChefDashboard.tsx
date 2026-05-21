@@ -26,7 +26,6 @@ import { api } from '../../services/api';
 import { io, type Socket } from 'socket.io-client';
 import { getSocketIoOptions, getSocketIoUrl } from '../../utils/socketOptions';
 import { fetchChefDashboardHttp } from '../../utils/dashboardHttp';
-import { resolveSocketUrl } from '../../utils/resolveSocketUrl';
 import { enrichOrderParty } from '../../utils/orderParty';
 import { OrderCardMeta } from '../../components/orders/OrderCardMeta';
 
@@ -86,8 +85,6 @@ const parseStoredUser = (): any => {
     return null;
   }
 };
-
-const getServerHost = (): string => resolveSocketUrl();
 
 const formatMinutesAgo = (iso?: string): string => {
   if (!iso) return '';

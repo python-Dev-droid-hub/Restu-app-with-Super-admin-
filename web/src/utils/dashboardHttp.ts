@@ -3,7 +3,7 @@
  */
 import { api } from '../services/api';
 
-function unwrap<T>(res: { success?: boolean; data?: T } | null | undefined): T | null {
+function unwrap<T>(res: { success?: boolean; data?: unknown } | null | undefined): T | null {
   if (!res?.success) return null;
   return (res.data ?? null) as T | null;
 }

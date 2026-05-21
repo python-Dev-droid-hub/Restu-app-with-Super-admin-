@@ -214,7 +214,7 @@ class ApiClient {
   }
 
   async getAdminBranchesOverview() {
-    return this.request('GET', '/dashboard/admin/branches');
+    return this.request<{ branches?: unknown[] }>('GET', '/dashboard/admin/branches');
   }
 
   async getAdminDashboardOverview(params?: { period?: string; branchId?: string; limit?: number }) {
