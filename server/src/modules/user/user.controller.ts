@@ -4,6 +4,7 @@ import { IAuthRequest, sendSuccess, sendError, asyncHandler } from '@/utils';
 import { createError } from '@/middleware/errorHandler';
 import { Types } from 'mongoose';
 import { updateRiderLocation as storeRiderLocation } from '@/services/locationService';
+import { normalizeUserRole } from '@/utils/roles';
 
 export class UserController {
   private userRepository: UserRepository;

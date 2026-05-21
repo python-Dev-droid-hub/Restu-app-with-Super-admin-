@@ -4,6 +4,7 @@ import { User } from '@/models/User';
 import { IAuthRequest, IJWTPayload } from '@/types';
 import { createError } from '@/utils';
 import { logger } from '@/utils/logger';
+import { normalizeUserRole, userHasRole } from '@/utils/roles';
 
 const isProd = process.env.NODE_ENV === 'production';
 
@@ -15,7 +16,8 @@ export const authenticate = async (
   try {
     const cookieToken = (req as any).cookies?.accessToken as string | undefined;
     const headerToken = req.header('Authorization')?.replace(/^Bearer\s+/i, '');
-    const token = cookieToken || headerToken;
+    // Prefer Bearer header (web/mobile explicit session) over stale cookies
+    const token = headerToken || cookieToken;
 
     if (!token) {
       throw createError('Access denied. No token provided.', 401);
@@ -34,6 +36,7 @@ export const authenticate = async (
       throw createError('Account is deactivated.', 401);
     }
 
+    (user as any).role = normalizeUserRole(user.role);
     req.user = user;
     next();
   } catch (error) {
@@ -50,8 +53,13 @@ export const authorize = (...roles: string[]) => {
       return next(createError('Access denied. Authentication required.', 401));
     }
 
-    if (!roles.includes(req.user.role)) {
-      return next(createError('Access denied. Insufficient permissions.', 403));
+    if (!userHasRole(req.user.role, roles)) {
+      return next(
+        createError(
+          `Access denied. Insufficient permissions (your role: ${normalizeUserRole(req.user.role) || 'unknown'}).`,
+          403
+        )
+      );
     }
 
     next();
@@ -66,7 +74,8 @@ export const optionalAuth = async (
   try {
     const cookieToken = (req as any).cookies?.accessToken as string | undefined;
     const headerToken = req.header('Authorization')?.replace(/^Bearer\s+/i, '');
-    const token = cookieToken || headerToken;
+    // Prefer Bearer header (web/mobile explicit session) over stale cookies
+    const token = headerToken || cookieToken;
 
     if (token) {
       const decoded = jwt.verify(token, process.env.JWT_SECRET!) as IJWTPayload;

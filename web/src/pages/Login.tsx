@@ -55,13 +55,15 @@ export function Login() {
 
       const user = result?.data?.user || result?.user;
       if (user && typeof user === 'object') {
-        localStorage.setItem('userData', JSON.stringify(user));
+        const role = String(user.role || '').trim().toUpperCase();
+        const normalizedUser = { ...user, role };
+        localStorage.setItem('userData', JSON.stringify(normalizedUser));
         if (user._id || user.id) {
           localStorage.setItem('userId', String(user._id || user.id));
         }
-        if (user.role) {
-          localStorage.setItem('userRole', String(user.role));
-          redirectByRole(user.role);
+        if (role) {
+          localStorage.setItem('userRole', role);
+          redirectByRole(role);
           return;
         }
       }

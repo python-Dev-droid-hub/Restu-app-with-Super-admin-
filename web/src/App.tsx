@@ -76,8 +76,12 @@ function getStoredRole(): string {
 }
 
 function RequireAdminAuth({ children }: { children: ReactElement }) {
+  const role = getStoredRole();
   if (!hasAuthSession()) {
     return <Navigate to="/login" replace />;
+  }
+  if (role !== 'ADMIN' && role !== 'SUPER_ADMIN') {
+    return <Navigate to="/" replace />;
   }
   return children;
 }
