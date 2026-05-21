@@ -23,7 +23,7 @@ import {
 } from '@mui/icons-material';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { io, type Socket } from 'socket.io-client';
-import { resolveSocketUrl } from '../../utils/resolveSocketUrl';
+import { getSocketIoOptions, getSocketIoUrl } from '../../utils/socketOptions';
 import { api } from '../../services/api';
 
 const SIDEBAR_WIDTH = 260;
@@ -155,18 +155,12 @@ const AdminTopBar: React.FC<{
     if (mode === 'admin' || mode === 'manager') {
       void fetchAdminUnread();
 
-      const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken') || '';
       if (socketRef.current) {
         socketRef.current.disconnect();
         socketRef.current = null;
       }
 
-      const socket = io(resolveSocketUrl(), {
-        path: '/socket.io',
-        transports: ['websocket', 'polling'],
-        withCredentials: true,
-        auth: token ? { token } : undefined,
-      });
+      const socket = io(getSocketIoUrl(), getSocketIoOptions());
       socketRef.current = socket;
 
       const requestUnread = () => {
@@ -212,13 +206,7 @@ const AdminTopBar: React.FC<{
 
       void fetchUnread();
 
-      const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken') || '';
-
-      const socket = io(resolveSocketUrl(), {
-        path: '/socket.io',
-        transports: ['websocket', 'polling'],
-        auth: token ? { token } : undefined,
-      });
+      const socket = io(getSocketIoUrl(), getSocketIoOptions());
 
       const onRealtime = () => {
         void fetchUnread();

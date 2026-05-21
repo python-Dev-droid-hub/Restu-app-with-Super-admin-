@@ -39,6 +39,7 @@ import { useTheme } from '@mui/material/styles';
 import { useSettings } from '../../context/SettingsContext';
 import { io, type Socket } from 'socket.io-client';
 import { resolveSocketUrl } from '../../utils/resolveSocketUrl';
+import { getSocketIoOptions, getSocketIoUrl } from '../../utils/socketOptions';
 import { enrichOrderParty } from '../../utils/orderParty';
 
 // ==================== TYPES ====================
@@ -326,14 +327,7 @@ const AdminDashboard: React.FC = () => {
   const ensureSocketConnected = useCallback(() => {
     if (socketRef.current) return;
 
-    const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken') || '';
-
-    const socket = io(resolveSocketUrl(), {
-      path: '/socket.io',
-      transports: ['websocket', 'polling'],
-      withCredentials: true,
-      auth: token ? { token } : undefined,
-    });
+    const socket = io(getSocketIoUrl(), getSocketIoOptions());
 
     socketRef.current = socket;
 

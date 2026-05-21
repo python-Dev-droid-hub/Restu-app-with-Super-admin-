@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, type ReactNode } from 'react';
 import { io, type Socket } from 'socket.io-client';
-import { resolveSocketUrl } from '../utils/resolveSocketUrl';
+import { api } from '../services/api';
+import { getSocketIoOptions, getSocketIoUrl } from '../utils/socketOptions';
 
 interface SettingsContextType {
   defaultCurrency: string;
@@ -81,11 +82,7 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
       console.log('[SettingsContext] User data:', { userRole, branchId, selectedBranchId, userBranchId });
 
       if (!socketRef.current) {
-        socketRef.current = io(resolveSocketUrl(), {
-          path: '/socket.io',
-          transports: ['websocket', 'polling'],
-          auth: token ? { token } : undefined,
-        });
+        socketRef.current = io(getSocketIoUrl(), getSocketIoOptions());
 
         socketRef.current.on('settings_context:data', (payload: any) => {
           const currencyRaw = payload?.defaultCurrency || payload?.currency;
@@ -103,7 +100,32 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
         });
 
         socketRef.current.on('connect_error', () => {
-          setIsLoading(false);
+          void (async () => {
+            try {
+              const res: any = await api.getSettings();
+              if (res?.success && res.data) {
+                const payload = res.data;
+                const currencyRaw = payload?.defaultCurrency || payload?.currency;
+                const currency = VALID_CURRENCIES.includes(currencyRaw) ? currencyRaw : 'USD';
+                const symbol = currencySymbols[currency] || '$';
+                setSettings({
+                  defaultCurrency: currency,
+                  taxRate: typeof payload?.taxRate === 'number' ? payload.taxRate : 8.5,
+                  deliveryFee:
+                    typeof payload?.deliverySettings?.deliveryFee === 'number'
+                      ? payload.deliverySettings.deliveryFee
+                      : typeof payload?.deliveryFee === 'number'
+                        ? payload.deliveryFee
+                        : 50,
+                  currencySymbol: symbol,
+                  appName: payload?.appName || 'Restaurant App',
+                });
+              }
+            } catch {
+              /* keep defaults */
+            }
+            setIsLoading(false);
+          })();
         });
       }
 

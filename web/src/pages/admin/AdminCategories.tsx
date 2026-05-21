@@ -30,8 +30,9 @@ import {
   Category,
 } from '@mui/icons-material';
 import { io, type Socket } from 'socket.io-client';
-import { resolveSocketUrl } from '../../utils/resolveSocketUrl';
 import { api } from '../../services/api';
+import { getSocketIoOptions, getSocketIoUrl } from '../../utils/socketOptions';
+import { BACKEND_UNREACHABLE_MSG } from '../../utils/backendHealth';
 
 interface CategoryItem {
   _id: string;
@@ -62,14 +63,56 @@ const AdminCategories: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
-
-    const socket = io(resolveSocketUrl(), {
-      path: '/socket.io',
-      transports: ['websocket', 'polling'],
-      auth: token ? { token } : undefined,
+  const normalizeCategories = (rawCategories: unknown[]) =>
+    rawCategories.map((c: any) => {
+      let imageUrl = c.imageUrl || c.image || '';
+      if (
+        imageUrl &&
+        (imageUrl.startsWith('file://') ||
+          imageUrl.includes('var/mobile') ||
+          imageUrl.includes('ImagePicker'))
+      ) {
+        imageUrl = '';
+      }
+      return {
+        _id: c._id || c.id,
+        name: c.name || 'Unnamed',
+        description: c.description || '',
+        imageUrl,
+        displayOrder: c.displayOrder || 0,
+        isActive: c.isActive ?? true,
+        itemCount: c.productCount || c.itemCount || 0,
+        branchId: Array.isArray(c.branchId) ? c.branchId : c.branchId ? [c.branchId] : [],
+      };
     });
+
+  const loadViaHttp = async () => {
+    try {
+      const [catRes, branchRes]: any[] = await Promise.all([
+        api.getAllCategories(),
+        api.getAllBranches(),
+      ]);
+      if (branchRes?.success) {
+        const list =
+          branchRes?.data?.branches || branchRes?.data?.data?.branches || branchRes?.data || [];
+        setBranches(Array.isArray(list) ? list : []);
+      }
+      if (catRes?.success) {
+        const raw =
+          catRes?.data?.categories || catRes?.data?.data?.categories || catRes?.data || [];
+        setCategories(normalizeCategories(Array.isArray(raw) ? raw : []));
+        setError('');
+      } else {
+        setError(catRes?.error || BACKEND_UNREACHABLE_MSG);
+      }
+    } catch {
+      setError(BACKEND_UNREACHABLE_MSG);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    const socket = io(getSocketIoUrl(), getSocketIoOptions());
     socketRef.current = socket;
 
     const request = () => {
@@ -85,35 +128,29 @@ const AdminCategories: React.FC = () => {
     });
 
     socket.on('admin_categories:data', (payload: any) => {
-      const rawCategories = payload?.categories || payload?.data?.categories || payload?.data || payload || [];
-      const normalized = (Array.isArray(rawCategories) ? rawCategories : []).map((c: any) => {
-        let imageUrl = c.imageUrl || c.image || '';
-        if (imageUrl && (imageUrl.startsWith('file://') || imageUrl.includes('var/mobile') || imageUrl.includes('ImagePicker'))) {
-          imageUrl = '';
-        }
-        return {
-          _id: c._id || c.id,
-          name: c.name || 'Unnamed',
-          description: c.description || '',
-          imageUrl,
-          displayOrder: c.displayOrder || 0,
-          isActive: c.isActive ?? true,
-          itemCount: c.productCount || c.itemCount || 0,
-          branchId: Array.isArray(c.branchId) ? c.branchId : (c.branchId ? [c.branchId] : []),
-        };
-      });
-      setCategories(normalized);
+      const rawCategories =
+        payload?.categories || payload?.data?.categories || payload?.data || payload || [];
+      setCategories(normalizeCategories(Array.isArray(rawCategories) ? rawCategories : []));
       setLoading(false);
+      setError('');
     });
 
     socket.on('connect_error', () => {
-      setLoading(false);
-      setError('Backend server is not reachable. Start the server or fix VITE_PROXY_TARGET.');
+      void loadViaHttp();
     });
 
-    if (socket.connected) request();
+    setLoading(true);
+    let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
+    if (socket.connected) {
+      request();
+    } else {
+      fallbackTimer = setTimeout(() => {
+        if (!socket.connected) void loadViaHttp();
+      }, 4000);
+    }
 
     return () => {
+      if (fallbackTimer) clearTimeout(fallbackTimer);
       socket.disconnect();
       socketRef.current = null;
     };

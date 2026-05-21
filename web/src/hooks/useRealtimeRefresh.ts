@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { getAuthToken } from '../utils/authStorage';
-import { resolveSocketUrl } from '../utils/resolveSocketUrl';
+import { getSocketIoOptions, getSocketIoUrl } from '../utils/socketOptions';
 
 const DEFAULT_MATCH_TYPES = [
   'ORDER',
@@ -16,22 +15,12 @@ const DEFAULT_MATCH_TYPES = [
 
 const DEFAULT_DEBOUNCE_MS = 2000;
 
-function getSocketUrl(): string {
-  return resolveSocketUrl();
-}
-
 let sharedSocket: Socket | null = null;
 
 function getSharedSocket(): Socket {
   if (sharedSocket) return sharedSocket;
 
-  const token = getAuthToken() || '';
-  sharedSocket = io(getSocketUrl(), {
-    path: '/socket.io',
-    transports: ['websocket', 'polling'],
-    withCredentials: true,
-    auth: token ? { token } : undefined,
-  });
+  sharedSocket = io(getSocketIoUrl(), getSocketIoOptions());
 
   return sharedSocket;
 }

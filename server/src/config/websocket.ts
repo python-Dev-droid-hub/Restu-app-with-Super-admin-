@@ -114,7 +114,7 @@ export const initWebSocket = (app: Express) => {
       methods: ['GET', 'POST'],
       credentials: true,
     },
-    transports: ['websocket'],
+    transports: ['websocket', 'polling'],
   });
 
   io.use(async (socket, next) => {

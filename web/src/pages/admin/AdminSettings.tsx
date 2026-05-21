@@ -25,7 +25,9 @@ import {
 } from '@mui/icons-material';
 import { api } from '../../services/api';
 import { io, type Socket } from 'socket.io-client';
-import { resolveSocketUrl } from '../../utils/resolveSocketUrl';
+import { getSocketIoOptions, getSocketIoUrl } from '../../utils/socketOptions';
+import { BACKEND_UNREACHABLE_MSG } from '../../utils/backendHealth';
+import { mapSettingsPayload } from '../../utils/applySettingsPayload';
 
 interface AppSettings {
   appName: string;
@@ -127,6 +129,28 @@ const AdminSettings: React.FC = () => {
     socialMedia: {},
   });
 
+  const applySettingsData = useCallback((payload: any) => {
+    const data = payload?.settings || payload?.data?.settings || payload?.data || payload || {};
+    setSettings(mapSettingsPayload(data) as AppSettings);
+    setLoading(false);
+    setError('');
+  }, []);
+
+  const loadSettingsHttp = useCallback(async () => {
+    try {
+      const res: any = await api.getSettings();
+      if (res?.success) {
+        applySettingsData(res.data);
+        return true;
+      }
+      setError(res?.error || res?.message || BACKEND_UNREACHABLE_MSG);
+    } catch {
+      setError(BACKEND_UNREACHABLE_MSG);
+    }
+    setLoading(false);
+    return false;
+  }, [applySettingsData]);
+
   const requestSettings = useCallback(() => {
     if (!socketRef.current) return;
     setLoading(true);
@@ -134,67 +158,32 @@ const AdminSettings: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
-
-    const socket = io(resolveSocketUrl(), {
-      path: '/socket.io',
-      transports: ['websocket', 'polling'],
-      auth: token ? { token } : undefined,
-    });
+    const socket = io(getSocketIoUrl(), getSocketIoOptions());
     socketRef.current = socket;
+    setLoading(true);
+
+    let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
 
     socket.on('connect', requestSettings);
-    socket.on('admin_settings:data', (payload: any) => {
-      const data = payload?.settings || payload?.data?.settings || payload?.data || payload || {};
-      setSettings({
-        appName: data.appName || data.siteName || 'Restaurant App',
-        appVersion: data.appVersion || '1.0.0',
-        restaurantName: data.restaurantName || '',
-        restaurantDescription: data.restaurantDescription || data.siteDescription || '',
-        defaultCurrency: data.defaultCurrency || data.currency || 'USD',
-        currency: data.currency || data.defaultCurrency || 'USD',
-        defaultLanguage: data.defaultLanguage || data.language || 'en',
-        language: data.language || data.defaultLanguage || 'en',
-        taxRate: data.taxRate || 0,
-        serviceCharge: data.serviceCharge || 0,
-        maintenanceMode: data.maintenanceMode ?? false,
-        allowRegistration: data.allowRegistration ?? true,
-        contactEmail: data.contactEmail || '',
-        contactPhone: data.contactPhone || '',
-        address: data.address || { street: '', city: '', state: '', zipCode: '', country: 'USA' },
-        operatingHours: data.operatingHours || data.businessHours || {
-          monday: { open: '09:00', close: '22:00', closed: false },
-          tuesday: { open: '09:00', close: '22:00', closed: false },
-          wednesday: { open: '09:00', close: '22:00', closed: false },
-          thursday: { open: '09:00', close: '22:00', closed: false },
-          friday: { open: '09:00', close: '22:00', closed: false },
-          saturday: { open: '09:00', close: '22:00', closed: false },
-          sunday: { open: '09:00', close: '22:00', closed: true },
-        },
-        deliverySettings: data.deliverySettings || {
-          deliveryRadius: 10,
-          deliveryFee: 0,
-          minimumOrder: 0,
-          estimatedDeliveryTime: 30,
-        },
-        notifications: data.notifications || { emailNotifications: true, smsNotifications: false, pushNotifications: true },
-        socialMedia: data.socialMedia || data.socialLinks || {},
-      });
-      setLoading(false);
-    });
-
+    socket.on('admin_settings:data', applySettingsData);
     socket.on('connect_error', () => {
-      setLoading(false);
-      setError('Backend server is not reachable. Start the server or fix VITE_PROXY_TARGET.');
+      void loadSettingsHttp();
     });
 
-    if (socket.connected) requestSettings();
+    if (socket.connected) {
+      requestSettings();
+    } else {
+      fallbackTimer = setTimeout(() => {
+        if (!socket.connected) void loadSettingsHttp();
+      }, 4000);
+    }
 
     return () => {
+      if (fallbackTimer) clearTimeout(fallbackTimer);
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [requestSettings]);
+  }, [requestSettings, applySettingsData, loadSettingsHttp]);
 
   const handleSave = async () => {
     try {

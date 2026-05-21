@@ -3,6 +3,7 @@
  * Usage: VITE_PROXY_TARGET=http://127.0.0.1:3101 node scripts/serve-prod.mjs
  */
 import express from 'express';
+import http from 'http';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import fs from 'fs';
 import path from 'path';
@@ -39,6 +40,7 @@ const apiProxy = createProxyMiddleware({
   ws: true,
   pathRewrite: (path) => {
     const p = path.startsWith('/') ? path : `/${path}`;
+    if (p === '/health' || p === '/api/health') return '/health';
     return p.startsWith('/api') ? p : `/api${p}`;
   },
 });
@@ -52,7 +54,14 @@ app.use(
     pathRewrite: (path) => `/uploads${path.startsWith('/') ? path : `/${path}`}`,
   })
 );
-app.use('/socket.io', apiProxy);
+// Socket.IO lives at /socket.io on the API — do NOT prefix /api
+const socketProxy = createProxyMiddleware({
+  target: apiTarget,
+  changeOrigin: true,
+  ws: true,
+});
+
+app.use('/socket.io', socketProxy);
 
 app.use(express.static(distDir, { index: false, fallthrough: true }));
 
@@ -69,8 +78,33 @@ if (!fs.existsSync(path.join(distDir, 'index.html'))) {
   process.exit(1);
 }
 
-app.listen(port, host, () => {
+const server = http.createServer(app);
+server.on('upgrade', socketProxy.upgrade);
+
+async function verifyBackend() {
+  try {
+    const res = await fetch(`${apiTarget.replace(/\/$/, '')}/health`, {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (res.ok) {
+      console.log(`[web] Backend OK at ${apiTarget}`);
+      return true;
+    }
+    console.error(`[web] Backend returned ${res.status} at ${apiTarget}/health`);
+  } catch (err) {
+    console.error(`[web] Backend NOT reachable at ${apiTarget}`);
+    console.error('[web] Start API: cd server && npm start  (or docker compose up -d server)');
+    console.error('[web] Docker web container must use VITE_PROXY_TARGET=http://server:3101');
+    console.error('[web] Bare VPS web must use VITE_PROXY_TARGET=http://127.0.0.1:3101');
+    if (err?.message) console.error(`[web] ${err.message}`);
+  }
+  return false;
+}
+
+server.listen(port, host, async () => {
   console.log(`[web] listening on ${host}:${port} (public: http://<your-vps-ip>:${port})`);
   console.log(`[web] API proxy → ${apiTarget}`);
-  console.log(`[web] health → http://<your-vps-ip>:${port}/health`);
+  console.log(`[web] Socket.IO proxy → ${apiTarget}/socket.io`);
+  console.log(`[web] health → http://<your-vps-ip>:${port}/api/health`);
+  await verifyBackend();
 });

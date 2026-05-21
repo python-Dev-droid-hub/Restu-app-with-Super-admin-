@@ -1,4 +1,4 @@
-import express, { Express } from 'express';
+import express, { Express, Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
@@ -162,13 +162,15 @@ app.use('/uploads', (req, res, next) => {
 logger.info(`Serving uploads from: ${uploadsPathPrimary}${uploadsPathFallback !== uploadsPathPrimary ? ` (fallback: ${uploadsPathFallback})` : ''}`);
 
 // Health check endpoint (minimal info in production)
-app.get('/health', (req, res) => {
+const healthHandler = (_req: Request, res: Response) => {
   res.status(200).json({
     status: 'OK',
     timestamp: new Date().toISOString(),
     ...(isProduction ? {} : { uptime: process.uptime(), environment: process.env.NODE_ENV }),
   });
-});
+};
+app.get('/health', healthHandler);
+app.get('/api/health', healthHandler);
 
 // API routes
 app.use('/api/auth', authRoutes);
