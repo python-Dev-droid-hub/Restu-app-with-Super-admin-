@@ -9,6 +9,7 @@ import { Banner } from '@/models/Banner';
 import { Deal } from '@/models/Deal';
 import { DealCampaign } from '@/models/DealCampaign';
 import { DashboardService } from '@/modules/dashboard/dashboard.service';
+import { DashboardSnapshotService, buildAdminOrderFilter } from '@/modules/dashboard/dashboardSnapshot.service';
 import { MenuRepository } from '@/modules/menu/menu.repository';
 import { OrderRepository } from '@/modules/order/order.repository';
 import { TableRepository } from '@/modules/table/table.repository';
@@ -61,6 +62,7 @@ function joinRoleRooms(
 
   if (role === 'WAITER') {
     socket.join(`waiter_${userId}`);
+    socket.join('waiters');
   }
 
   if (role === 'RIDER') {
@@ -73,34 +75,10 @@ function joinRoleRooms(
   }
 }
 
-function buildAdminOrderFilter(
-  role: string,
-  assignedBranchId: string,
-  effectiveBranchId: string
-): { filter: any; branchIdForMatch?: any } {
-  const branchObjectId =
-    effectiveBranchId && Types.ObjectId.isValid(effectiveBranchId)
-      ? new Types.ObjectId(effectiveBranchId)
-      : undefined;
-  const branchIdForMatch = effectiveBranchId
-    ? branchObjectId
-      ? { $in: [branchObjectId, effectiveBranchId] }
-      : effectiveBranchId
-    : undefined;
-
-  const filter: any = {};
-  if (role === 'BRANCH_MANAGER') {
-    if (!assignedBranchId) return { filter: null };
-    filter.branch = branchIdForMatch;
-  } else if (effectiveBranchId) {
-    filter.branch = branchIdForMatch;
-  }
-  return { filter, branchIdForMatch };
-}
-
 export const initWebSocket = (app: Express) => {
   const httpServer = createServer(app);
   const dashboardService = new DashboardService();
+  const dashboardSnapshot = new DashboardSnapshotService();
   const menuRepository = new MenuRepository();
   const orderRepository = new OrderRepository();
   const tableRepository = new TableRepository();
@@ -178,43 +156,11 @@ export const initWebSocket = (app: Express) => {
 
     socket.on('chef_dashboard:get', async () => {
       const allowedRoles = new Set(['CHEF', 'KITCHEN', 'COOK', 'HEAD_CHEF', 'SOUS_CHEF', 'KITCHEN_MANAGER', 'ADMIN', 'SUPER_ADMIN']);
-      if (!role || !allowedRoles.has(role)) return;
-
-      const branchId = role === 'ADMIN' || role === 'SUPER_ADMIN' ? '' : (assignedBranchId || '');
-      if (!userId || !branchId) {
-        socket.emit('chef_dashboard:data', {
-          orders: [],
-          cookingOrders: [],
-          mostOrdered: [],
-          notifications: [],
-          unreadCount: 0,
-        });
-        return;
-      }
-
-      const normalizeOrders = (orders: any[]) => {
-        return (orders || []).map((o: any) => normalizeOrderForSocket(o));
-      };
+      if (!role || !allowedRoles.has(role) || !userId) return;
 
       try {
-        const branchObjectId = Types.ObjectId.isValid(branchId) ? new Types.ObjectId(branchId) : undefined;
-        const branchMatch = branchObjectId ? { $in: [branchObjectId, branchId] } : branchId;
-
-        const [ordersList, cookingResult, mostOrderedResult, notifResult, unreadCount] = await Promise.all([
-          orderRepository.findAllOrders({ branch: branchMatch }, 1, 200),
-          orderRepository.findByBranchId(branchId, 1, 100, undefined),
-          dashboardService.getMostOrderedItemsForChef(userId, { days: 7, limit: 5 }),
-          notificationService.getChefNotifications(userId, branchId, 1, 30),
-          notificationService.getChefUnreadCount(userId, branchId),
-        ]);
-
-        socket.emit('chef_dashboard:data', {
-          orders: normalizeOrders(ordersList || []),
-          cookingOrders: normalizeOrders(cookingResult?.orders || []),
-          mostOrdered: (mostOrderedResult as any)?.items || [],
-          notifications: (notifResult as any)?.notifications || [],
-          unreadCount: typeof unreadCount === 'number' ? unreadCount : 0,
-        });
+        const data = await dashboardSnapshot.getChefDashboard(userId, role, assignedBranchId || '');
+        socket.emit('chef_dashboard:data', data);
       } catch (e) {
         socket.emit('chef_dashboard:error', { message: 'Failed to load chef dashboard' });
       }
@@ -224,38 +170,9 @@ export const initWebSocket = (app: Express) => {
       const allowedRoles = new Set(['WAITER', 'ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER']);
       if (!role || !allowedRoles.has(role)) return;
 
-      if (!userId) {
-        socket.emit('waiter_dashboard:data', { stats: null, orders: [], tables: [], timestamp: new Date().toISOString() });
-        return;
-      }
-
       try {
-        const stats = await dashboardService.getWaiterStats(userId);
-
-        const branchId = assignedBranchId || '';
-        const branchObjectId = branchId && Types.ObjectId.isValid(branchId) ? new Types.ObjectId(branchId) : undefined;
-        const branchMatch = branchId
-          ? { $in: [...(branchObjectId ? [branchObjectId] : []), branchId] }
-          : undefined;
-
-        const [ordersList, tablesList] = await Promise.all([
-          orderRepository.findAllOrders(
-            {
-              ...(branchMatch ? { branch: branchMatch } : {}),
-              orderType: 'DINE_IN',
-            },
-            1,
-            500
-          ),
-          branchId ? tableRepository.findAll({ branch: branchObjectId || branchId }) : [],
-        ]);
-
-        socket.emit('waiter_dashboard:data', {
-          stats,
-          orders: (ordersList || []).map(normalizeOrderForSocket),
-          tables: tablesList || [],
-          timestamp: new Date().toISOString(),
-        });
+        const data = await dashboardSnapshot.getWaiterDashboard(userId || '', assignedBranchId || '');
+        socket.emit('waiter_dashboard:data', data);
       } catch (e) {
         socket.emit('waiter_dashboard:error', { message: 'Failed to load waiter dashboard' });
       }
@@ -266,27 +183,8 @@ export const initWebSocket = (app: Express) => {
       if (!allowed) return;
 
       try {
-        const query: any = { deletedAt: null };
-        if (role === 'BRANCH_MANAGER') {
-          if (!assignedBranchId) {
-            socket.emit('admin_branches:data', { branches: [] });
-            return;
-          }
-          query._id = assignedBranchId;
-        }
-
-        const branches = await Branch.find(query)
-          .select('_id branchName currency isActive')
-          .sort({ branchName: 1 });
-
-        socket.emit('admin_branches:data', {
-          branches: (branches || []).map((b: any) => ({
-            _id: b._id?.toString?.() || b._id,
-            branchName: b.branchName,
-            currency: b.currency,
-            isActive: b.isActive,
-          })),
-        });
+        const data = await dashboardSnapshot.getAdminBranches(role, assignedBranchId || '');
+        socket.emit('admin_branches:data', data);
       } catch (e) {
         socket.emit('admin_branches:data', { branches: [] });
       }
@@ -558,47 +456,9 @@ export const initWebSocket = (app: Express) => {
       const allowed = role === 'ADMIN' || role === 'SUPER_ADMIN' || role === 'BRANCH_MANAGER';
       if (!allowed) return;
 
-      const requestedBranchId = params?.branchId && params.branchId !== 'all' ? String(params.branchId) : '';
-      const effectiveBranchId =
-        role === 'BRANCH_MANAGER' ? (assignedBranchId || '') : requestedBranchId;
-
-      const period = params?.period && params.period !== 'all' ? String(params.period) : undefined;
-      const limit = typeof params?.limit === 'number' && params.limit > 0 ? Math.min(params.limit, 200) : 50;
-
       try {
-        const orderFilterResult = buildAdminOrderFilter(role, assignedBranchId || '', effectiveBranchId);
-        const orderFilter = orderFilterResult.filter;
-
-        const [stats, waitersPerformance, ridersPerformance, branchesPerformance, ordersResult, unreadCount, recentProducts, totalProducts] =
-          await Promise.all([
-          dashboardService.getAdminStats({ period, branchId: effectiveBranchId || undefined }),
-          dashboardService.getAdminWaitersPerformance({ period, branchId: effectiveBranchId || undefined }),
-          dashboardService.getAdminRidersPerformance({ period, branchId: effectiveBranchId || undefined }),
-          dashboardService.getAdminBranchesPerformance({ period }),
-          (async () => {
-            if (orderFilter === null) return { orders: [], total: 0 };
-            const orders = await orderRepository.findAllOrders(orderFilter, 1, limit);
-            const total = await orderRepository.countOrders(orderFilter);
-            return { orders: (orders || []).map(normalizeOrderForSocket), total };
-          })(),
-          notificationService.getAdminUnreadCount(),
-          menuRepository.findAllProducts({}, 1, 5),
-          menuRepository.countProducts({}),
-        ]);
-
-        socket.emit('admin_dashboard:data', {
-          stats: stats
-            ? { ...(stats as object), totalProducts: typeof totalProducts === 'number' ? totalProducts : 0 }
-            : stats,
-          waitersPerformance,
-          ridersPerformance,
-          branchesPerformance,
-          orders: ordersResult.orders,
-          ordersTotal: ordersResult.total,
-          recentProducts: (recentProducts || []).map((p: any) => (p?.toObject ? p.toObject() : p)),
-          unreadCount,
-          timestamp: new Date().toISOString(),
-        });
+        const data = await dashboardSnapshot.getAdminDashboard(role, assignedBranchId || '', params);
+        socket.emit('admin_dashboard:data', data);
       } catch (e) {
         socket.emit('admin_dashboard:error', { message: 'Failed to load dashboard data' });
       }

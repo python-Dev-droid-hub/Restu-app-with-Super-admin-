@@ -213,6 +213,27 @@ class ApiClient {
     return this.request('GET', '/dashboard/admin/stats');
   }
 
+  async getAdminBranchesOverview() {
+    return this.request('GET', '/dashboard/admin/branches');
+  }
+
+  async getAdminDashboardOverview(params?: { period?: string; branchId?: string; limit?: number }) {
+    const queryParams = new URLSearchParams();
+    if (params?.period) queryParams.append('period', params.period);
+    if (params?.branchId && params.branchId !== 'all') queryParams.append('branchId', params.branchId);
+    if (params?.limit) queryParams.append('limit', String(params.limit));
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request('GET', `/dashboard/admin/overview${queryString}`);
+  }
+
+  async getChefDashboardOverview() {
+    return this.request('GET', '/dashboard/chef/overview');
+  }
+
+  async getWaiterDashboardOverview() {
+    return this.request('GET', '/dashboard/waiter/overview');
+  }
+
   async getAdminDashboardStats(params?: { period?: string; branchId?: string }) {
     const queryParams = new URLSearchParams();
     if (params?.period) queryParams.append('period', params.period);

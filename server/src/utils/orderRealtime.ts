@@ -32,6 +32,10 @@ function emitDashboardInvalidation(payload: OrderRealtimePayload) {
   io.to('kitchen').emit('chef_dashboard:invalidate', patch);
   io.emit('admin_orders:invalidate', patch);
   io.emit('customer_home:invalidate', patch);
+  if (payload.branchId) {
+    io.to(`branch_${payload.branchId}`).emit('waiter_dashboard:invalidate', patch);
+  }
+  io.emit('waiter_dashboard:invalidate', patch);
 }
 
 function emitToRooms(io: import('socket.io').Server, event: string, payload: Record<string, unknown>) {

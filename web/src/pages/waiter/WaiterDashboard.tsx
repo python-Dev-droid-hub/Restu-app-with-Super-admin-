@@ -56,7 +56,8 @@ import {
 import { useTheme } from '@mui/material/styles';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
-import { resolveSocketUrl } from '../../utils/resolveSocketUrl';
+import { getSocketIoOptions, getSocketIoUrl } from '../../utils/socketOptions';
+import { fetchWaiterDashboardHttp } from '../../utils/dashboardHttp';
 import { api } from '../../services/api';
 import { useSettings } from '../../context/SettingsContext';
 import './WaiterDashboard.css';
@@ -420,53 +421,61 @@ export default function WaiterDashboard() {
     void syncWaiterBranchFromProfile();
   }, []);
 
+  const applyWaiterPayload = (payload: any) => {
+    setStats(payload?.stats || { active_orders: 0, ready_to_serve: 0, served_today: 0 });
+    setOrders(normalizeOrders(payload?.orders));
+    setTables(normalizeTables(payload?.tables));
+    setLoading(false);
+  };
+
+  const loadWaiterDashboardHttp = async () => {
+    try {
+      const payload = await fetchWaiterDashboardHttp();
+      if (payload) applyWaiterPayload(payload);
+    } catch {
+      setSnackbar({
+        open: true,
+        message: 'Failed to load dashboard data',
+        severity: 'error',
+      });
+      setLoading(false);
+    }
+  };
+
   // Initialize socket connection
   useEffect(() => {
     const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
-    let userId = localStorage.getItem('userId') || '';
-    if (!userId) {
-      try {
-        const rawUser = localStorage.getItem('userData');
-        const parsed = rawUser ? JSON.parse(rawUser) : null;
-        userId = String(parsed?._id || parsed?.id || '');
-      } catch {
-        userId = '';
-      }
-    }
-    
     if (!token) {
       navigate('/login');
       return;
     }
 
-    const socket = io(resolveSocketUrl(), {
-      auth: userId ? { token, userId, role: 'WAITER' } : { token, role: 'WAITER' },
-      transports: ['websocket', 'polling'],
-    });
-
+    const socket = io(getSocketIoUrl(), getSocketIoOptions());
     socketRef.current = socket;
 
-    socket.on('connect', () => {
-      console.log('[WAITER] WebSocket connected');
-      socket.emit('waiter_dashboard:get');
-    });
+    const refreshWaiterSocket = () => {
+      if (socket.connected) socket.emit('waiter_dashboard:get');
+      else void loadWaiterDashboardHttp();
+    };
 
-    socket.on('waiter_dashboard:data', (payload: any) => {
-      setStats(payload?.stats || { active_orders: 0, ready_to_serve: 0, served_today: 0 });
-      setOrders(normalizeOrders(payload?.orders));
-      setTables(normalizeTables(payload?.tables));
-      setLoading(false);
-    });
+    socket.on('connect', refreshWaiterSocket);
+
+    socket.on('waiter_dashboard:data', applyWaiterPayload);
 
     socket.on('waiter_dashboard:error', (error: any) => {
       console.error('[WAITER] Dashboard error:', error);
-      setSnackbar({
-        open: true,
-        message: error?.message || 'Failed to load dashboard data',
-        severity: 'error',
-      });
-      setLoading(false);
+      void loadWaiterDashboardHttp();
     });
+
+    socket.on('connect_error', () => {
+      void loadWaiterDashboardHttp();
+    });
+
+    socket.on('waiter_dashboard:invalidate', refreshWaiterSocket);
+    socket.on('order:created', refreshWaiterSocket);
+    socket.on('order:updated', refreshWaiterSocket);
+    socket.on('order:status_updated', refreshWaiterSocket);
+    socket.on('admin_dashboard:invalidate', refreshWaiterSocket);
 
     socket.on('notification', (notification: Notification) => {
       setNotifications((prev) => [notification, ...prev]);
@@ -500,8 +509,6 @@ export default function WaiterDashboard() {
       console.log('[WAITER] WebSocket disconnected');
     });
 
-    // Initial load
-    socket.emit('waiter_dashboard:get');
     loadProfile();
     loadNotifications();
 

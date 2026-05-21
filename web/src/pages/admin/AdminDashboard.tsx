@@ -41,6 +41,7 @@ import { io, type Socket } from 'socket.io-client';
 import { resolveSocketUrl } from '../../utils/resolveSocketUrl';
 import { getSocketIoOptions, getSocketIoUrl } from '../../utils/socketOptions';
 import { enrichOrderParty } from '../../utils/orderParty';
+import { fetchAdminBranchesHttp, fetchAdminDashboardHttp } from '../../utils/dashboardHttp';
 
 // ==================== TYPES ====================
 interface UserData {
@@ -303,17 +304,99 @@ const AdminDashboard: React.FC = () => {
     loadUserData();
   }, []);
 
+  const applyBranchesPayload = useCallback((payload: any) => {
+    const rawList = payload?.branches || payload?.data?.branches || payload?.data || payload || [];
+    const normalized = (Array.isArray(rawList) ? rawList : []).map((b: any) => ({
+      _id: b?._id || b?.id,
+      name: b?.name || b?.branchName || b?.restaurantName,
+      currency: b?.currency,
+      isActive:
+        typeof b?.isActive === 'boolean'
+          ? b.isActive
+          : typeof b?.status === 'string'
+            ? String(b.status).toLowerCase() === 'active'
+            : undefined,
+    }));
+    setBranches(normalized);
+
+    const savedBranchId = localStorage.getItem('selectedBranchId');
+    if (savedBranchId && normalized.find((b: any) => b._id === savedBranchId)) {
+      setSelectedBranch(savedBranchId);
+    }
+  }, []);
+
+  const applyDashboardPayload = useCallback((payload: any) => {
+    const d: any = payload?.stats || {};
+    const currentBranches = branchesRef.current;
+    setStats({
+      totalOrders: d.totalOrders ?? 0,
+      totalRevenue: d.totalRevenue ?? 0,
+      totalUsers: d.totalUsers ?? 0,
+      totalProducts: d.totalProducts ?? 0,
+      activeOrders: d.activeOrders ?? 0,
+      totalBranches: currentBranches.length,
+      activeRiders: d.activeRiders ?? d.totalRiders ?? 0,
+    });
+
+    const branchesPerf = payload?.branchesPerformance;
+    if (branchesPerf?.branches) {
+      const list = Array.isArray(branchesPerf.branches) ? branchesPerf.branches : [];
+      const perf: Branch[] = list.map((b: any, idx: number) => ({
+        _id: b?.branchId || `${idx}`,
+        name: b?.name,
+        orders: Number(b?.orders || 0),
+        revenue: Number(b?.revenue || 0),
+        riders: Number(b?.riders || 0),
+        status: b?.isActive ? 'active' : 'inactive',
+      }));
+      setBranchPerformance(perf);
+    }
+
+    const rawOrders = Array.isArray(payload?.orders) ? payload.orders : [];
+    const normalizedOrders = normalizeOrders(rawOrders);
+    setRecentOrders(normalizedOrders.slice(0, 10));
+
+    const waitersPerf = payload?.waitersPerformance;
+    setWaitersPerformance(Array.isArray(waitersPerf?.waiters) ? waitersPerf.waiters : []);
+
+    const ridersPerf = payload?.ridersPerformance;
+    setRidersCount(typeof ridersPerf?.ridersCount === 'number' ? ridersPerf.ridersCount : 0);
+    setRidersPerformance(Array.isArray(ridersPerf?.riders) ? ridersPerf.riders : []);
+
+    setLastUpdated(payload?.timestamp ? new Date(payload.timestamp) : new Date());
+    setLoading(false);
+  }, []);
+
+  const loadDashboardHttp = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { period, branchId } = filtersRef.current;
+      const [branchesPayload, dashboardPayload] = await Promise.all([
+        fetchAdminBranchesHttp(),
+        fetchAdminDashboardHttp({ period, branchId, limit: 50 }),
+      ]);
+      if (branchesPayload) applyBranchesPayload(branchesPayload);
+      if (dashboardPayload) applyDashboardPayload(dashboardPayload);
+    } catch {
+      setLoading(false);
+    }
+  }, [applyBranchesPayload, applyDashboardPayload]);
+
+  const refreshDashboardSocket = useCallback(() => {
+    const { period, branchId } = filtersRef.current;
+    if (!socketRef.current?.connected) return;
+    socketRef.current.emit('admin_dashboard:get', { period, branchId, limit: 50 });
+  }, []);
+
   useEffect(() => {
     filtersRef.current = { period: activePeriod, branchId: selectedBranch };
     if (socketRef.current?.connected) {
       setLoading(true);
-      socketRef.current.emit('admin_dashboard:get', {
-        period: activePeriod,
-        branchId: selectedBranch,
-        limit: 50,
-      });
+      refreshDashboardSocket();
+    } else {
+      void loadDashboardHttp();
     }
-  }, [activePeriod, selectedBranch]);
+  }, [activePeriod, selectedBranch, refreshDashboardSocket, loadDashboardHttp]);
 
   useEffect(() => {
     const branch = branches.find((b) => b._id === selectedBranch);
@@ -338,68 +421,11 @@ const AdminDashboard: React.FC = () => {
       socket.emit('admin_dashboard:get', { period, branchId, limit: 50 });
     });
 
-    socket.on('admin_branches:data', (payload: any) => {
-      const rawList = payload?.branches || payload?.data?.branches || payload?.data || payload || [];
-      const normalized = (Array.isArray(rawList) ? rawList : []).map((b: any) => ({
-        _id: b?._id || b?.id,
-        name: b?.name || b?.branchName || b?.restaurantName,
-        currency: b?.currency,
-        isActive: typeof b?.isActive === 'boolean' ? b.isActive : (typeof b?.status === 'string' ? String(b.status).toLowerCase() === 'active' : undefined),
-      }));
-      setBranches(normalized);
-
-      const savedBranchId = localStorage.getItem('selectedBranchId');
-      if (savedBranchId && normalized.find((b: any) => b._id === savedBranchId)) {
-        setSelectedBranch(savedBranchId);
-      }
-    });
-
-    socket.on('admin_dashboard:data', (payload: any) => {
-      const d: any = payload?.stats || {};
-      const currentBranches = branchesRef.current;
-      setStats({
-        totalOrders: d.totalOrders ?? 0,
-        totalRevenue: d.totalRevenue ?? 0,
-        totalUsers: d.totalUsers ?? 0,
-        totalProducts: d.totalProducts ?? 0,
-        activeOrders: d.activeOrders ?? 0,
-        totalBranches: currentBranches.length,
-        activeRiders: d.activeRiders ?? d.totalRiders ?? 0,
-      });
-
-      const branchesPerf = payload?.branchesPerformance;
-      if (branchesPerf?.branches) {
-        const list = Array.isArray(branchesPerf.branches) ? branchesPerf.branches : [];
-        const perf: Branch[] = list.map((b: any, idx: number) => ({
-          _id: b?.branchId || `${idx}`,
-          name: b?.name,
-          orders: Number(b?.orders || 0),
-          revenue: Number(b?.revenue || 0),
-          riders: Number(b?.riders || 0),
-          status: b?.isActive ? 'active' : 'inactive',
-        }));
-        setBranchPerformance(perf);
-      }
-
-      const rawOrders = Array.isArray(payload?.orders) ? payload.orders : [];
-      const normalizedOrders = normalizeOrders(rawOrders);
-      setRecentOrders(normalizedOrders.slice(0, 10));
-
-      const waitersPerf = payload?.waitersPerformance;
-      setWaitersPerformance(Array.isArray(waitersPerf?.waiters) ? waitersPerf.waiters : []);
-
-      const ridersPerf = payload?.ridersPerformance;
-      setRidersCount(typeof ridersPerf?.ridersCount === 'number' ? ridersPerf.ridersCount : 0);
-      setRidersPerformance(Array.isArray(ridersPerf?.riders) ? ridersPerf.riders : []);
-
-      setLastUpdated(payload?.timestamp ? new Date(payload.timestamp) : new Date());
-      setLoading(false);
-    });
+    socket.on('admin_branches:data', applyBranchesPayload);
+    socket.on('admin_dashboard:data', applyDashboardPayload);
 
     const refreshDashboard = () => {
-      const { period, branchId } = filtersRef.current;
-      setLoading(true);
-      socket.emit('admin_dashboard:get', { period, branchId, limit: 50 });
+      refreshDashboardSocket();
     };
 
     socket.on('notification', refreshDashboard);
@@ -409,9 +435,12 @@ const AdminDashboard: React.FC = () => {
     socket.on('order:status_updated', refreshDashboard);
 
     socket.on('admin_dashboard:error', () => {
-      setLoading(false);
+      void loadDashboardHttp();
     });
-  }, []);
+    socket.on('connect_error', () => {
+      void loadDashboardHttp();
+    });
+  }, [applyBranchesPayload, applyDashboardPayload, loadDashboardHttp, refreshDashboardSocket]);
 
   useEffect(() => {
     ensureSocketConnected();

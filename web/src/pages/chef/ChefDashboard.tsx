@@ -24,6 +24,8 @@ import { AccessTime, CheckCircle, Notifications, RestaurantMenu, Warning } from 
 import { useLocation } from 'react-router-dom';
 import { api } from '../../services/api';
 import { io, type Socket } from 'socket.io-client';
+import { getSocketIoOptions, getSocketIoUrl } from '../../utils/socketOptions';
+import { fetchChefDashboardHttp } from '../../utils/dashboardHttp';
 import { resolveSocketUrl } from '../../utils/resolveSocketUrl';
 import { enrichOrderParty } from '../../utils/orderParty';
 import { OrderCardMeta } from '../../components/orders/OrderCardMeta';
@@ -219,82 +221,103 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
   const socketRef = useRef<Socket | null>(null);
   const dashboardRequestedRef = useRef(false);
 
+  const applyChefPayload = useCallback((payload: any) => {
+    const ordersRaw = payload?.orders || payload?.data?.orders || [];
+    const cookingRaw = payload?.cookingOrders || payload?.data?.cookingOrders || [];
+    const mostOrderedRaw =
+      payload?.mostOrdered || payload?.data?.mostOrdered || payload?.items || payload?.data?.items || [];
+    const notificationsRaw =
+      payload?.notifications || payload?.data?.notifications || payload?.data?.notifications?.notifications || [];
+    const unreadRaw = payload?.unreadCount ?? payload?.data?.unreadCount;
+
+    const mapOrders = (list: unknown[]) =>
+      (Array.isArray(list) ? list : []).map(
+        (o) => enrichOrderParty((o || {}) as Record<string, unknown>)
+      ) as KitchenOrder[];
+
+    setOrders(mapOrders(ordersRaw));
+    setCookingOrders(mapOrders(cookingRaw));
+    setMostOrdered(Array.isArray(mostOrderedRaw) ? (mostOrderedRaw as MostOrderedItem[]) : []);
+    const normalizedNotifications = Array.isArray(notificationsRaw)
+      ? (notificationsRaw as any[]).map((n) => ({
+          ...n,
+          read: typeof n?.read === 'boolean' ? n.read : Boolean(n?.isRead),
+        }))
+      : [];
+    setChefNotifications(normalizedNotifications as ChefNotification[]);
+    setNotificationsUnread(typeof unreadRaw === 'number' ? unreadRaw : Number(unreadRaw ?? 0) || 0);
+    setLoading(false);
+    setNotificationsLoading(false);
+    setError('');
+    setNotificationsError('');
+  }, []);
+
+  const loadChefDashboardHttp = useCallback(async (opts?: { forNotifications?: boolean }) => {
+    if (opts?.forNotifications) setNotificationsLoading(true);
+    else setLoading(true);
+    try {
+      const payload = await fetchChefDashboardHttp();
+      if (payload) applyChefPayload(payload);
+    } catch {
+      if (!opts?.forNotifications) {
+        setError('Failed to load chef dashboard');
+      } else {
+        setNotificationsError('Failed to load notifications');
+      }
+    } finally {
+      setLoading(false);
+      setNotificationsLoading(false);
+    }
+  }, [applyChefPayload]);
+
   const requestChefDashboard = useCallback((opts?: { forNotifications?: boolean }) => {
     const socket = socketRef.current;
-    if (!socket) return;
-
     if (opts?.forNotifications) setNotificationsLoading(true);
     else setLoading(true);
     setError('');
     setNotificationsError('');
 
+    if (!socket) {
+      void loadChefDashboardHttp(opts);
+      return;
+    }
     const emitRequest = () => socket.emit('chef_dashboard:get');
     if (socket.connected) emitRequest();
     else socket.once('connect', emitRequest);
-  }, []);
+  }, [loadChefDashboardHttp]);
 
   useEffect(() => {
-    const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken') || '';
     if (!socketRef.current) {
-      socketRef.current = io(getServerHost(), {
-        path: '/socket.io',
-        transports: ['websocket', 'polling'],
-        auth: token ? { token } : undefined,
-      });
+      socketRef.current = io(getSocketIoUrl(), getSocketIoOptions());
     }
 
     const socket = socketRef.current;
 
-    const onData = (payload: any) => {
-      const ordersRaw = payload?.orders || payload?.data?.orders || [];
-      const cookingRaw = payload?.cookingOrders || payload?.data?.cookingOrders || [];
-      const mostOrderedRaw = payload?.mostOrdered || payload?.data?.mostOrdered || payload?.items || payload?.data?.items || [];
-      const notificationsRaw = payload?.notifications || payload?.data?.notifications || payload?.data?.notifications?.notifications || [];
-      const unreadRaw = payload?.unreadCount ?? payload?.data?.unreadCount;
-
-      const mapOrders = (list: unknown[]) =>
-        (Array.isArray(list) ? list : []).map((o) => enrichOrderParty((o || {}) as Record<string, unknown>)) as KitchenOrder[];
-
-      setOrders(mapOrders(ordersRaw));
-      setCookingOrders(mapOrders(cookingRaw));
-      setMostOrdered(Array.isArray(mostOrderedRaw) ? (mostOrderedRaw as MostOrderedItem[]) : []);
-      const normalizedNotifications = Array.isArray(notificationsRaw)
-        ? (notificationsRaw as any[]).map((n) => ({
-            ...n,
-            read: typeof n?.read === 'boolean' ? n.read : Boolean(n?.isRead),
-          }))
-        : [];
-      setChefNotifications(normalizedNotifications as ChefNotification[]);
-      setNotificationsUnread(typeof unreadRaw === 'number' ? unreadRaw : Number(unreadRaw ?? 0) || 0);
-
-      setLoading(false);
-      setNotificationsLoading(false);
-    };
-
     const onError = (payload: any) => {
       const msg = String(payload?.message || payload?.error || 'Failed to load chef dashboard');
       setError(msg);
-      setLoading(false);
-      setNotificationsLoading(false);
+      void loadChefDashboardHttp();
     };
 
     const onConnect = () => {
       if (dashboardRequestedRef.current) return;
       dashboardRequestedRef.current = true;
-      requestChefDashboard();
+      socket.emit('chef_dashboard:get');
     };
 
-    const onInvalidate = () => requestChefDashboard();
-    const onNotification = () => requestChefDashboard();
-    const onOrderEvent = () => requestChefDashboard();
+    const onInvalidate = () => {
+      if (socket.connected) socket.emit('chef_dashboard:get');
+      else void loadChefDashboardHttp();
+    };
+    const onNotification = () => onInvalidate();
+    const onOrderEvent = () => onInvalidate();
     const onConnectError = () => {
-      setLoading(false);
-      setNotificationsLoading(false);
+      void loadChefDashboardHttp();
     };
 
     socket.off('chef_dashboard:data');
     socket.off('chef_dashboard:error');
-    socket.on('chef_dashboard:data', onData);
+    socket.on('chef_dashboard:data', applyChefPayload);
     socket.on('chef_dashboard:error', onError);
     socket.on('chef_dashboard:invalidate', onInvalidate);
     socket.on('order:created', onOrderEvent);
@@ -305,9 +328,10 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
     socket.on('connect', onConnect);
 
     if (socket.connected && !dashboardRequestedRef.current) onConnect();
+    else if (!socket.connected) socket.once('connect', onConnect);
 
     return () => {
-      socket.off('chef_dashboard:data', onData);
+      socket.off('chef_dashboard:data', applyChefPayload);
       socket.off('chef_dashboard:error', onError);
       socket.off('chef_dashboard:invalidate', onInvalidate);
       socket.off('order:created', onOrderEvent);
@@ -317,7 +341,7 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
       socket.off('connect_error', onConnectError);
       socket.off('connect', onConnect);
     };
-  }, [requestChefDashboard]);
+  }, [applyChefPayload, loadChefDashboardHttp]);
 
   useEffect(() => {
     return () => {

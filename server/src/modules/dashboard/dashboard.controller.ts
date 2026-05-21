@@ -1,19 +1,63 @@
 import { Response } from 'express';
 import { DashboardService } from './dashboard.service';
+import { DashboardSnapshotService } from './dashboardSnapshot.service';
 import { sendSuccess } from '@/utils/response';
 import { asyncHandler, IAuthRequest } from '@/utils';
 import { logger } from '@/utils/logger';
 import { OrderRepository } from '@/modules/order/order.repository';
 import { normalizeOrderPayload } from '@/utils/normalizeOrderPayload';
 
+function resolveAssignedBranchId(req: IAuthRequest): string {
+  const branch = req.user?.assignedBranch as
+    | { _id?: { toString(): string }; toString?: () => string }
+    | undefined;
+  return branch?._id?.toString?.() || (typeof branch?.toString === 'function' ? branch.toString() : '') || '';
+}
+
 export class DashboardController {
   private dashboardService: DashboardService;
+  private dashboardSnapshot: DashboardSnapshotService;
   private orderRepository: OrderRepository;
 
   constructor() {
     this.dashboardService = new DashboardService();
+    this.dashboardSnapshot = new DashboardSnapshotService();
     this.orderRepository = new OrderRepository();
   }
+
+  getAdminBranchesOverview = asyncHandler(async (req: IAuthRequest, res: Response) => {
+    const role = String(req.user?.role || '').toUpperCase();
+    const data = await this.dashboardSnapshot.getAdminBranches(role, resolveAssignedBranchId(req));
+    sendSuccess(res, data, 'Admin branches retrieved successfully');
+  });
+
+  getAdminDashboardOverview = asyncHandler(async (req: IAuthRequest, res: Response) => {
+    const role = String(req.user?.role || '').toUpperCase();
+    const { period, branchId, limit } = req.query as {
+      period?: string;
+      branchId?: string;
+      limit?: string;
+    };
+    const data = await this.dashboardSnapshot.getAdminDashboard(role, resolveAssignedBranchId(req), {
+      period,
+      branchId,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    });
+    sendSuccess(res, data, 'Admin dashboard retrieved successfully');
+  });
+
+  getChefDashboardOverview = asyncHandler(async (req: IAuthRequest, res: Response) => {
+    const role = String(req.user?.role || '').toUpperCase();
+    const userId = String(req.user?._id || '');
+    const data = await this.dashboardSnapshot.getChefDashboard(userId, role, resolveAssignedBranchId(req));
+    sendSuccess(res, data, 'Chef dashboard retrieved successfully');
+  });
+
+  getWaiterDashboardOverview = asyncHandler(async (req: IAuthRequest, res: Response) => {
+    const userId = String(req.user?._id || '');
+    const data = await this.dashboardSnapshot.getWaiterDashboard(userId, resolveAssignedBranchId(req));
+    sendSuccess(res, data, 'Waiter dashboard retrieved successfully');
+  });
 
   // Super Admin Dashboard Stats
   getSuperAdminStats = asyncHandler(async (req: IAuthRequest, res: Response) => {

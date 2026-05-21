@@ -33,35 +33,30 @@ const host = process.env.HOST || '0.0.0.0';
 
 const app = express();
 
-// http-proxy strips the `/api` mount prefix — rewrite it back for Express routes on :3101
-const apiProxy = createProxyMiddleware({
-  target: apiTarget,
-  changeOrigin: true,
-  ws: true,
-  pathRewrite: (path) => {
-    const p = path.startsWith('/') ? path : `/${path}`;
-    if (p === '/health' || p === '/api/health') return '/health';
-    return p.startsWith('/api') ? p : `/api${p}`;
-  },
-});
-
-app.use('/api', apiProxy);
-app.use(
-  '/uploads',
-  createProxyMiddleware({
-    target: apiTarget,
-    changeOrigin: true,
-    pathRewrite: (path) => `/uploads${path.startsWith('/') ? path : `/${path}`}`,
-  })
-);
-// Socket.IO lives at /socket.io on the API — do NOT prefix /api
+/** Do NOT use app.use('/socket.io', proxy) — Express strips the prefix and the API sees /?EIO=4 → 404. */
 const socketProxy = createProxyMiddleware({
   target: apiTarget,
   changeOrigin: true,
   ws: true,
+  pathFilter: (pathname) => pathname.startsWith('/socket.io'),
 });
 
-app.use('/socket.io', socketProxy);
+const apiProxy = createProxyMiddleware({
+  target: apiTarget,
+  changeOrigin: true,
+  ws: true,
+  pathFilter: (pathname) => pathname.startsWith('/api'),
+});
+
+const uploadsProxy = createProxyMiddleware({
+  target: apiTarget,
+  changeOrigin: true,
+  pathFilter: (pathname) => pathname.startsWith('/uploads'),
+});
+
+app.use(socketProxy);
+app.use(apiProxy);
+app.use(uploadsProxy);
 
 app.use(express.static(distDir, { index: false, fallthrough: true }));
 
@@ -79,32 +74,56 @@ if (!fs.existsSync(path.join(distDir, 'index.html'))) {
 }
 
 const server = http.createServer(app);
-server.on('upgrade', socketProxy.upgrade);
+
+server.on('upgrade', (req, socket, head) => {
+  const pathname = (req.url || '').split('?')[0];
+  if (pathname.startsWith('/socket.io')) {
+    socketProxy.upgrade(req, socket, head);
+  }
+});
 
 async function verifyBackend() {
+  const base = apiTarget.replace(/\/$/, '');
   try {
-    const res = await fetch(`${apiTarget.replace(/\/$/, '')}/health`, {
-      signal: AbortSignal.timeout(8000),
-    });
-    if (res.ok) {
-      console.log(`[web] Backend OK at ${apiTarget}`);
-      return true;
+    const res = await fetch(`${base}/health`, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) {
+      console.error(`[web] Backend returned ${res.status} at ${base}/health`);
+      return false;
     }
-    console.error(`[web] Backend returned ${res.status} at ${apiTarget}/health`);
+    console.log(`[web] Backend OK at ${apiTarget}`);
   } catch (err) {
     console.error(`[web] Backend NOT reachable at ${apiTarget}`);
     console.error('[web] Start API: cd server && npm start  (or docker compose up -d server)');
-    console.error('[web] Docker web container must use VITE_PROXY_TARGET=http://server:3101');
+    console.error('[web] Docker web must use VITE_PROXY_TARGET=http://server:3101');
     console.error('[web] Bare VPS web must use VITE_PROXY_TARGET=http://127.0.0.1:3101');
     if (err?.message) console.error(`[web] ${err.message}`);
+    return false;
   }
-  return false;
+
+  try {
+    const pollUrl = `http://127.0.0.1:${port}/socket.io/?EIO=4&transport=polling`;
+    const poll = await fetch(pollUrl, { signal: AbortSignal.timeout(8000) });
+    const body = await poll.text();
+    if (poll.status === 404 && body.includes('Route /?EIO')) {
+      console.error(`[web] Socket.IO proxy still broken (API received stripped path)`);
+      console.error('[web] Rebuild web: docker compose up -d --build web');
+      return false;
+    }
+    if (poll.status === 404) {
+      console.error(`[web] Socket.IO proxy 404 at ${pollUrl}`);
+      return false;
+    }
+    console.log(`[web] Socket.IO proxy OK (${poll.status} via :${port}/socket.io)`);
+  } catch (err) {
+    console.warn(`[web] Socket.IO self-check skipped: ${err?.message || err}`);
+  }
+  return true;
 }
 
 server.listen(port, host, async () => {
   console.log(`[web] listening on ${host}:${port} (public: http://<your-vps-ip>:${port})`);
   console.log(`[web] API proxy → ${apiTarget}`);
-  console.log(`[web] Socket.IO proxy → ${apiTarget}/socket.io`);
+  console.log(`[web] Socket.IO proxy → ${apiTarget}/socket.io (full path preserved)`);
   console.log(`[web] health → http://<your-vps-ip>:${port}/api/health`);
   await verifyBackend();
 });

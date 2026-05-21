@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useLanguage } from '../context/LanguageContext';
 import './Dashboard.css';
-import { resolveSocketUrl } from '../utils/resolveSocketUrl';
+import { getSocketIoOptions, getSocketIoUrl } from '../utils/socketOptions';
+import { fetchAdminDashboardHttp } from '../utils/dashboardHttp';
 
 interface DashboardStats {
   totalOrdersToday: number;
@@ -91,12 +92,18 @@ const Dashboard: React.FC = () => {
       return;
     }
 
-    const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken') || '';
-    const socket = io(resolveSocketUrl(), {
-      path: '/socket.io',
-      transports: ['websocket'],
-      auth: token ? { token } : undefined,
-    });
+    const loadHttp = async () => {
+      setLoading(true);
+      try {
+        const payload = await fetchAdminDashboardHttp({ period: 'day', limit: 50 });
+        if (payload) applyDashboardPayload(payload);
+      } catch {
+        setError('Failed to load dashboard data. Please check your connection.');
+        setLoading(false);
+      }
+    };
+
+    const socket = io(getSocketIoUrl(), getSocketIoOptions());
     socketRef.current = socket;
 
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -108,8 +115,10 @@ const Dashboard: React.FC = () => {
     socket.on('connect', requestDashboard);
     socket.on('admin_dashboard:data', applyDashboardPayload);
     socket.on('admin_dashboard:error', () => {
-      setError('Failed to load dashboard data. Please check your connection.');
-      setLoading(false);
+      void loadHttp();
+    });
+    socket.on('connect_error', () => {
+      void loadHttp();
     });
     socket.on('notification', debouncedRequest);
 

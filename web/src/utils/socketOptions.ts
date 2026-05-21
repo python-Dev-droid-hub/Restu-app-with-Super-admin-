@@ -1,7 +1,8 @@
 import { getAuthToken } from './authStorage';
 import { resolveSocketUrl } from './resolveSocketUrl';
 
-/** Shared Socket.IO client options (production proxy + auth). */
+/** Shared Socket.IO client options (production proxy + auth).
+ *  `transports: ['polling', 'websocket']` is Socket.IO’s connection upgrade — not HTTP dashboard polling. */
 export function getSocketIoOptions() {
   const token = getAuthToken() || '';
   return {
