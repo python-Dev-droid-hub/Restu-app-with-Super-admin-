@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { AuthController } from './auth.controller';
 import { authenticate } from '@/middleware/auth';
 import { validate } from '@/middleware/validation';
@@ -44,6 +44,14 @@ const resetPasswordSchema = Joi.object({
 // Public routes
 router.post('/register', validate(registerSchema), authController.register);
 router.post('/login', validate(loginSchema), authController.login);
+// Browser GET (e.g. opening the URL) — login requires POST
+router.get('/login', (_req: Request, res: Response) => {
+  res.status(405).json({
+    success: false,
+    message: 'Use POST /api/auth/login with JSON body { email, password }',
+    statusCode: 405,
+  });
+});
 router.post('/refresh-token', validate(refreshTokenSchema), authController.refreshToken);
 router.post('/request-password-reset', validate(requestPasswordResetSchema), authController.requestPasswordReset);
 router.post('/reset-password', validate(resetPasswordSchema), authController.resetPassword);

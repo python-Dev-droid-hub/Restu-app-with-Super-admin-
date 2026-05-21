@@ -69,7 +69,8 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
     try {
       loadInFlightRef.current = true;
       // Check if user is authenticated first
-      const token = await AsyncStorage.getItem('authToken');
+      const { getAccessToken } = await import('../utils/secureAuthStorage');
+      const token = await getAccessToken();
       const settingsPath = token ? '/settings' : '/settings/public';
       if (!token) {
         console.log('[Settings] No auth token, loading public settings');

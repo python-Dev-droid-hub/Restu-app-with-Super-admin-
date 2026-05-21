@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, Image, StyleSheet, useWindowDimensions, ActivityIndicator } from 'react-native';
-import { api } from '../api/client';
+import { Ionicons } from '@expo/vector-icons';
+import { resolveImageUrl } from '../../utils/resolveImageUrl';
+import { ORDER_CARD_COLORS } from '../orders/OrderCardStyles';
 
 type OrderStatus = 'pending' | 'confirmed' | 'preparing' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled' | 'picked_up' | 'served';
 
@@ -29,6 +31,8 @@ export interface ChefOrderCardOrder {
   orderType: string;
   tableNumber?: string;
   table?: string;
+  waiterName?: string;
+  addressLine?: string;
   items: OrderCardItem[];
   createdAt: string;
   expectedReadyTime?: number;
@@ -45,6 +49,64 @@ interface OrderCardProps {
   showPayment?: boolean;
   showActions?: boolean;
   allowedActions?: OrderStatus[];
+  highlight?: boolean;
+}
+
+function formatRelativeTime(iso?: string): string {
+  if (!iso) return '';
+  const created = new Date(iso).getTime();
+  if (Number.isNaN(created)) return '';
+  const mins = Math.max(0, Math.floor((Date.now() - created) / 60000));
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  return `${hours}h ago`;
+}
+
+function formatExactTime(iso?: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString();
+}
+
+function ProductImage({ uri, size = 56 }: { uri: string | null; size?: number }) {
+  const [failed, setFailed] = useState(false);
+  const [loading, setLoading] = useState(Boolean(uri));
+
+  if (!uri || failed) {
+    return (
+      <View style={[styles.itemImagePlaceholder, { width: size, height: size }]}>
+        <Ionicons name="restaurant-outline" size={22} color={COLORS.secondary} />
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ marginRight: 12 }}>
+      <Image
+        source={{ uri }}
+        style={[styles.itemImage, { width: size, height: size }]}
+        resizeMode="cover"
+        onLoad={() => setLoading(false)}
+        onError={() => {
+          setFailed(true);
+          setLoading(false);
+        }}
+      />
+      {loading ? (
+        <View
+          style={[
+            StyleSheet.absoluteFillObject,
+            styles.itemImage,
+            { width: size, height: size, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.lightBackground },
+          ]}
+        >
+          <ActivityIndicator size="small" color={COLORS.primary} />
+        </View>
+      ) : null}
+    </View>
+  );
 }
 
 const COLORS = {
@@ -57,21 +119,6 @@ const COLORS = {
   warning: '#FF6B35',
   primary: '#3498DB',
   success: '#2ECC71',
-};
-
-// Helper to construct full image URL
-const getFullImageUrl = (imagePath: string | undefined | null): string | null => {
-  if (!imagePath) return null;
-  // If already a full URL, return as-is
-  if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
-    return imagePath;
-  }
-  // Get base URL without /api suffix and prepend to relative path
-  // Note: Upload routes are mounted at /api, so uploads are at /api/uploads
-  const baseURL = api.getBaseURL();
-  const fullUrl = `${baseURL}${imagePath}`;
-  console.log('[OrderCard] Image URL:', fullUrl);
-  return fullUrl;
 };
 
 const getStatusColor = (status: OrderStatus) => {
@@ -106,7 +153,8 @@ export default function OrderCard({
   role = 'CHEF',
   showPayment = false,
   showActions = true,
-  allowedActions 
+  allowedActions,
+  highlight = false,
 }: OrderCardProps) {
   const { width } = useWindowDimensions();
   const isSmallScreen = width < 375;
@@ -124,7 +172,7 @@ export default function OrderCard({
       case 'COOK':
         return ['preparing', 'ready']; // Chef can only start preparing and mark ready
       case 'WAITER':
-        return ['picked_up', 'served', 'delivered', 'cancelled'];
+        return ['ready', 'served', 'picked_up', 'cancelled'];
       case 'MANAGER':
       case 'ADMIN':
       case 'SUPER_ADMIN':
@@ -167,22 +215,24 @@ export default function OrderCard({
   const displayItems = role === 'CHEF' ? safeItems.filter((item: any) => item?.status !== 'SERVED') : safeItems;
 
   const handle = async (next: OrderStatus) => {
-    console.log('[OrderCard] handle called:', { orderId, next, currentStatus: order.status });
-    if (!orderId) {
-      console.log('[OrderCard] No orderId, returning early');
-      return;
-    }
+    if (!orderId) return;
     try {
       setLoadingStatus(next);
-      console.log('[OrderCard] Calling onStatusChange...');
       await onStatusChange(orderId, next);
-      console.log('[OrderCard] onStatusChange completed successfully');
-    } catch (error) {
-      console.log('[OrderCard] onStatusChange error:', error);
     } finally {
       setLoadingStatus(null);
     }
   };
+
+  const statusUpper = String(order.status || 'PENDING').toUpperCase();
+  const statusBadgeColor =
+    statusUpper === 'READY'
+      ? ORDER_CARD_COLORS.success
+      : statusUpper === 'PREPARING'
+        ? ORDER_CARD_COLORS.preparing
+        : statusUpper === 'PENDING'
+          ? ORDER_CARD_COLORS.danger
+          : statusColor;
 
   // Handle item status change
   const handleItemStatus = async (itemId: string, status: 'PREPARING' | 'READY' | 'SERVED' | 'RETURNED') => {
@@ -209,38 +259,61 @@ export default function OrderCard({
     }
   };
 
+  const itemCount = safeItems.length;
+  const relativePlaced = formatRelativeTime(order.createdAt);
+
   return (
-    <View style={[styles.card, { padding, borderLeftColor: statusColor }]}>
+    <View
+      style={[
+        styles.card,
+        { padding, borderLeftColor: statusBadgeColor },
+        highlight && { backgroundColor: ORDER_CARD_COLORS.highlight },
+      ]}
+    >
       <View style={[styles.headerRow, { marginBottom: gap }]}>
         <View style={{ flex: 1 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
             <Text style={[styles.orderNumber, { fontSize: isSmallScreen ? 15 : 16 }]}>
-              {order.orderNumber}
+              #{order.orderNumber}
             </Text>
-            {/* Production Status Badge */}
-            <View style={[styles.statusBadge, { backgroundColor: statusColor + '20', borderColor: statusColor }]}>
-              <Text style={[styles.statusText, { color: statusColor }]}>
-                {String(order.status || 'PENDING').toUpperCase()}
-              </Text>
+            <View style={[styles.statusBadge, { backgroundColor: statusBadgeColor }]}>
+              <Text style={[styles.statusText, { color: '#FFF' }]}>{statusUpper}</Text>
             </View>
           </View>
-          {String(order.orderType).toUpperCase() === 'DINE_IN' && (
+
+          {relativePlaced ? (
+            <Text style={[styles.subText, { marginTop: 4 }]}>
+              {relativePlaced} · {formatExactTime(order.createdAt)}
+            </Text>
+          ) : null}
+
+          {String(order.orderType).toUpperCase() === 'DINE_IN' ? (
             <View style={[styles.tableBadge, { marginTop: 6 }]}>
-              <Text style={styles.tableBadgeText}>Table {order.tableNumber || order.table || '-'}</Text>
+              <Text style={styles.tableBadgeText}>Table {order.tableNumber || order.table || '—'}</Text>
             </View>
+          ) : (order as ChefOrderCardOrder).addressLine ? (
+            <Text style={[styles.subText, { marginTop: 4 }]} numberOfLines={2}>
+              {(order as ChefOrderCardOrder).addressLine}
+            </Text>
+          ) : (
+            <Text style={[styles.subText, { marginTop: 4 }]}>{String(order.orderType).toUpperCase()}</Text>
           )}
-          <Text style={[styles.subText, { marginTop: 4 }]}>
-            {String(order.orderType).toUpperCase() === 'DINE_IN'
-              ? 'DINE-IN'
-              : String(order.orderType).toUpperCase()}
+
+          {(order as ChefOrderCardOrder).waiterName ? (
+            <View style={[styles.waiterBadge, { marginTop: 6 }]}>
+              <Ionicons name="person-outline" size={14} color={COLORS.primary} style={{ marginRight: 4 }} />
+              <Text style={styles.waiterBadgeText}>{(order as ChefOrderCardOrder).waiterName}</Text>
+            </View>
+          ) : null}
+
+          <Text style={[styles.subText, { marginTop: 2 }]}>
+            {itemCount} item{itemCount === 1 ? '' : 's'}
+            {(order as any).totalAmount != null ? ` · ₨${Number((order as any).totalAmount).toFixed(0)}` : ''}
           </Text>
         </View>
 
         <View style={{ alignItems: 'flex-end' }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Text style={[styles.elapsedText, { color: urgencyColor }]}>{elapsedMinutes}m</Text>
-          </View>
-
+          <Text style={[styles.elapsedText, { color: urgencyColor }]}>{elapsedMinutes}m</Text>
           {elapsedMinutes > 20 && (
             <View style={[styles.urgencyPill, { backgroundColor: `${urgencyColor}20` }]}>
               <Text style={[styles.urgencyText, { color: urgencyColor }]}>{elapsedMinutes > 30 ? 'URGENT' : 'SOON'}</Text>
@@ -280,7 +353,7 @@ export default function OrderCard({
             const productData = item.product || (item as any).productId || (item as any).productData || {};
             // Image can be at item level (from backend) or inside product
             const rawImage = (item as any).image || productData.image || productData.imageUrl || (item as any).productImage;
-            const image = getFullImageUrl(rawImage);
+            const image = resolveImageUrl(rawImage);
             const name = productData.name || productData.productName || (item as any).name || (item as any).productName || 'Unknown Product';
             const description = productData.description || (item as any).description;
             const quantity = item.quantity || (item as any).qty || 1;
@@ -299,28 +372,7 @@ export default function OrderCard({
                   },
                 ]}
               >
-                {/* PRODUCT IMAGE */}
-                {!!image ? (
-                  <Image
-                    source={{ uri: image }}
-                    style={{ width: 60, height: 60, borderRadius: 8, marginRight: 12, backgroundColor: COLORS.lightBackground }}
-                    resizeMode="cover"
-                    onError={(e) => console.log('[OrderCard] Image load error:', e.nativeEvent.error, 'URL:', image)}
-                    onLoad={() => console.log('[OrderCard] Image loaded successfully:', image)}
-                  />
-                ) : (
-                  <View style={{
-                    width: 60,
-                    height: 60,
-                    borderRadius: 8,
-                    marginRight: 12,
-                    backgroundColor: COLORS.lightBackground,
-                    justifyContent: 'center',
-                    alignItems: 'center'
-                  }}>
-                    <Text style={{ fontSize: 28 }}>🍽️</Text>
-                  </View>
-                )}
+                <ProductImage uri={image} size={isSmallScreen ? 52 : 56} />
 
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
@@ -399,7 +451,9 @@ export default function OrderCard({
                   )}
 
                   {/* Return Item Button - only for WAITER role and if onItemStatusChange provided */}
-                  {onItemStatusChange && role === 'WAITER' && !['RETURNED', 'SERVED'].includes(item.status as string) && (
+                  {onItemStatusChange && role === 'WAITER' &&
+                    ['SERVED', 'COMPLETED', 'served', 'completed'].includes(String(order.status || '').toUpperCase()) &&
+                    !['RETURNED', 'SERVED'].includes(String(item.status || '').toUpperCase()) && (
                     <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
                       <TouchableOpacity
                         onPress={() => handleItemStatus(item._id || item.id || '', 'RETURNED')}
@@ -457,6 +511,17 @@ export default function OrderCard({
               disabled={!!loadingStatus}
             >
               {loadingStatus === 'ready' ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.actionText}>Mark Ready</Text>}
+            </TouchableOpacity>
+          ) : null}
+
+          {((order.status as any) === 'READY' || (order.status as any) === 'ready') && isActionAllowed('served') ? (
+            <TouchableOpacity
+              onPress={() => handle('served')}
+              style={[styles.actionBtn, { backgroundColor: COLORS.success }]}
+              activeOpacity={0.85}
+              disabled={!!loadingStatus}
+            >
+              {loadingStatus === 'served' ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.actionText}>Mark Served</Text>}
             </TouchableOpacity>
           ) : null}
 
@@ -572,6 +637,16 @@ const styles = StyleSheet.create({
   itemRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
+  },
+  itemImage: {
+    borderRadius: 8,
+    backgroundColor: COLORS.lightBackground,
+  },
+  itemImagePlaceholder: {
+    borderRadius: 8,
+    backgroundColor: COLORS.lightBackground,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   itemName: {
     fontSize: 14,
@@ -704,6 +779,20 @@ const styles = StyleSheet.create({
   tableBadgeText: {
     fontSize: 13,
     fontWeight: '700',
+    color: COLORS.primary,
+  },
+  waiterBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: COLORS.primary + '12',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  waiterBadgeText: {
+    fontSize: 13,
+    fontWeight: '600',
     color: COLORS.primary,
   },
   statusBadge: {

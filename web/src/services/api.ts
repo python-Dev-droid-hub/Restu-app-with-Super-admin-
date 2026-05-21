@@ -1,4 +1,6 @@
 import axios, { type AxiosInstance, type AxiosResponse, type InternalAxiosRequestConfig, AxiosError } from 'axios';
+import { clearAuthSession, getAuthToken, setAuthSession } from '../utils/authStorage';
+import { resolveApiBaseUrl, resolveApiOrigin } from '../utils/resolveApiBaseUrl';
 
 interface ApiResponse<T = any> {
   success: boolean;
@@ -7,50 +9,25 @@ interface ApiResponse<T = any> {
   error?: string;
 }
 
-const sanitizeApiBaseUrl = (rawUrl?: string): string | null => {
-  const value = rawUrl?.trim();
-  if (!value) return null;
-  const normalized = value.replace(/\/$/, '');
-  return /^https?:\/\/[^/\s]+/i.test(normalized) ? normalized : null;
-};
-
-const resolveApiBaseUrl = (): string => {
-  const envUrl = sanitizeApiBaseUrl(import.meta.env.VITE_API_URL);
-  if (envUrl) return envUrl.endsWith('/api') ? envUrl : `${envUrl}/api`;
-  
-  if (import.meta.env.DEV) {
-    return '/api';
-  }
-  
-  if (typeof window !== 'undefined') {
-    const { protocol, host } = window.location;
-    // Default to the same host but port 3101 if no env var is provided
-    // This is a common fallback but VITE_API_URL should ideally be set in production
-    return `${protocol}//${host.split(':')[0]}:3000/api`;
-  }
-  
-  return 'http://localhost:3000/api';
-};
-
-const API_BASE_URL = resolveApiBaseUrl();
-
 class ApiClient {
   private instance: AxiosInstance;
   private hasHandledUnauthorized = false;
 
   constructor() {
     this.instance = axios.create({
-      baseURL: API_BASE_URL,
+      baseURL: '/api',
       timeout: 10000,
+      withCredentials: true,
       headers: {
         'Content-Type': 'application/json',
       },
     });
 
-    // Request interceptor to add auth token
+    // Bearer fallback for dev/socket; production relies on httpOnly cookies
     this.instance.interceptors.request.use(
       async (config: InternalAxiosRequestConfig) => {
-        const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
+        config.baseURL = resolveApiBaseUrl();
+        const token = getAuthToken();
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
         }
@@ -59,16 +36,26 @@ class ApiClient {
       (error: AxiosError) => Promise.reject(error)
     );
 
-    // Response interceptor for error handling
     this.instance.interceptors.response.use(
       (response: AxiosResponse) => response,
       async (error: AxiosError) => {
+        const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
+        if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
+          originalRequest._retry = true;
+          try {
+            const refreshRes = await this.instance.post('/auth/refresh-token', {});
+            const newTokens = refreshRes.data?.data?.tokens;
+            if (newTokens?.accessToken) {
+              setAuthSession(newTokens.accessToken, newTokens.refreshToken);
+            }
+            return this.instance(originalRequest);
+          } catch {
+            /* fall through to logout */
+          }
+        }
+
         if (error.response?.status === 401) {
-          // Token expired/invalid: clear storage and force re-auth
-          localStorage.removeItem('auth_token');
-          localStorage.removeItem('authToken');
-          localStorage.removeItem('userRole');
-          localStorage.removeItem('userData');
+          clearAuthSession();
           delete this.instance.defaults.headers.common.Authorization;
 
           if (!this.hasHandledUnauthorized && typeof window !== 'undefined') {
@@ -282,9 +269,50 @@ class ApiClient {
   }
 
   // Dashboard Analytics
-  async getDashboardAnalytics(params?: { range?: string }) {
-    const queryString = params?.range ? `?range=${params.range}` : '';
-    return this.request('GET', `/dashboard/admin/analytics${queryString}`);
+  private buildDashboardAnalyticsQuery(params?: {
+    range?: string;
+    branchId?: string;
+    startDate?: string;
+    endDate?: string;
+  }) {
+    const q = new URLSearchParams();
+    if (params?.startDate && params?.endDate) {
+      q.set('startDate', params.startDate);
+      q.set('endDate', params.endDate);
+      q.set('range', 'custom');
+    } else if (params?.range) {
+      q.set('range', params.range);
+    }
+    if (params?.branchId && params.branchId !== 'all') q.set('branchId', params.branchId);
+    return q.toString() ? `?${q.toString()}` : '';
+  }
+
+  async getDashboardAnalytics(params?: {
+    range?: string;
+    branchId?: string;
+    startDate?: string;
+    endDate?: string;
+    asManager?: boolean;
+  }) {
+    const base = params?.asManager
+      ? '/dashboard/manager/analytics'
+      : '/dashboard/admin/analytics';
+    const queryString = this.buildDashboardAnalyticsQuery(params);
+    return this.request('GET', `${base}${queryString}`);
+  }
+
+  async exportDashboardAnalytics(params?: {
+    range?: string;
+    branchId?: string;
+    startDate?: string;
+    endDate?: string;
+    asManager?: boolean;
+  }) {
+    const base = params?.asManager
+      ? '/dashboard/manager/analytics/export'
+      : '/dashboard/admin/analytics/export';
+    const queryString = this.buildDashboardAnalyticsQuery(params);
+    return this.request('GET', `${base}${queryString}`);
   }
 
   // Super Admin Dashboard
@@ -523,8 +551,18 @@ class ApiClient {
   }
 
   // Mark all notifications as read
-  async markAllNotificationsAsRead() {
-    return this.request('PUT', '/notifications/mark-all-read');
+  async markAllNotificationsAsRead(branchId?: string) {
+    const q = branchId ? `?branchId=${encodeURIComponent(branchId)}` : '';
+    return this.request('PUT', `/notifications/admin/mark-all-read${q}`);
+  }
+
+  async clearAllAdminNotifications(branchId?: string) {
+    const q = branchId ? `?branchId=${encodeURIComponent(branchId)}` : '';
+    return this.request('DELETE', `/notifications/admin/clear-all${q}`);
+  }
+
+  async registerDevice(fcmToken: string) {
+    return this.request('POST', '/notifications/register-device', { fcmToken, token: fcmToken });
   }
 
   // Admin: Delete any notification
@@ -557,7 +595,7 @@ class ApiClient {
       return imagePath;
     }
     // Get base URL without /api suffix
-    const serverBase = API_BASE_URL.replace('/api', '');
+    const serverBase = resolveApiOrigin();
     // Ensure path starts with /
     const path = imagePath.startsWith('/') ? imagePath : `/${imagePath}`;
     const finalUrl = `${serverBase}${path}`;

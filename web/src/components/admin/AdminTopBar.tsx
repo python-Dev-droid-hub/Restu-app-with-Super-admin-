@@ -23,6 +23,7 @@ import {
 } from '@mui/icons-material';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { io, type Socket } from 'socket.io-client';
+import { resolveSocketUrl } from '../../utils/resolveSocketUrl';
 import { api } from '../../services/api';
 
 const SIDEBAR_WIDTH = 260;
@@ -96,10 +97,6 @@ const AdminTopBar: React.FC<{
     window.addEventListener('profileUpdated', handle as EventListener);
     window.addEventListener('userDataUpdated', handle as EventListener);
 
-    const userSyncIntervalId = window.setInterval(() => {
-      syncUserFromStorage();
-    }, 1000);
-
     let cancelled = false;
     const refreshFromApi = async () => {
       setLoading(true);
@@ -136,7 +133,6 @@ const AdminTopBar: React.FC<{
 
     return () => {
       cancelled = true;
-      window.clearInterval(userSyncIntervalId);
       window.removeEventListener('storage', handle);
       window.removeEventListener('profileUpdated', handle as EventListener);
       window.removeEventListener('userDataUpdated', handle as EventListener);
@@ -144,6 +140,54 @@ const AdminTopBar: React.FC<{
   }, [syncUserFromStorage]);
 
   useEffect(() => {
+    const fetchAdminUnread = async () => {
+      try {
+        const res = await api.getNotificationUnreadCount();
+        if (res?.success) {
+          setNotificationCount(Number(res?.data?.unreadCount ?? 0));
+        }
+      } catch {
+        /* non-fatal */
+      }
+    };
+
+    if (mode === 'admin' || mode === 'manager') {
+      void fetchAdminUnread();
+
+      const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken') || '';
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+
+      const socket = io(resolveSocketUrl(), {
+        path: '/socket.io',
+        transports: ['websocket', 'polling'],
+        withCredentials: true,
+        auth: token ? { token } : undefined,
+      });
+      socketRef.current = socket;
+
+      const requestUnread = () => {
+        socket.emit('admin_unread_count:get');
+        void fetchAdminUnread();
+      };
+
+      socket.on('connect', requestUnread);
+      socket.on('admin_unread_count:data', (payload: any) => {
+        setNotificationCount(typeof payload?.unreadCount === 'number' ? payload.unreadCount : 0);
+      });
+      socket.on('notification', requestUnread);
+
+      return () => {
+        socket.off('connect', requestUnread);
+        socket.off('admin_unread_count:data');
+        socket.off('notification', requestUnread);
+        socket.disconnect();
+        socketRef.current = null;
+      };
+    }
+
     if (mode === 'chef' || mode === 'waiter' || mode === 'rider') {
       socketRef.current?.disconnect();
       socketRef.current = null;
@@ -166,49 +210,30 @@ const AdminTopBar: React.FC<{
       };
 
       void fetchUnread();
-      const intervalId = window.setInterval(() => {
+
+      const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken') || '';
+
+      const socket = io(resolveSocketUrl(), {
+        path: '/socket.io',
+        transports: ['websocket', 'polling'],
+        auth: token ? { token } : undefined,
+      });
+
+      const onRealtime = () => {
         void fetchUnread();
-      }, 30000);
+      };
+
+      socket.on('notification', onRealtime);
+      socket.on('connect', onRealtime);
 
       return () => {
         cancelled = true;
-        window.clearInterval(intervalId);
+        socket.off('notification', onRealtime);
+        socket.off('connect', onRealtime);
+        socket.disconnect();
       };
     }
 
-    if (socketRef.current) return;
-
-    const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken') || '';
-    const rawApiUrl = (import.meta as any)?.env?.VITE_API_URL as string | undefined;
-    const rawProxyTarget = (import.meta as any)?.env?.VITE_PROXY_TARGET as string | undefined;
-
-    const normalizeHost = (value?: string): string => {
-      const v = (value || '').trim();
-      if (!v) return '';
-      return v.replace(/\/?api\/?$/, '').replace(/\/$/, '');
-    };
-
-    const socketUrl = normalizeHost(rawProxyTarget) || normalizeHost(rawApiUrl) || 'http://localhost:3101';
-
-    const socket = io(socketUrl, {
-      path: '/socket.io',
-      transports: ['websocket', 'polling'],
-      auth: token ? { token } : undefined,
-    });
-    socketRef.current = socket;
-
-    const requestUnread = () => socket.emit('admin_unread_count:get');
-
-    socket.on('connect', requestUnread);
-    socket.on('admin_unread_count:data', (payload: any) => {
-      setNotificationCount(typeof payload?.unreadCount === 'number' ? payload.unreadCount : 0);
-    });
-    socket.on('notification', requestUnread);
-
-    return () => {
-      socketRef.current?.disconnect();
-      socketRef.current = null;
-    };
   }, [mode]);
 
   const handleProfileMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
@@ -359,8 +384,10 @@ const AdminTopBar: React.FC<{
             }}
           >
             <Badge
-              badgeContent={notificationCount}
+              badgeContent={notificationCount > 0 ? notificationCount : undefined}
               color="error"
+              max={99}
+              overlap="circular"
               sx={{
                 '& .MuiBadge-badge': {
                   fontSize: 10,

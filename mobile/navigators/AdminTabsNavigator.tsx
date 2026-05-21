@@ -12,6 +12,7 @@ import AdminProductsScreen from '../screens/admin/AdminProductsScreen';
 import AdminUsersScreen from '../screens/admin/AdminUsersScreen';
 import AdminBottomNavigation from '../components/navigation/AdminBottomNavigation';
 import BannerManagementScreen from '../screens/admin/BannerManagementScreen';
+import AdminReportsScreen from '../screens/admin/AdminReportsScreen';
 
 const Tab = createBottomTabNavigator();
 
@@ -40,18 +41,17 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
 
   const navigateToScreen = async (screenName: string) => {
     setShowMoreMenu(false);
-    
-    // Get user role for proper navigation
-    const role = await AsyncStorage.getItem('userRole');
-    
-    // Check if the target is a tab screen
-    const tabScreens = ['Home', 'AdminOrders', 'AdminUsers', 'AdminProducts', 'BannerManagement'];
+
+    const tabScreens = ['Home', 'AdminOrders', 'AdminUsers', 'AdminProducts', 'AdminReports', 'BannerManagement'];
     const isTabScreen = tabScreens.includes(screenName);
-    
+
+    if (isTabScreen && currentRoute === screenName) {
+      return;
+    }
+
     if (isTabScreen) {
-      // Navigate within tabs
       // @ts-ignore
-      nav.navigate(screenName);
+      navigation.navigate(screenName);
     } else {
       // Navigate to stack screen - use parent navigator
       // @ts-ignore
@@ -61,9 +61,10 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
 
   return (
     <>
-      <AdminBottomNavigation 
+      <AdminBottomNavigation
         currentRoute={currentRoute}
-        onMorePress={() => setShowMoreMenu(true)} 
+        onMorePress={() => setShowMoreMenu(true)}
+        tabNavigation={navigation}
       />
 
       <Modal
@@ -110,6 +111,7 @@ export default function AdminTabsNavigator() {
       <Tab.Screen name="AdminOrders" component={AdminOrdersScreen} />
       <Tab.Screen name="AdminUsers" component={AdminUsersScreen} />
       <Tab.Screen name="AdminProducts" component={AdminProductsScreen} />
+      <Tab.Screen name="AdminReports" component={AdminReportsScreen} />
       <Tab.Screen name="BannerManagement" component={BannerManagementScreen} options={{ headerShown: false }} />
     </Tab.Navigator>
   );

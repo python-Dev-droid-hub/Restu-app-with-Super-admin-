@@ -1,23 +1,9 @@
-// API Configuration - works in both Node and browser environments
-declare const process: { env?: { REACT_APP_API_URL?: string } } | undefined;
-
-const resolveApiBaseUrl = (): string => {
-  const envUrl =
-    (typeof process !== 'undefined' && process?.env?.REACT_APP_API_URL?.trim()) ||
-    (typeof window !== 'undefined' && (window as any).REACT_APP_API_URL?.trim());
-  const normalizedEnvUrl = envUrl && /^https?:\/\/[^/\s]+/i.test(envUrl) ? envUrl.replace(/\/$/, '') : '';
-  if (normalizedEnvUrl) return normalizedEnvUrl;
-  if (typeof window !== 'undefined') {
-    const host = window.location.hostname;
-    const isLocal = host === 'localhost' || host === '127.0.0.1';
-    // Use relative /api on localhost so Vite dev proxy forwards to the backend.
-    // This removes any hardcoded port dependency — the proxy config owns routing.
-    return isLocal ? '/api' : `${window.location.protocol}//${host}:3101/api`;
+function resolveApiBaseUrl(): string {
+  if (typeof window === 'undefined') {
+    return 'http://localhost:3101/api';
   }
-  return 'http://localhost:3101/api';
-};
-
-const API_BASE_URL = resolveApiBaseUrl();
+  return String((window as { REACT_APP_API_URL?: string }).REACT_APP_API_URL || '/api').trim() || '/api';
+}
 
 // API Response types
 export interface ApiResponse<T = unknown> {
@@ -87,9 +73,10 @@ class ApiClient {
 
   private async request<T>(endpoint: string, options: RequestOptions = {}): Promise<ApiResponse<T>> {
     const { params, ...fetchOptions } = options;
+    const baseURL = typeof window !== 'undefined' ? resolveApiBaseUrl() : this.baseURL;
 
     // Build URL with query params
-    let url = `${this.baseURL}${endpoint}`;
+    let url = `${baseURL}${endpoint}`;
     if (params) {
       const queryString = new URLSearchParams(params).toString();
       if (queryString) {
@@ -171,8 +158,10 @@ class ApiClient {
   }
 }
 
-// Export singleton instance
-export const api = new ApiClient(API_BASE_URL);
+// Export singleton instance (baseURL only used on React Native / SSR)
+export const api = new ApiClient(
+  typeof window === 'undefined' ? 'http://localhost:3101/api' : '/api'
+);
 
 // Re-export for creating custom instances
 export { ApiClient };

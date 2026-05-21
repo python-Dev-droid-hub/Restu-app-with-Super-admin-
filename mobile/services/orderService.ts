@@ -198,19 +198,26 @@ export const getCashierOrders = async (filters?: Record<string, any>): Promise<{
   console.log('Filters:', filters);
   
   try {
-    const queryParams = filters 
-      ? '?' + Object.entries(filters)
-          .filter(([_, value]) => value !== undefined)
-          .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
-          .join('&')
-      : '';
-    
+    const params: Record<string, string> = {
+      page: '1',
+      limit: '200',
+      ...(filters
+        ? Object.fromEntries(
+            Object.entries(filters)
+              .filter(([, value]) => value !== undefined)
+              .map(([key, value]) => [key, String(value)])
+          )
+        : {}),
+    };
+    const queryParams = `?${new URLSearchParams(params).toString()}`;
+
     const response = await api.get(`/orders${queryParams}`);
-    
+
     console.log('API Response status:', response.success);
     console.log('API Response data keys:', Object.keys(response.data || {}));
-    
-    const orders = response.data?.orders || [];
+
+    const data = response.data as { orders?: unknown[]; data?: { orders?: unknown[] } } | undefined;
+    const orders = data?.orders || data?.data?.orders || [];
     console.log('Orders count from API:', orders.length);
     
     if (orders.length > 0) {

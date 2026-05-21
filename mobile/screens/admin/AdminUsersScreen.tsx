@@ -18,6 +18,7 @@ import { api } from '../../components/api/client';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalization } from '../../context/LocalizationContext';
 import { useUserData } from '../../hooks/useUserData';
+import { isAdminRole } from '../../utils/permissionHelpers';
 
 // Components
 import ResponsiveHeader from '../../components/layout/ResponsiveHeader';
@@ -74,13 +75,15 @@ export default function AdminUsersScreen() {
     { name: t('nav.notifications'), icon: 'notifications-outline', screen: 'AdminNotifications' },
     { name: 'Table Assignment', icon: 'grid-outline', screen: 'TableAssignment' },
     // Only show Branches for SUPER_ADMIN
-    ...(userRole === 'SUPER_ADMIN' ? [{ name: t('nav.branches'), icon: 'business-outline', screen: 'AdminBranches' }] : []),
+    ...(isAdminRole(userRole) ? [{ name: t('nav.branches'), icon: 'business-outline', screen: 'AdminBranches' }] : []),
     { name: t('nav.deals'), icon: 'pricetag-outline', screen: 'AdminDeals' },
     { name: t('nav.coupons'), icon: 'ticket-outline', screen: 'AdminCoupons' },
     { name: t('nav.productSizes'), icon: 'resize-outline', screen: 'AdminProductSizes' },
     { name: t('nav.categories'), icon: 'grid-outline', screen: 'AdminCategories' },
     { name: t('nav.reports'), icon: 'bar-chart-outline', screen: 'AdminReports' },
-    { name: t('nav.settings'), icon: 'settings-outline', screen: 'AdminSettings' },
+    ...(isAdminRole(userRole)
+      ? [{ name: t('nav.settings'), icon: 'settings-outline', screen: 'AdminSettings' }]
+      : []),
   ];
 
   // Load users when screen is focused
@@ -398,9 +401,7 @@ export default function AdminUsersScreen() {
         onLogout={() => { // @ts-ignore
           navigation.navigate('Welcome');
         }}
-        onChangePassword={() => { // @ts-ignore
-          navigation.navigate('ChangePassword');
-        }}
+        navigation={navigation}
       />
 
       {/* More Menu Modal */}

@@ -3,13 +3,14 @@
  * Centralized role-based permission checks for the restaurant app
  */
 
-// User Roles
+// User Roles (SUPER_ADMIN kept for legacy accounts — treated as ADMIN in the app)
 export type UserRole =
   | 'CUSTOMER'
   | 'RIDER'
   | 'BRANCH_MANAGER'
   | 'WAITER'
   | 'CHEF'
+  | 'ADMIN'
   | 'SUPER_ADMIN';
 
 export interface User {
@@ -20,260 +21,172 @@ export interface User {
   assignedBranchId?: string | null;
 }
 
-/**
- * Check if user is SUPER_ADMIN
- */
-export const isSuperAdmin = (userRole: UserRole | string): boolean => {
-  return userRole === 'SUPER_ADMIN';
+const normalizeRole = (userRole: UserRole | string): string =>
+  String(userRole || '').toUpperCase();
+
+/** Restaurant administrator (includes legacy SUPER_ADMIN accounts). */
+export const isAdminRole = (userRole: UserRole | string): boolean => {
+  const role = normalizeRole(userRole);
+  return role === 'ADMIN' || role === 'SUPER_ADMIN';
 };
 
-/**
- * Check if user is BRANCH_MANAGER
- */
+/** @deprecated Use isAdminRole — legacy SUPER_ADMIN is mapped to admin in the UI. */
+export const isSuperAdmin = isAdminRole;
+
 export const isBranchManager = (userRole: UserRole | string): boolean => {
-  return userRole === 'BRANCH_MANAGER';
+  return normalizeRole(userRole) === 'BRANCH_MANAGER';
 };
 
-/**
- * Check if user is CHEF
- */
 export const isChef = (userRole: UserRole | string): boolean => {
-  return userRole === 'CHEF';
+  return normalizeRole(userRole) === 'CHEF';
 };
 
-/**
- * Check if user is WAITER
- */
 export const isWaiter = (userRole: UserRole | string): boolean => {
-  return userRole === 'WAITER';
+  return normalizeRole(userRole) === 'WAITER';
 };
 
-/**
- * Check if user is RIDER
- */
 export const isRider = (userRole: UserRole | string): boolean => {
-  return userRole === 'RIDER';
+  return normalizeRole(userRole) === 'RIDER';
 };
 
-/**
- * Check if user is CUSTOMER
- */
 export const isCustomer = (userRole: UserRole | string): boolean => {
-  return userRole === 'CUSTOMER';
+  return normalizeRole(userRole) === 'CUSTOMER';
 };
 
-/**
- * Check if user can manage branches (SUPER_ADMIN only)
- */
-export const canManageBranches = (userRole: UserRole | string): boolean => {
-  return userRole === 'SUPER_ADMIN';
-};
+export const canManageBranches = isAdminRole;
+export const canCreateBranches = isAdminRole;
+export const canEditBranches = isAdminRole;
+export const canDeleteBranches = isAdminRole;
+export const canAuditBranches = isAdminRole;
+export const canAssignBranchManager = isAdminRole;
+export const canViewAllBranches = isAdminRole;
 
-/**
- * Check if user can create branches (SUPER_ADMIN only)
- */
-export const canCreateBranches = (userRole: UserRole | string): boolean => {
-  return userRole === 'SUPER_ADMIN';
-};
-
-/**
- * Check if user can edit branches (SUPER_ADMIN only)
- */
-export const canEditBranches = (userRole: UserRole | string): boolean => {
-  return userRole === 'SUPER_ADMIN';
-};
-
-/**
- * Check if user can delete/deactivate branches (SUPER_ADMIN only)
- */
-export const canDeleteBranches = (userRole: UserRole | string): boolean => {
-  return userRole === 'SUPER_ADMIN';
-};
-
-/**
- * Check if user can audit branches (SUPER_ADMIN only)
- */
-export const canAuditBranches = (userRole: UserRole | string): boolean => {
-  return userRole === 'SUPER_ADMIN';
-};
-
-/**
- * Check if user can assign branch managers (SUPER_ADMIN only)
- */
-export const canAssignBranchManager = (userRole: UserRole | string): boolean => {
-  return userRole === 'SUPER_ADMIN';
-};
-
-/**
- * Check if user can view all branches (SUPER_ADMIN) or just their branch
- */
-export const canViewAllBranches = (userRole: UserRole | string): boolean => {
-  return userRole === 'SUPER_ADMIN';
-};
-
-/**
- * Check if user can view a specific branch
- * SUPER_ADMIN can view all, BRANCH_MANAGER can view only their assigned branch
- */
-export const canViewBranch = (
-  user: User,
-  branchId: string
-): boolean => {
-  if (user.role === 'SUPER_ADMIN') return true;
+export const canViewBranch = (user: User, branchId: string): boolean => {
+  if (isAdminRole(user.role)) return true;
   return user.assignedBranchId === branchId;
 };
 
-/**
- * Get branch ID for user
- * SUPER_ADMIN returns null (access to all branches)
- * BRANCH_MANAGER returns their assigned_branch_id
- */
 export const getBranchIdForUser = (user: User): string | null => {
-  if (user.role === 'SUPER_ADMIN') return null;
+  if (isAdminRole(user.role)) return null;
   return user.assignedBranchId || null;
 };
 
-/**
- * Check if user has admin access (BRANCH_MANAGER or SUPER_ADMIN)
- */
 export const hasAdminAccess = (userRole: UserRole | string): boolean => {
-  return ['BRANCH_MANAGER', 'SUPER_ADMIN'].includes(userRole);
+  const role = normalizeRole(userRole);
+  return ['ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'].includes(role);
 };
 
-/**
- * Check if user can manage staff
- * Both BRANCH_MANAGER (their branch) and SUPER_ADMIN (all branches) can manage staff
- */
 export const canManageStaff = (userRole: UserRole | string): boolean => {
-  return ['BRANCH_MANAGER', 'SUPER_ADMIN'].includes(userRole);
+  const role = normalizeRole(userRole);
+  return ['ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'].includes(role);
 };
 
-/**
- * Check if user can manage inventory
- */
 export const canManageInventory = (userRole: UserRole | string): boolean => {
-  return ['BRANCH_MANAGER', 'CHEF', 'SUPER_ADMIN'].includes(userRole);
+  const role = normalizeRole(userRole);
+  return ['ADMIN', 'BRANCH_MANAGER', 'CHEF', 'SUPER_ADMIN'].includes(role);
 };
 
-/**
- * Check if user can manage orders
- */
 export const canManageOrders = (userRole: UserRole | string): boolean => {
-  return ['BRANCH_MANAGER', 'WAITER', 'CHEF', 'SUPER_ADMIN'].includes(userRole);
+  const role = normalizeRole(userRole);
+  return ['ADMIN', 'BRANCH_MANAGER', 'WAITER', 'CHEF', 'SUPER_ADMIN'].includes(role);
 };
 
-/**
- * Check if user can view financial data
- * SUPER_ADMIN can view all, BRANCH_MANAGER can view their branch only
- */
 export const canViewFinancialData = (userRole: UserRole | string): boolean => {
-  return ['BRANCH_MANAGER', 'SUPER_ADMIN'].includes(userRole);
+  const role = normalizeRole(userRole);
+  return ['ADMIN', 'BRANCH_MANAGER', 'SUPER_ADMIN'].includes(role);
 };
 
-/**
- * Get role display name for UI
- */
 export const getRoleDisplayName = (role: UserRole | string): string => {
   const displayNames: Record<string, string> = {
-    'SUPER_ADMIN': 'Super Admin',
-    'BRANCH_MANAGER': 'Branch Manager',
-    'CHEF': 'Chef',
-    'WAITER': 'Waiter',
-    'RIDER': 'Rider',
-    'CUSTOMER': 'Customer',
+    ADMIN: 'Administrator',
+    SUPER_ADMIN: 'Administrator',
+    BRANCH_MANAGER: 'Branch Manager',
+    CHEF: 'Chef',
+    WAITER: 'Waiter',
+    RIDER: 'Rider',
+    CUSTOMER: 'Customer',
   };
-  return displayNames[role] || role;
+  return displayNames[normalizeRole(role)] || String(role);
 };
 
-/**
- * Get role description for UI
- */
 export const getRoleDescription = (role: UserRole | string): string => {
   const descriptions: Record<string, string> = {
-    'SUPER_ADMIN': 'Full system access. Manage all branches, assign managers, view all data.',
-    'BRANCH_MANAGER': 'Manage single branch. Cannot create branches or view other branches.',
-    'CHEF': 'Kitchen operations. Manage recipes and ingredients.',
-    'WAITER': 'Table service. Take orders and manage tables.',
-    'RIDER': 'Delivery operations. Deliver orders to customers.',
-    'CUSTOMER': 'Order food and track deliveries.',
+    ADMIN: 'Manage restaurant operations, all branches, staff, and settings.',
+    SUPER_ADMIN: 'Manage restaurant operations, all branches, staff, and settings.',
+    BRANCH_MANAGER: 'Manage single branch. Cannot create branches or view other branches.',
+    CHEF: 'Kitchen operations. Manage recipes and ingredients.',
+    WAITER: 'Table service. Take orders and manage tables.',
+    RIDER: 'Delivery operations. Deliver orders to customers.',
+    CUSTOMER: 'Order food and track deliveries.',
   };
-  return descriptions[role] || '';
+  return descriptions[normalizeRole(role)] || '';
 };
 
-/**
- * Get permissions list for a role
- */
 export const getRolePermissions = (role: UserRole | string): string[] => {
+  const adminPermissions = [
+    'Create branches',
+    'Edit branches',
+    'Delete branches',
+    'Audit all branches',
+    'Assign branch managers',
+    'View all income',
+    'Manage all staff',
+    'View all orders',
+  ];
   const permissions: Record<string, string[]> = {
-    'SUPER_ADMIN': [
-      'Create branches',
-      'Edit branches',
-      'Delete branches',
-      'Audit all branches',
-      'Assign branch managers',
-      'View all income',
-      'Manage all staff',
-      'View all orders',
-    ],
-    'BRANCH_MANAGER': [
+    ADMIN: adminPermissions,
+    SUPER_ADMIN: adminPermissions,
+    BRANCH_MANAGER: [
       'Manage assigned branch',
       'Manage branch staff',
       'View branch income',
       'Manage branch orders',
       'Manage branch inventory',
     ],
-    'CHEF': [
+    CHEF: [
       'View recipes',
       'Manage ingredients',
       'Update order status',
       'Kitchen display access',
     ],
-    'WAITER': [
-      'Take orders',
-      'Manage tables',
-      'View menu',
-      'Process payments',
-    ],
-    'RIDER': [
-      'View assigned deliveries',
-      'Update delivery status',
-      'Track earnings',
-    ],
-    'CUSTOMER': [
-      'Place orders',
-      'Track orders',
-      'View order history',
-      'Manage profile',
-    ],
+    WAITER: ['Take orders', 'Manage tables', 'View menu', 'Process payments'],
+    RIDER: ['View assigned deliveries', 'Update delivery status', 'Track earnings'],
+    CUSTOMER: ['Place orders', 'Track orders', 'View order history', 'Manage profile'],
   };
-  return permissions[role] || [];
+  return permissions[normalizeRole(role)] || [];
 };
 
-/**
- * Middleware-style check for routes/components
- * Returns true if allowed, throws/returns false if not
- */
-export const requireSuperAdmin = (userRole: UserRole | string): boolean => {
-  if (!isSuperAdmin(userRole)) {
-    return false;
-  }
-  return true;
-};
+/** @deprecated Use isAdminRole */
+export const requireSuperAdmin = (userRole: UserRole | string): boolean => isAdminRole(userRole);
 
-/**
- * Check if user requires branch assignment
- * BRANCH_MANAGER must have assigned_branch_id
- */
 export const requiresBranchAssignment = (userRole: UserRole | string): boolean => {
-  return userRole === 'BRANCH_MANAGER';
+  return normalizeRole(userRole) === 'BRANCH_MANAGER';
 };
 
-/**
- * Validate that BRANCH_MANAGER has branch assignment
- */
 export const validateBranchAssignment = (user: User): boolean => {
   if (user.role === 'BRANCH_MANAGER' && !user.assignedBranchId) {
     return false;
   }
   return true;
+};
+
+/** Stack navigator route for the user's home dashboard. */
+export const getDashboardRouteForRole = (role: UserRole | string): string => {
+  const r = normalizeRole(role);
+  switch (r) {
+    case 'ADMIN':
+    case 'SUPER_ADMIN':
+      return 'AdminDashboard';
+    case 'BRANCH_MANAGER':
+      return 'ManagerTabs';
+    case 'CHEF':
+      return 'ChefDashboard';
+    case 'WAITER':
+      return 'WaiterDashboard';
+    case 'RIDER':
+      return 'RiderDashboard';
+    case 'CUSTOMER':
+    default:
+      return 'CustomerDashboard';
+  }
 };

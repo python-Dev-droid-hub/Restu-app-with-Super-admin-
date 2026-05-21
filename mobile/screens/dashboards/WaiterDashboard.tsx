@@ -16,6 +16,7 @@ import {
   AppState,
   TextInput,
   Share,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -24,8 +25,16 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '../../components/api/client';
 import { CommonActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import OrderCard from '../../components/ChefDashboard/OrderCard';
+import OrderCard from '../../components/orders/OrderCard';
 import { getSocket, initializeSocket } from '../../services/realtimeService';
+import { useSocket } from '../../hooks/useSocket';
+import {
+  normalizeSocketOrder,
+  sortWaiterQueue,
+  toOrderCardProps,
+  isPaymentCleared,
+  isWaiterActiveOrder,
+} from '../../utils/normalizeOrder';
 import PaymentHistoryScreen from '../profile/PaymentHistoryScreen';
 import NotificationHistoryScreen from '../profile/NotificationHistoryScreen';
 import ChangePasswordScreen from '../profile/ChangePasswordScreen';
@@ -108,6 +117,9 @@ interface SqlOrder {
   total_amount?: number;
   picked_up_at?: string | null;
   ready_at?: string | null;
+  payment_status?: string | null;
+  payment_method?: string | null;
+  waiter_name?: string | null;
 }
 
 interface WaiterDashboardStats {
@@ -121,7 +133,9 @@ export default function WaiterDashboard() {
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<'home' | 'orders' | 'tables' | 'notifications' | 'profile'>('home');
   const [onShift, setOnShift] = useState(true);
-  const [orderFilter, setOrderFilter] = useState<'ACTIVE' | 'READY' | 'COMPLETED' | 'CANCELLED'>('ACTIVE');
+  type OrderQueueFilter = 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
+  const [orderFilter, setOrderFilter] = useState<OrderQueueFilter>('ACTIVE');
+  const [highlightOrderId, setHighlightOrderId] = useState<string | null>(null);
   const [tableFilter, setTableFilter] = useState<'ALL' | 'OCCUPIED' | 'RESERVED' | 'AVAILABLE'>('ALL');
   const [tableSearch, setTableSearch] = useState('');
   const [stats, setStats] = useState<WaiterDashboardStats>({
@@ -146,9 +160,91 @@ export default function WaiterDashboard() {
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [selectedOrderForBill, setSelectedOrderForBill] = useState<SqlOrder | null>(null);
   const [showBillModal, setShowBillModal] = useState(false);
+  const [printingBillId, setPrintingBillId] = useState<string | null>(null);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string | null>(null);
   const [userData, setUserData] = useState<any>(null);
   const loadingRef = React.useRef(false);
+  const highlightTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const { connected: socketConnected, refreshWaiterDashboard } = useSocket({
+    onOrderEvent: () => {
+      refreshWaiterDashboard();
+    },
+  });
+
+  const socketOrdersToState = React.useCallback((rawOrders: any[]): SqlOrder[] => {
+    const normalized = (rawOrders || []).map(normalizeSocketOrder);
+    return sortWaiterQueue(normalized).map((n) => ({
+      id: n.id,
+      order_number: n.order_number,
+      order_type: n.order_type,
+      status: n.status as SqlOrderStatus,
+      table_number: n.table_number,
+      special_instructions: n.special_instructions,
+      created_at: n.created_at,
+      items: n.items.map((item) => ({
+        id: item.id,
+        product_name: item.product_name,
+        quantity: item.quantity,
+        status: item.status as SqlOrderItem['status'],
+        image: item.image,
+        unit_price: item.unit_price,
+        total_price: item.total_price,
+      })),
+      total_amount: n.total_amount,
+      picked_up_at: n.picked_up_at,
+      payment_status: n.payment_status,
+      payment_method: n.payment_method,
+      waiter_name: n.waiter_name,
+    }));
+  }, []);
+
+  const flashOrder = React.useCallback((orderId?: string) => {
+    if (!orderId) return;
+    setHighlightOrderId(orderId);
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    highlightTimerRef.current = setTimeout(() => setHighlightOrderId(null), 2500);
+  }, []);
+
+  useEffect(() => {
+    AsyncStorage.getItem('waiter_order_filter').then((saved) => {
+      if (saved === 'COMPLETED' || saved === 'CANCELLED') {
+        setOrderFilter(saved);
+      } else if (saved === 'ALL' || saved === 'PREPARING' || saved === 'READY') {
+        setOrderFilter('ACTIVE');
+      }
+    });
+    return () => {
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    void AsyncStorage.setItem('waiter_order_filter', orderFilter);
+  }, [orderFilter]);
+
+  const handleGenerateBill = async (order: SqlOrder) => {
+    setPrintingBillId(order.id);
+    try {
+      const response = await api.post(`/orders/${order.id}/generate-bill`, {});
+      if (response.success) {
+        setSelectedOrderForBill(order);
+        setShowBillModal(true);
+        const data = response.data as { printQueued?: boolean; printError?: string };
+        if (data?.printQueued) {
+          Alert.alert('Success', 'Bill sent to branch printer.');
+        } else if (data?.printError) {
+          Alert.alert('Bill ready', `Print failed: ${data.printError}. You can still share from the bill screen.`);
+        }
+      } else {
+        Alert.alert('Error', response.message || 'Failed to generate bill');
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'Failed to generate bill');
+    } finally {
+      setPrintingBillId(null);
+    }
+  };
 
   const handlePrintInvoice = async () => {
     if (!selectedOrderForBill) return;
@@ -188,10 +284,13 @@ export default function WaiterDashboard() {
     loadDashboardData();
   }, []);
 
-  // WebSocket listener for real-time updates (replaces 3-second polling)
   useEffect(() => {
+    let onDashboardData: ((payload: unknown) => void) | null = null;
+    let onOrderEvent: ((payload: unknown) => void) | null = null;
+
     const setupSocket = async () => {
-      const token = await AsyncStorage.getItem('authToken');
+      const { getAccessToken } = await import('../../utils/secureAuthStorage');
+      const token = await getAccessToken();
       const userRaw = await AsyncStorage.getItem('userData');
       const parsedUser = userRaw ? JSON.parse(userRaw) : null;
       const userId = parsedUser?._id || parsedUser?.id;
@@ -203,24 +302,43 @@ export default function WaiterDashboard() {
       const socket = getSocket();
       if (!socket) return;
 
-      socket.on('waiter_dashboard:data', (payload: any) => {
+      onDashboardData = (payload: any) => {
         setStats(payload?.stats || { active_orders: 0, ready_to_serve: 0, served_today: 0 });
-        setOrders(payload?.orders || []);
+        setOrders(socketOrdersToState(payload?.orders || []));
         setTables(payload?.tables || []);
         setLastUpdatedAt(Date.now());
-      });
+      };
 
+      onOrderEvent = (payload: any) => {
+        const orderId = payload?.orderId || payload?.order?._id || payload?.order?.id;
+        flashOrder(orderId ? String(orderId) : undefined);
+        socket.emit('waiter_dashboard:get');
+      };
+
+      socket.on('waiter_dashboard:data', onDashboardData);
+      socket.on('order:created', onOrderEvent);
+      socket.on('order:updated', onOrderEvent);
+      socket.on('order:assigned', onOrderEvent);
+      socket.on('order:cancelled', onOrderEvent);
+      socket.on('order:status_updated', onOrderEvent);
       socket.emit('waiter_dashboard:get');
     };
-    setupSocket();
+
+    void setupSocket();
 
     return () => {
       const socket = getSocket();
-      if (socket) {
-        socket.off('waiter_dashboard:data');
+      if (!socket) return;
+      if (onDashboardData) socket.off('waiter_dashboard:data', onDashboardData);
+      if (onOrderEvent) {
+        socket.off('order:created', onOrderEvent);
+        socket.off('order:updated', onOrderEvent);
+        socket.off('order:assigned', onOrderEvent);
+        socket.off('order:cancelled', onOrderEvent);
+        socket.off('order:status_updated', onOrderEvent);
       }
     };
-  }, []);
+  }, [flashOrder, socketOrdersToState]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', nextState => {
@@ -464,20 +582,85 @@ export default function WaiterDashboard() {
     return `${mins} min ago`;
   };
 
-  const toOrderFilterGroup = (status: SqlOrderStatus, pickedUpAt?: string | null): 'ACTIVE' | 'READY' | 'COMPLETED' | 'CANCELLED' => {
-    const s = status?.toUpperCase() || '';
-    if (s === 'COMPLETED' || s === 'SERVED' || s === 'DELIVERED') return 'COMPLETED';
-    if (s === 'CANCELLED') return 'CANCELLED';
-    if (s === 'READY') return 'READY';
-    // PENDING, KITCHEN_ACCEPTED, PREPARING, PICKED_UP all go to ACTIVE
-    return 'ACTIVE';
+  const matchesOrderFilter = (order: SqlOrder, filter: OrderQueueFilter): boolean => {
+    const s = String(order.status || '').toUpperCase();
+    if (filter === 'CANCELLED') return s === 'CANCELLED';
+    if (filter === 'COMPLETED') return isPaymentCleared(order);
+    return isWaiterActiveOrder(order);
   };
+
+  const orderNeedsBill = (order: SqlOrder) => {
+    const s = String(order.status || '').toUpperCase();
+    return s === 'SERVED' && isWaiterActiveOrder(order);
+  };
+
+  const filterAndSortOrders = (list: SqlOrder[]) => {
+    const normalized = list
+      .map(normalizeSocketOrder)
+      .filter((n) => {
+        const row = list.find((o) => o.id === n.id);
+        return matchesOrderFilter(
+          row || ({ status: n.status, payment_status: n.payment_status } as SqlOrder),
+          orderFilter
+        );
+      });
+    return sortWaiterQueue(normalized).map((n) => {
+      const found = list.find((o) => o.id === n.id);
+      return found || socketOrdersToState([n])[0];
+    });
+  };
+
+  const renderWaiterOrderCard = (o: SqlOrder, keyPrefix: string, idx: number) => {
+    const normalized = normalizeSocketOrder({
+      ...o,
+      waiter_name: o.waiter_name,
+      waiterName: o.waiter_name,
+      items: o.items?.map((item) => ({
+        ...item,
+        product_name: item.product_name,
+        image: item.image,
+        product: {
+          name: item.product_name,
+          imageUrl: item.image,
+          image: item.image,
+        },
+      })),
+    });
+    const cardOrder = toOrderCardProps(normalized);
+    return (
+      <View key={`${keyPrefix}-${o.id}-${idx}`} style={{ marginBottom: 12 }}>
+        <OrderCard
+          order={cardOrder as any}
+          onStatusChange={async (orderId, status) => {
+            try {
+              await handleOrderStatusChange(orderId, status);
+            } catch (e: any) {
+              Alert.alert('Error', e?.message || 'Failed to update order');
+            }
+          }}
+          onItemStatusChange={handleItemStatusChange}
+          role="WAITER"
+          showPayment
+          showActions={waiterShowActions(o)}
+          allowedActions={waiterAllowedActions(o)}
+          highlight={highlightOrderId === o.id}
+        />
+      </View>
+    );
+  };
+
+  const ORDER_FILTER_SEGMENTS: { id: OrderQueueFilter; label: string }[] = [
+    { id: 'ACTIVE', label: 'Active' },
+    { id: 'COMPLETED', label: 'Completed' },
+    { id: 'CANCELLED', label: 'Cancelled' },
+  ];
 
   const getOrderStatusPill = (status: SqlOrderStatus) => {
     const s = status?.toUpperCase() || '';
     if (s === 'READY') return { label: 'Ready', bg: '#2BC48A', fg: '#FFFFFF' };
     if (s === 'PREPARING' || s === 'KITCHEN_ACCEPTED') return { label: 'Cooking', bg: '#FF9F43', fg: '#FFFFFF' };
     if (s === 'PENDING') return { label: 'Urgent', bg: '#FF4D4D', fg: '#FFFFFF' };
+    if (s === 'SERVED') return { label: 'Awaiting Bill', bg: '#6C63FF', fg: '#FFFFFF' };
     if (s === 'PICKED_UP') return { label: 'Picked Up', bg: '#6C63FF', fg: '#FFFFFF' };
     if (s === 'COMPLETED') return { label: 'Completed', bg: '#8E8E93', fg: '#FFFFFF' };
     if (s === 'CANCELLED') return { label: 'Cancelled', bg: '#FF4D4D', fg: '#FFFFFF' };
@@ -491,8 +674,8 @@ export default function WaiterDashboard() {
   };
 
   const openEditOrder = (order: SqlOrder) => {
-    if (['COMPLETED', 'CANCELLED'].includes(order.status)) {
-      Alert.alert('Cannot Edit', 'This order is already completed or cancelled.');
+    if (String(order.status).toUpperCase() === 'CANCELLED' || isPaymentCleared(order)) {
+      Alert.alert('Cannot Edit', 'This order is completed or cancelled.');
       return;
     }
     // @ts-ignore
@@ -540,52 +723,86 @@ export default function WaiterDashboard() {
     }
   };
 
+  const putOrderStatus = async (orderId: string, apiStatus: string) => {
+    const response = await api.put(`/orders/${orderId}/status`, { status: apiStatus });
+    if (response.success) {
+      await loadDashboardData();
+      return true;
+    }
+    Alert.alert('Error', response.message || 'Failed to update order');
+    return false;
+  };
+
   const handleOrderStatusChange = async (orderId: string, status: string) => {
-    if (status === 'cancelled') {
+    const key = status.toLowerCase();
+    const apiStatus = key === 'ready' ? 'READY' : key === 'served' ? 'SERVED' : key === 'picked_up' ? 'PICKED_UP' : status.toUpperCase();
+
+    if (key === 'cancelled') {
       Alert.alert(
         'Cancel Order',
         'Are you sure you want to cancel this order?',
         [
           { text: 'No', style: 'cancel' },
-          { 
-            text: 'Yes, Cancel', 
-            style: 'destructive',
-            onPress: () => cancelOrder(orderId)
-          }
+          { text: 'Yes, Cancel', style: 'destructive', onPress: () => cancelOrder(orderId) },
         ]
       );
-    } else if (status === 'picked_up' || status === 'served') {
-      await pickUpOrder(orderId);
-    } else {
-      // Handle other status changes
-      try {
-        const response = await api.put(`/orders/${orderId}/status`, { status });
-        if (response.success) {
-          await loadDashboardData();
+      return;
+    }
+
+    const order = orders.find(o => o.id === orderId);
+
+    try {
+      if (key === 'picked_up') {
+        if (order?.order_type === 'DINE_IN') {
+          await putOrderStatus(orderId, 'SERVED');
         } else {
-          Alert.alert('Error', response.message || 'Failed to update order');
+          await pickUpOrder(orderId);
         }
-      } catch (e: any) {
-        Alert.alert('Error', e?.message || 'Failed to update order');
+        return;
       }
+      if (key === 'served' || key === 'ready' || key === 'preparing') {
+        await putOrderStatus(orderId, apiStatus);
+        return;
+      }
+      await putOrderStatus(orderId, apiStatus);
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'Failed to update order');
     }
   };
 
   // Handle item status change - for returning items
   const handleItemStatusChange = async (orderId: string, itemId: string, status: 'PREPARING' | 'READY' | 'SERVED' | 'RETURNED', reason?: string) => {
     try {
-      const response = await api.patch(`/orders/${orderId}/items/${itemId}/status`, { status, reason });
+      const response =
+        status === 'RETURNED'
+          ? await api.post(`/orders/${orderId}/items/${itemId}/return`, {
+              reason: reason || 'Returned by waiter',
+            })
+          : await api.patch(`/orders/${orderId}/items/${itemId}/status`, { status, reason });
       if (response.success) {
         await loadDashboardData();
         if (status === 'RETURNED') {
           Alert.alert('Success', 'Item returned successfully');
         }
       } else {
-        Alert.alert('Error', response.message || 'Failed to update item status');
+        Alert.alert('Error', response.message || 'Failed to update item');
       }
     } catch (e: any) {
-      Alert.alert('Error', e?.message || 'Failed to update item status');
+      Alert.alert('Error', e?.message || 'Failed to update item');
     }
+  };
+
+  const waiterShowActions = (order: SqlOrder) => {
+    const s = String(order.status || '').toUpperCase();
+    if (!isWaiterActiveOrder(order)) return false;
+    return ['PREPARING', 'READY'].includes(s);
+  };
+
+  const waiterAllowedActions = (order: SqlOrder): Array<'ready' | 'served' | 'picked_up' | 'cancelled'> => {
+    if (order.order_type === 'DINE_IN') {
+      return ['ready', 'served', 'cancelled'];
+    }
+    return ['picked_up', 'served', 'cancelled'];
   };
 
   const StatCard = ({ color, value, label, sublabel, onPress }: { color: string; value: number; label: string; sublabel?: string; onPress?: () => void }) => (
@@ -596,12 +813,63 @@ export default function WaiterDashboard() {
     </TouchableOpacity>
   );
 
+  const renderBillActions = (o: SqlOrder) => (
+    <>
+      {orderNeedsBill(o) && (
+        <TouchableOpacity
+          style={{
+            marginTop: 8,
+            backgroundColor: DESIGN.colors.green,
+            borderRadius: 12,
+            paddingVertical: 12,
+            paddingHorizontal: 16,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          onPress={() => handleGenerateBill(o)}
+          disabled={printingBillId === o.id}
+        >
+          {printingBillId === o.id ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <>
+              <Ionicons name="receipt-outline" size={18} color="#fff" style={{ marginRight: 8 }} />
+              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Generate Bill & Clear</Text>
+            </>
+          )}
+        </TouchableOpacity>
+      )}
+      {isWaiterActiveOrder(o) && (
+        <TouchableOpacity
+          style={{
+            position: 'absolute',
+            top: 8,
+            right: 8,
+            backgroundColor: DESIGN.colors.orange,
+            borderRadius: 16,
+            width: 32,
+            height: 32,
+            justifyContent: 'center',
+            alignItems: 'center',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.2,
+            shadowRadius: 4,
+            elevation: 4,
+          }}
+          onPress={() => openEditOrder(o)}
+        >
+          <Ionicons name="pencil" size={16} color="#fff" />
+        </TouchableOpacity>
+      )}
+    </>
+  );
+
   const renderHome = () => {
-    const activeOrders = orders.filter(o => o.status !== 'COMPLETED' && o.status !== 'CANCELLED');
-    const readyOrders = orders.filter(o => o.status === 'READY');
-    const filteredHomeOrders = orders
-      .filter(o => toOrderFilterGroup(o.status, o.picked_up_at) === orderFilter)
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const activeOrders = orders.filter((o) => isWaiterActiveOrder(o));
+    const awaitingBill = orders.filter((o) => orderNeedsBill(o));
+    const filteredHomeOrders = filterAndSortOrders(orders);
     return (
       <View style={{ flex: 1 }}>
         <ScrollView
@@ -611,33 +879,33 @@ export default function WaiterDashboard() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.statsRowNew}>
-          <StatCard 
-            color="#FF7A59" 
-            value={(stats as any)?.active_orders ?? activeOrders.length} 
-            label="New Orders" 
-            sublabel="Active"
+          <StatCard
+            color="#FF7A59"
+            value={activeOrders.length}
+            label="Active"
+            sublabel="In progress"
             onPress={() => {
               setOrderFilter('ACTIVE');
               setActiveTab('orders');
             }}
           />
-          <StatCard 
-            color="#2BC48A" 
-            value={(stats as any)?.ready_to_serve ?? readyOrders.length} 
-            label="Ready" 
-            sublabel="To Serve"
+          <StatCard
+            color="#6C63FF"
+            value={awaitingBill.length}
+            label="Awaiting Bill"
+            sublabel="Served"
             onPress={() => {
-              setOrderFilter('READY');
+              setOrderFilter('ACTIVE');
               setActiveTab('orders');
             }}
           />
-          <StatCard 
-            color="#FF4D4D" 
-            value={orders.filter(o => o.status === 'PENDING').length} 
-            label="Pending" 
-            sublabel="Urgent"
+          <StatCard
+            color="#2BC48A"
+            value={(stats as any)?.served_today ?? 0}
+            label="Cleared"
+            sublabel="Today"
             onPress={() => {
-              setOrderFilter('ACTIVE');
+              setOrderFilter('COMPLETED');
               setActiveTab('orders');
             }}
           />
@@ -647,18 +915,13 @@ export default function WaiterDashboard() {
           <Text style={styles.sectionTitleNew}>Orders Queue</Text>
           
           <View style={styles.segmentedRow}>
-            {[
-              { id: 'ACTIVE', label: 'Active' },
-              { id: 'READY', label: 'Ready' },
-              { id: 'COMPLETED', label: 'Completed' },
-              { id: 'CANCELLED', label: 'Cancelled' },
-            ].map(seg => {
-              const selected = orderFilter === (seg.id as any);
+            {ORDER_FILTER_SEGMENTS.map(seg => {
+              const selected = orderFilter === seg.id;
               return (
                 <TouchableOpacity
                   key={seg.id}
                   style={[styles.segmentBtn, selected && styles.segmentBtnActive]}
-                  onPress={() => setOrderFilter(seg.id as any)}
+                  onPress={() => setOrderFilter(seg.id)}
                 >
                   <Text style={[styles.segmentText, selected && styles.segmentTextActive]}>{seg.label}</Text>
                 </TouchableOpacity>
@@ -672,107 +935,13 @@ export default function WaiterDashboard() {
               <Text style={styles.emptySubNew}>Pull down to refresh or create a new order</Text>
             </View>
           ) : (
-            filteredHomeOrders.slice(0, 5).map((o, idx) => (
-              <View key={`home-${o.id}-${idx}`} style={{ marginBottom: 12 }}>
-                <OrderCard
-                  order={{
-                    id: o.id,
-                    orderNumber: o.order_number,
-                    status: String(o.status || 'PENDING').toLowerCase() as any,
-                    orderType: o.order_type,
-                    tableNumber: o.table_number || undefined,
-                    items: o.items.map(item => ({
-                      id: item.id,
-                      _id: item.id,
-                      quantity: Number(item.quantity) || 1,
-                      status: item.status,
-                      product: {
-                        name: item.product_name,
-                        image: item.image,
-                      }
-                    })) as any,
-                    createdAt: o.created_at,
-                    specialInstructions: o.special_instructions || undefined,
-                    totalAmount: o.total_amount,
-                  }}
-                  onStatusChange={async (orderId, status) => {
-                    try {
-                      await handleOrderStatusChange(orderId, status);
-                    } catch (e: any) {
-                      Alert.alert('Error', e?.message || 'Failed to update order');
-                    }
-                  }}
-                  onItemStatusChange={handleItemStatusChange}
-                  role="WAITER"
-                  showPayment={true}
-                  showActions={o.status === 'READY'}
-                />
-                {/* Generate Bill button - show for PICKED_UP orders AND all items SERVED */}
-                {['PICKED_UP', 'picked_up', 'Picked_Up', 'PICKED-UP'].includes(o.status) && 
-                 (o.items?.every((item: any) => item.status === 'SERVED') ?? true) && (
-                  <TouchableOpacity
-                    style={{
-                      marginTop: 8,
-                      backgroundColor: DESIGN.colors.green,
-                      borderRadius: 12,
-                      paddingVertical: 12,
-                      paddingHorizontal: 16,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                    onPress={() => {
-                      setSelectedOrderForBill(o);
-                      setShowBillModal(true);
-                    }}
-                  >
-                    <Ionicons name="receipt-outline" size={18} color="#fff" style={{ marginRight: 8 }} />
-                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Generate Bill</Text>
-                  </TouchableOpacity>
-                )}
-                {/* Show warning if some items not served yet */}
-                {['PICKED_UP', 'picked_up', 'Picked_Up', 'PICKED-UP'].includes(o.status) && 
-                 !(o.items?.every((item: any) => item.status === 'SERVED') ?? true) && (
-                  <View style={{
-                    marginTop: 8,
-                    backgroundColor: '#FFF3CD',
-                    borderRadius: 12,
-                    paddingVertical: 12,
-                    paddingHorizontal: 16,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                  }}>
-                    <Ionicons name="warning-outline" size={18} color="#856404" style={{ marginRight: 8 }} />
-                    <Text style={{ color: '#856404', fontWeight: '600', fontSize: 13 }}>
-                      {o.items?.filter((item: any) => item.status !== 'SERVED').length || 0} item(s) pending from kitchen
-                    </Text>
-                  </View>
-                )}
-                {/* Edit button - allow adding items until payment succeeds (blocked only for COMPLETED/CANCELLED) */}
-                {!['COMPLETED', 'CANCELLED'].includes(o.status) && (
-                  <TouchableOpacity
-                    style={{
-                      position: 'absolute',
-                      top: 8,
-                      right: 8,
-                      backgroundColor: DESIGN.colors.orange,
-                      borderRadius: 16,
-                      width: 32,
-                      height: 32,
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                      shadowColor: '#000',
-                      shadowOffset: { width: 0, height: 2 },
-                      shadowOpacity: 0.2,
-                      shadowRadius: 4,
-                      elevation: 4,
-                    }}
-                    onPress={() => openEditOrder(o)}
-                  >
-                    <Ionicons name="pencil" size={16} color="#fff" />
-                  </TouchableOpacity>
-                )}
-              </View>
+            filteredHomeOrders.slice(0, 8).map((o, idx) => (
+              <React.Fragment key={`home-wrap-${o.id}`}>
+                <View style={{ position: 'relative' }}>
+                  {renderWaiterOrderCard(o, 'home', idx)}
+                  {renderBillActions(o)}
+                </View>
+              </React.Fragment>
             ))
           )}
           </View>
@@ -790,12 +959,8 @@ export default function WaiterDashboard() {
   };
 
   const renderOrders = () => {
-    // If we have a selected order, scroll to it or highlight it
     const selectedOrder = selectedOrderId ? orders.find(o => o.id === selectedOrderId) : null;
-    
-    const filteredOrders = orders
-      .filter(o => toOrderFilterGroup(o.status, o.picked_up_at) === orderFilter)
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const filteredOrders = filterAndSortOrders(orders);
     return (
       <View style={{ flex: 1 }}>
         <ScrollView
@@ -808,20 +973,15 @@ export default function WaiterDashboard() {
           <Text style={styles.sectionTitleNew}>Orders Queue</Text>
 
           <View style={styles.segmentedRow}>
-            {[
-              { id: 'ACTIVE', label: 'Active' },
-              { id: 'READY', label: 'Ready' },
-              { id: 'COMPLETED', label: 'Completed' },
-              { id: 'CANCELLED', label: 'Cancelled' },
-            ].map(seg => {
-              const selected = orderFilter === (seg.id as any);
+            {ORDER_FILTER_SEGMENTS.map(seg => {
+              const selected = orderFilter === seg.id;
               return (
                 <TouchableOpacity
                   key={seg.id}
                   style={[styles.segmentBtn, selected && styles.segmentBtnActive]}
                   onPress={() => {
-                    setOrderFilter(seg.id as any);
-                    setSelectedOrderId(null); // Clear selection when filter changes
+                    setOrderFilter(seg.id);
+                    setSelectedOrderId(null);
                   }}
                 >
                   <Text style={[styles.segmentText, selected && styles.segmentTextActive]}>{seg.label}</Text>
@@ -837,9 +997,9 @@ export default function WaiterDashboard() {
             </View>
           ) : (
             filteredOrders.map((o, idx) => (
-              <View 
-                key={`orders-${o.id}-${idx}`} 
-                style={{ 
+              <View
+                key={`orders-${o.id}-${idx}`}
+                style={{
                   marginBottom: 12,
                   borderWidth: selectedOrderId === o.id ? 2 : 0,
                   borderColor: DESIGN.colors.orange,
@@ -847,104 +1007,10 @@ export default function WaiterDashboard() {
                   backgroundColor: selectedOrderId === o.id ? DESIGN.colors.orange + '10' : 'transparent',
                 }}
               >
-                <OrderCard
-                  order={{
-                    id: o.id,
-                    orderNumber: o.order_number,
-                    status: o.status.toLowerCase() as any,
-                    orderType: o.order_type,
-                    tableNumber: o.table_number || undefined,
-                    items: o.items.map(item => ({
-                      id: item.id,
-                      _id: item.id,
-                      quantity: Number(item.quantity) || 1,
-                      status: item.status,
-                      product: {
-                        name: item.product_name,
-                        image: item.image,
-                      }
-                    })) as any,
-                    createdAt: o.created_at,
-                    specialInstructions: o.special_instructions || undefined,
-                    totalAmount: o.total_amount,
-                  }}
-                  onStatusChange={async (orderId, status) => {
-                    try {
-                      await handleOrderStatusChange(orderId, status);
-                    } catch (e: any) {
-                      Alert.alert('Error', e?.message || 'Failed to update order');
-                    }
-                  }}
-                  onItemStatusChange={handleItemStatusChange}
-                  role="WAITER"
-                  showPayment={true}
-                  showActions={o.status === 'READY'}
-                />
-                {/* Generate Bill button - show for PICKED_UP orders AND all items SERVED */}
-                {['PICKED_UP', 'picked_up', 'Picked_Up', 'PICKED-UP'].includes(o.status) && 
-                 (o.items?.every((item: any) => item.status === 'SERVED') ?? true) && (
-                  <TouchableOpacity
-                    style={{
-                      marginTop: 8,
-                      backgroundColor: DESIGN.colors.green,
-                      borderRadius: 12,
-                      paddingVertical: 12,
-                      paddingHorizontal: 16,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                    onPress={() => {
-                      setSelectedOrderForBill(o);
-                      setShowBillModal(true);
-                    }}
-                  >
-                    <Ionicons name="receipt-outline" size={18} color="#fff" style={{ marginRight: 8 }} />
-                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Generate Bill</Text>
-                  </TouchableOpacity>
-                )}
-                {/* Show warning if some items not served yet */}
-                {['PICKED_UP', 'picked_up', 'Picked_Up', 'PICKED-UP'].includes(o.status) && 
-                 !(o.items?.every((item: any) => item.status === 'SERVED') ?? true) && (
-                  <View style={{
-                    marginTop: 8,
-                    backgroundColor: '#FFF3CD',
-                    borderRadius: 12,
-                    paddingVertical: 12,
-                    paddingHorizontal: 16,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                  }}>
-                    <Ionicons name="warning-outline" size={18} color="#856404" style={{ marginRight: 8 }} />
-                    <Text style={{ color: '#856404', fontWeight: '600', fontSize: 13 }}>
-                      {o.items?.filter((item: any) => item.status !== 'SERVED').length || 0} item(s) pending from kitchen
-                    </Text>
-                  </View>
-                )}
-                {/* Edit button - allow adding items until payment succeeds (blocked only for COMPLETED/CANCELLED) */}
-                {!['COMPLETED', 'CANCELLED'].includes(o.status) && (
-                  <TouchableOpacity
-                    style={{
-                      position: 'absolute',
-                      top: 8,
-                      right: 8,
-                      backgroundColor: DESIGN.colors.orange,
-                      borderRadius: 16,
-                      width: 32,
-                      height: 32,
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                      shadowColor: '#000',
-                      shadowOffset: { width: 0, height: 2 },
-                      shadowOpacity: 0.2,
-                      shadowRadius: 4,
-                      elevation: 4,
-                    }}
-                    onPress={() => openEditOrder(o)}
-                  >
-                    <Ionicons name="pencil" size={16} color="#fff" />
-                  </TouchableOpacity>
-                )}
+                <View style={{ position: 'relative' }}>
+                  {renderWaiterOrderCard(o, 'orders', idx)}
+                  {renderBillActions(o)}
+                </View>
               </View>
             ))
           )}
@@ -1134,7 +1200,20 @@ export default function WaiterDashboard() {
 
       <View style={styles.header}>
         <View style={styles.headerTopRow}>
-          <Text style={styles.headerTitleNew}>Waiter</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Text style={styles.headerTitleNew}>Waiter</Text>
+            <View
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: 4,
+                backgroundColor: socketConnected ? DESIGN.colors.green : DESIGN.colors.red,
+              }}
+            />
+            <Text style={{ fontSize: 11, color: DESIGN.colors.muted }}>
+              {socketConnected ? 'Live' : 'Offline'}
+            </Text>
+          </View>
           <View style={styles.headerIconsRow}>
             <TouchableOpacity style={styles.headerIconBtn} onPress={handleNotifications}>
               <Ionicons name="notifications-outline" size={22} color={DESIGN.colors.darkText} />
@@ -1258,10 +1337,13 @@ export default function WaiterDashboard() {
                             setSelectedOrderId(relatedOrderId);
                             // Set the correct filter based on order status
                             const orderStatus = notification.relatedOrder?.status;
-                            if (orderStatus === 'DELIVERED' || orderStatus === 'COMPLETED' || orderStatus === 'SERVED') {
+                            if (orderStatus === 'CANCELLED') {
+                              setOrderFilter('CANCELLED');
+                            } else if (
+                              orderStatus === 'DELIVERED' ||
+                              orderStatus === 'COMPLETED'
+                            ) {
                               setOrderFilter('COMPLETED');
-                            } else if (orderStatus === 'READY' || orderStatus === 'READY_TO_PICKUP') {
-                              setOrderFilter('READY');
                             } else {
                               setOrderFilter('ACTIVE');
                             }

@@ -25,6 +25,7 @@ import {
 } from '@mui/icons-material';
 import { api } from '../../services/api';
 import { io, type Socket } from 'socket.io-client';
+import { resolveSocketUrl } from '../../utils/resolveSocketUrl';
 
 interface AppSettings {
   appName: string;
@@ -135,25 +136,7 @@ const AdminSettings: React.FC = () => {
   useEffect(() => {
     const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
 
-    const getServerHost = (): string => {
-      const rawApiUrl = (import.meta as any)?.env?.VITE_API_URL as string | undefined;
-      const rawProxyTarget = (import.meta as any)?.env?.VITE_PROXY_TARGET as string | undefined;
-
-      const normalizeHost = (value?: string): string => {
-        const v = (value || '').trim();
-        if (!v) return '';
-        return v.replace(/\/?api\/?$/, '').replace(/\/$/, '');
-      };
-
-      const fromEnv = normalizeHost(rawProxyTarget) || normalizeHost(rawApiUrl);
-      if (fromEnv) return fromEnv;
-
-      const protocol = window.location.protocol || 'http:';
-      const hostname = window.location.hostname || 'localhost';
-      return `${protocol}//${hostname}:3101`;
-    };
-
-    const socket = io(getServerHost(), {
+    const socket = io(resolveSocketUrl(), {
       path: '/socket.io',
       transports: ['websocket', 'polling'],
       auth: token ? { token } : undefined,

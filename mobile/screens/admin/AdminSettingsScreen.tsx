@@ -27,6 +27,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../../constants/colors';
 import { getSpacing } from '../../utils/responsive';
 import { useUserData } from '../../hooks/useUserData';
+import { isAdminRole as checkAdminRole } from '../../utils/permissionHelpers';
+import { navigateOnRootStack } from '../../utils/navigationHelpers';
 
 // Components
 import ResponsiveHeader from '../../components/layout/ResponsiveHeader';
@@ -91,6 +93,7 @@ export default function AdminSettingsScreen() {
       { name: 'Coupons', icon: 'ticket-outline', screen: 'AdminCoupons' },
       { name: 'Product Size', icon: 'resize-outline', screen: 'AdminProductSizes' },
       { name: 'Categories', icon: 'grid-outline', screen: 'AdminCategories' },
+      { name: 'Printers', icon: 'print-outline', screen: 'PrinterSettings' },
       { name: 'Reports', icon: 'bar-chart-outline', screen: 'AdminReports' },
       { name: 'Settings', icon: 'settings-outline', screen: 'AdminSettings' },
     ];
@@ -375,8 +378,8 @@ export default function AdminSettingsScreen() {
     const parsedValue = type === 'number' ? parseFloat(value) || 0 : value;
 
     const normalizedRole = String((userData as any)?.role || '').toUpperCase();
-    const isAdminRole = normalizedRole === 'ADMIN' || normalizedRole === 'SUPER_ADMIN';
-    const shouldUpdateBranch = !isAdminRole;
+    const userIsAdmin = checkAdminRole(normalizedRole);
+    const shouldUpdateBranch = !userIsAdmin;
     const isBranchSettingKey = key === 'taxRate' || key === 'deliveryFee';
 
     if (shouldUpdateBranch && isBranchSettingKey) {
@@ -770,11 +773,11 @@ export default function AdminSettingsScreen() {
           <View style={styles.branchInfo}>
             <Ionicons name="business-outline" size={18} color="#E87E35" />
             <Text style={styles.branchInfoText}>
-              {userData.role === 'ADMIN' || userData.role === 'SUPER_ADMIN'
+              {checkAdminRole(userData.role || '')
                 ? 'All Branches'
                 : (branchData?.branchName || userData.branch?.name || 'Loading Branch...')}
             </Text>
-            {userData.role !== 'ADMIN' && userData.role !== 'SUPER_ADMIN' && userData.branch?.code && (
+            {!checkAdminRole(userData.role || '') && userData.branch?.code && (
               <View style={styles.branchCodeBadge}>
                 <Text style={styles.branchCodeText}>{userData.branch.code}</Text>
               </View>
@@ -834,8 +837,8 @@ export default function AdminSettingsScreen() {
                 (userData as any)?.assignedBranchId;
 
               const normalizedRole = String((userData as any)?.role || '').toUpperCase();
-              const isAdminRole = normalizedRole === 'ADMIN' || normalizedRole === 'SUPER_ADMIN';
-              const shouldUpdateBranch = !isAdminRole;
+              const userIsAdmin = checkAdminRole(normalizedRole);
+              const shouldUpdateBranch = !userIsAdmin;
 
               if (shouldUpdateBranch) {
                 if (!targetBranchId) {
@@ -877,8 +880,8 @@ export default function AdminSettingsScreen() {
                 (userData as any)?.assignedBranchId;
 
               const normalizedRole = String((userData as any)?.role || '').toUpperCase();
-              const isAdminRole = normalizedRole === 'ADMIN' || normalizedRole === 'SUPER_ADMIN';
-              const shouldUpdateBranch = !isAdminRole;
+              const userIsAdmin = checkAdminRole(normalizedRole);
+              const shouldUpdateBranch = !userIsAdmin;
 
               if (shouldUpdateBranch) {
                 if (!targetBranchId) {
@@ -1020,33 +1023,31 @@ export default function AdminSettingsScreen() {
               </View>
             </View>
             <View style={styles.profileMenuDivider} />
-            <TouchableOpacity 
-              style={styles.profileMenuItem} 
+            <TouchableOpacity
+              style={styles.profileMenuItem}
               onPress={() => {
                 setShowProfileMenu(false);
-                setShowChangeImageModal(true);
+                navigateOnRootStack(navigation, 'ProfileEdit');
               }}
             >
               <Ionicons name="image-outline" size={20} color="#E87E35" />
               <Text style={styles.profileMenuItemText}>{t('profile.changeImage')}</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.profileMenuItem} 
+            <TouchableOpacity
+              style={styles.profileMenuItem}
               onPress={() => {
                 setShowProfileMenu(false);
-                setShowChangeNameModal(true);
-                setNewName(userData.name);
+                navigateOnRootStack(navigation, 'ProfileEdit');
               }}
             >
               <Ionicons name="create-outline" size={20} color="#E87E35" />
               <Text style={styles.profileMenuItemText}>{t('profile.changeName')}</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.profileMenuItem} 
+            <TouchableOpacity
+              style={styles.profileMenuItem}
               onPress={() => {
                 setShowProfileMenu(false);
-                // @ts-ignore
-                navigation.navigate('ChangePassword');
+                navigateOnRootStack(navigation, 'ChangePassword');
               }}
             >
               <Ionicons name="key-outline" size={20} color="#E87E35" />
@@ -1085,8 +1086,17 @@ export default function AdminSettingsScreen() {
                 style={styles.moreMenuItem}
                 onPress={() => {
                   setShowMoreMenu(false);
-                  // @ts-ignore
-                  navigation.navigate(item.screen);
+                  const branchId =
+                    (userData as any)?.assignedBranch?._id ||
+                    (userData as any)?.branchId ||
+                    (userData as any)?.assignedBranch;
+                  if (item.screen === 'PrinterSettings') {
+                    // @ts-ignore
+                    navigation.navigate('PrinterSettings', { branchId: String(branchId || '') });
+                  } else {
+                    // @ts-ignore
+                    navigation.navigate(item.screen);
+                  }
                 }}
               >
                 <View style={styles.moreMenuIconContainer}>

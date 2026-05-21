@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef, type ReactNode } from 'react';
 import { io, type Socket } from 'socket.io-client';
+import { resolveSocketUrl } from '../utils/resolveSocketUrl';
 
 interface SettingsContextType {
   defaultCurrency: string;
@@ -49,7 +50,6 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
   });
   const [isLoading, setIsLoading] = useState(true);
   const socketRef = useRef<Socket | null>(null);
-  const lastBranchKeyRef = useRef<string>('');
 
   const loadSettings = async () => {
     try {
@@ -81,18 +81,7 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
       console.log('[SettingsContext] User data:', { userRole, branchId, selectedBranchId, userBranchId });
 
       if (!socketRef.current) {
-        const rawApiUrl = (import.meta as any)?.env?.VITE_API_URL as string | undefined;
-        const rawProxyTarget = (import.meta as any)?.env?.VITE_PROXY_TARGET as string | undefined;
-
-        const normalizeHost = (value?: string): string => {
-          const v = (value || '').trim();
-          if (!v) return '';
-          return v.replace(/\/?api\/?$/, '').replace(/\/$/, '');
-        };
-
-        const socketUrl = normalizeHost(rawProxyTarget) || normalizeHost(rawApiUrl) || 'http://localhost:3101';
-
-        socketRef.current = io(socketUrl, {
+        socketRef.current = io(resolveSocketUrl(), {
           path: '/socket.io',
           transports: ['websocket', 'polling'],
           auth: token ? { token } : undefined,
@@ -143,33 +132,10 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
     };
     
     window.addEventListener('storage', handleStorageChange);
-    const intervalId = window.setInterval(() => {
-      try {
-        const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken') || '';
-        const storedUserData = localStorage.getItem('userData');
-        const parsedUserData = storedUserData ? JSON.parse(storedUserData) : null;
-        const branchId =
-          parsedUserData?.assignedBranch?._id ||
-          parsedUserData?.assignedBranchId ||
-          parsedUserData?.assignedBranch ||
-          parsedUserData?.assigned_branch ||
-          parsedUserData?.branch?._id ||
-          parsedUserData?.branchId ||
-          parsedUserData?.branch;
-        const selectedBranchId = localStorage.getItem('selectedBranchId');
-        const userBranchId = branchId || selectedBranchId || '';
-        const nextKey = `${token}::${String(userBranchId)}`;
-        if (nextKey !== lastBranchKeyRef.current) {
-          lastBranchKeyRef.current = nextKey;
-          loadSettings();
-        }
-      } catch {
-        // ignore
-      }
-    }, 1000);
+    window.addEventListener('branchChanged', handleStorageChange);
     return () => {
       window.removeEventListener('storage', handleStorageChange);
-      window.clearInterval(intervalId);
+      window.removeEventListener('branchChanged', handleStorageChange);
       socketRef.current?.disconnect();
       socketRef.current = null;
     };

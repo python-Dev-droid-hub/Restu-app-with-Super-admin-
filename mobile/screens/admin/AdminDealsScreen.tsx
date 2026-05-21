@@ -23,6 +23,7 @@ import { useLocalization } from '../../context/LocalizationContext';
 import { COLORS } from '../../constants/colors';
 import { getSpacing } from '../../utils/responsive';
 import { useUserData } from '../../hooks/useUserData';
+import { isAdminRole } from '../../utils/permissionHelpers';
 
 // Components
 import ResponsiveHeader from '../../components/layout/ResponsiveHeader';
@@ -95,13 +96,15 @@ export default function AdminDealsScreen() {
     { name: t('nav.notifications'), icon: 'notifications-outline', screen: 'AdminNotifications' },
     { name: 'Table Assignment', icon: 'grid-outline', screen: 'TableAssignment' },
     // Only show Branches for SUPER_ADMIN
-    ...(userRole === 'SUPER_ADMIN' ? [{ name: t('nav.branches'), icon: 'business-outline', screen: 'AdminBranches' }] : []),
+    ...(isAdminRole(userRole) ? [{ name: t('nav.branches'), icon: 'business-outline', screen: 'AdminBranches' }] : []),
     { name: t('nav.deals'), icon: 'pricetag-outline', screen: 'AdminDealCampaigns' },
     { name: t('nav.coupons'), icon: 'ticket-outline', screen: 'AdminCoupons' },
     { name: t('nav.productSizes'), icon: 'resize-outline', screen: 'AdminProductSizes' },
     { name: t('nav.categories'), icon: 'grid-outline', screen: 'AdminCategories' },
     { name: t('nav.reports'), icon: 'bar-chart-outline', screen: 'AdminReports' },
-    { name: t('nav.settings'), icon: 'settings-outline', screen: 'AdminSettings' },
+    ...(isAdminRole(userRole)
+      ? [{ name: t('nav.settings'), icon: 'settings-outline', screen: 'AdminSettings' }]
+      : []),
   ];
 
   useEffect(() => {
@@ -197,11 +200,11 @@ export default function AdminDealsScreen() {
           <View style={styles.branchInfo}>
             <Ionicons name="business-outline" size={18} color="#E87E35" />
             <Text style={styles.branchInfoText}>
-              {userRole === 'ADMIN' || userRole === 'SUPER_ADMIN'
+              {isAdminRole(userRole)
                 ? 'All Branches'
                 : (assignedBranch.name || 'Loading Branch...')}
             </Text>
-            {userRole !== 'ADMIN' && userRole !== 'SUPER_ADMIN' && assignedBranch.code && (
+            {!isAdminRole(userRole) && assignedBranch.code && (
               <View style={styles.branchCodeBadge}>
                 <Text style={styles.branchCodeText}>{assignedBranch.code}</Text>
               </View>
@@ -333,10 +336,7 @@ export default function AdminDealsScreen() {
           // @ts-ignore
           navigation.navigate('Welcome');
         }}
-        onChangePassword={() => {
-          // @ts-ignore
-          navigation.navigate('ChangePassword');
-        }}
+        navigation={navigation}
       />
     </View>
   );

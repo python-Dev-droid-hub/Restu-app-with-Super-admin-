@@ -13,7 +13,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { api } from '../../components/api/client';
+import { emitChefDashboardGet } from '../../hooks/useRealtimeRefresh';
+import { getSocket } from '../../services/realtimeService';
 
 const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 0;
 const { width } = Dimensions.get('window');
@@ -49,67 +50,67 @@ export default function KitchenStatsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  const computeStatsFromOrders = (orders: any[]) => {
+    const pendingOrders = orders.filter((o: any) => o.status === 'KITCHEN_ACCEPTED').length;
+    const preparingOrders = orders.filter((o: any) => o.status === 'PREPARING').length;
+    const readyOrders = orders.filter((o: any) => o.status === 'READY').length;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const completedToday = orders.filter(
+      (o: any) =>
+        (o.status === 'PICKED_UP' || o.status === 'COMPLETED') &&
+        new Date(o.updated_at || o.updatedAt || o.created_at || o.createdAt) >= today
+    ).length;
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const ordersLastHour = orders.filter(
+      (o: any) => new Date(o.created_at || o.createdAt) >= oneHourAgo
+    ).length;
+
+    setStats({
+      pending_orders: pendingOrders,
+      preparing_orders: preparingOrders,
+      ready_orders: readyOrders,
+      completed_today: completedToday,
+      avg_preparation_time: 0,
+      orders_last_hour: ordersLastHour,
+    });
+
+    const recent = orders
+      .slice(0, 5)
+      .map((order: any) => ({
+        id: String(order.id || order._id),
+        order_number: order.order_number || order.orderNumber || '',
+        table_number: order.table_number || order.tableNumber || '-',
+        status: order.status,
+        items_count: Array.isArray(order.items) ? order.items.length : 0,
+        created_at: order.created_at || order.createdAt,
+      }));
+    setRecentOrders(recent);
+    setLoading(false);
+    setRefreshing(false);
+  };
+
   useEffect(() => {
-    loadStats();
-    const interval = setInterval(loadStats, 60000); // Refresh every minute
-    return () => clearInterval(interval);
+    const socket = getSocket();
+    const handler = (payload: { orders?: any[]; cookingOrders?: any[] }) => {
+      const raw = [...(payload?.orders || []), ...(payload?.cookingOrders || [])];
+      computeStatsFromOrders(raw);
+    };
+
+    if (socket) {
+      socket.on('chef_dashboard:data', handler);
+    }
+    setLoading(true);
+    emitChefDashboardGet();
+
+    return () => {
+      socket?.off('chef_dashboard:data', handler);
+    };
   }, []);
 
   const loadStats = async () => {
-    try {
-      setLoading(true);
-      
-      // Fetch kitchen orders for stats calculation
-      const response = await api.get('/orders?status=KITCHEN_ACCEPTED,PREPARING,READY,PICKED_UP');
-      
-      if (response.success && response.data) {
-        const orders = response.data.orders || response.data || [];
-        
-        // Calculate stats from orders
-        const pendingOrders = orders.filter((o: any) => o.status === 'KITCHEN_ACCEPTED').length;
-        const preparingOrders = orders.filter((o: any) => o.status === 'PREPARING').length;
-        const readyOrders = orders.filter((o: any) => o.status === 'READY').length;
-        
-        // Count completed today
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const completedToday = orders.filter((o: any) => 
-          (o.status === 'PICKED_UP' || o.status === 'COMPLETED') && 
-          new Date(o.created_at) >= today
-        ).length;
-        
-        // Orders in last hour
-        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-        const ordersLastHour = orders.filter((o: any) => 
-          new Date(o.created_at) >= oneHourAgo
-        ).length;
-
-        setStats({
-          pending_orders: pendingOrders,
-          preparing_orders: preparingOrders,
-          ready_orders: readyOrders,
-          completed_today: completedToday,
-          avg_preparation_time: 15, // Default estimate
-          orders_last_hour: ordersLastHour,
-        });
-
-        // Format recent orders
-        const recent: RecentOrder[] = orders.slice(0, 10).map((o: any) => ({
-          id: o.id || o._id,
-          order_number: o.order_number || o.orderNumber || `ORD-${String(o.id).slice(-6)}`,
-          table_number: o.table_number || o.tableNumber || o.table?.tableNumber || '-',
-          status: o.status,
-          items_count: (o.items || []).length,
-          created_at: o.created_at || o.createdAt,
-        }));
-        setRecentOrders(recent);
-      }
-    } catch (error) {
-      console.error('Error loading kitchen stats:', error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+    setRefreshing(true);
+    emitChefDashboardGet();
   };
 
   const onRefresh = async () => {

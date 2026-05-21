@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -38,11 +38,24 @@ import {
 } from '@mui/icons-material';
 import { api } from '../../services/api';
 import { useSettings } from '../../context/SettingsContext';
+import { io, type Socket } from 'socket.io-client';
+import { resolveSocketUrl } from '../../utils/resolveSocketUrl';
+import {
+  enrichOrderParty,
+  getWaiterDisplayName,
+  isDineInOrder,
+  getCustomerDisplayName,
+} from '../../utils/orderParty';
+import { OrderCardMeta } from '../../components/orders/OrderCardMeta';
 
 interface Order {
   _id: string;
   orderNumber: string;
+  orderType?: string;
   customerName: string;
+  partyLabel?: string;
+  tableNumber?: string | null;
+  waiterName?: string | null;
   customerAvatar?: string;
   branchId: string;
   branchName: string;
@@ -82,6 +95,8 @@ type OrderDetails = {
   customerName?: string;
   phoneNumber?: string;
   customer?: { displayName?: string; name?: string; email?: string; phoneNumber?: string };
+  waiter?: { displayName?: string; name?: string };
+  waiterName?: string;
   branch?: { branchName?: string; name?: string };
   items?: OrderDetailsItem[];
   subtotal?: number;
@@ -118,6 +133,11 @@ const AdminOrders: React.FC = () => {
   const [detailsError, setDetailsError] = useState<string>('');
   const [orderDetails, setOrderDetails] = useState<OrderDetails | null>(null);
   const itemsPerPage = 10;
+  const socketRef = useRef<Socket | null>(null);
+  const branchMapsRef = useRef<{ nameMap: Record<string, string>; currencyMap: Record<string, string> }>({
+    nameMap: {},
+    currencyMap: {},
+  });
   const statusOptions = [
     'PENDING',
     'KITCHEN_ACCEPTED',
@@ -140,18 +160,26 @@ const AdminOrders: React.FC = () => {
   ];
 
   useEffect(() => {
-    // Load branches first, then orders with a small delay to ensure state updates
     const init = async () => {
       const map = await loadBranches();
-      // Pass the map directly to avoid state timing issues
+      if (map?.nameMap) {
+        branchMapsRef.current = {
+          nameMap: map.nameMap,
+          currencyMap: map.currencyMap || {},
+        };
+      }
       await loadOrders(map);
     };
-    init();
+    void init();
   }, []);
 
   useEffect(() => {
     filterOrders();
   }, [orders, activeTab, branchFilter, statusFilter, dateFilter, searchQuery]);
+
+  const loadOrdersRef = useRef<
+    (branchData?: { nameMap?: Record<string, string>; currencyMap?: Record<string, string> }) => Promise<void>
+  >(async () => {});
 
   const loadOrders = async (branchData?: { nameMap?: Record<string, string>; currencyMap?: Record<string, string> }) => {
     try {
@@ -226,12 +254,12 @@ const AdminOrders: React.FC = () => {
               o?.customerId || 
               '';
             
-            // Customer name is already populated by backend
-            const customerName = customerData?.displayName || 
-              customerData?.name ||
-              o?._doc?.customerName ||
-              o?.customerName ||
-              (customerId ? `Customer ${customerId.slice(-6)}` : 'Guest Order');
+            const enriched = enrichOrderParty((o?._doc || o) as Record<string, unknown>);
+            const orderType = enriched.orderType;
+            const partyName = enriched.partyName;
+            const partyLabel = enriched.partyLabel;
+            const customerName =
+              partyName || (customerId ? `Customer ${customerId.slice(-6)}` : 'Guest Order');
             const customerAvatar = customerData?.avatar || customerData?.image || customerData?.profileImage || customerData?.photo;
             
             // Fix order ID - ensure we have a valid ID (Mongoose doc has _id at top level)
@@ -242,7 +270,11 @@ const AdminOrders: React.FC = () => {
             return {
               _id: orderId || Math.random().toString(),
               orderNumber,
+              orderType,
               customerName,
+              partyLabel,
+              tableNumber: enriched.tableNumber,
+              waiterName: enriched.waiterName,
               customerAvatar,
               branchId,
               branchName,
@@ -271,6 +303,43 @@ const AdminOrders: React.FC = () => {
       setLoading(false);
     }
   };
+
+  loadOrdersRef.current = loadOrders;
+
+  useEffect(() => {
+    const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken') || '';
+    if (!socketRef.current) {
+      socketRef.current = io(resolveSocketUrl(), {
+        path: '/socket.io',
+        transports: ['websocket', 'polling'],
+        withCredentials: true,
+        auth: token ? { token } : undefined,
+      });
+    }
+    const socket = socketRef.current;
+    const onRefresh = () => void loadOrdersRef.current(branchMapsRef.current);
+    socket.on('admin_orders:invalidate', onRefresh);
+    socket.on('admin_dashboard:invalidate', onRefresh);
+    socket.on('order:created', onRefresh);
+    socket.on('order:updated', onRefresh);
+    socket.on('order:status_updated', onRefresh);
+    socket.on('notification', onRefresh);
+    return () => {
+      socket.off('admin_orders:invalidate', onRefresh);
+      socket.off('admin_dashboard:invalidate', onRefresh);
+      socket.off('order:created', onRefresh);
+      socket.off('order:updated', onRefresh);
+      socket.off('order:status_updated', onRefresh);
+      socket.off('notification', onRefresh);
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      socketRef.current?.disconnect();
+      socketRef.current = null;
+    };
+  }, []);
 
   const loadBranches = async () => {
     try {
@@ -716,7 +785,10 @@ const AdminOrders: React.FC = () => {
                 Order ID
               </TableCell>
               <TableCell sx={{ fontWeight: 600, color: '#666', fontSize: 13, py: 2 }}>
-                User
+                Table
+              </TableCell>
+              <TableCell sx={{ fontWeight: 600, color: '#666', fontSize: 13, py: 2 }}>
+                Waiter / Customer
               </TableCell>
               <TableCell sx={{ fontWeight: 600, color: '#666', fontSize: 13, py: 2 }}>
                 Branch
@@ -739,7 +811,7 @@ const AdminOrders: React.FC = () => {
             {loading ? (
               [...Array(5)].map((_, i) => (
                 <TableRow key={i}>
-                  <TableCell colSpan={7}>
+                  <TableCell colSpan={8}>
                     <Skeleton height={50} />
                   </TableCell>
                 </TableRow>
@@ -763,22 +835,19 @@ const AdminOrders: React.FC = () => {
                       </Typography>
                     </TableCell>
                     <TableCell sx={{ py: 2 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                        <Avatar
-                          src={order.customerAvatar ? api.getImageUrl(order.customerAvatar) : undefined}
-                          sx={{ width: 32, height: 32, bgcolor: '#FF6B35' }}
-                        >
-                          {order.customerName.charAt(0).toUpperCase()}
-                        </Avatar>
-                        <Box>
-                          <Typography sx={{ fontWeight: 500, fontSize: 14, color: '#333' }}>
-                            {order.customerName}
-                          </Typography>
-                          <Typography sx={{ fontSize: 11, color: '#999' }}>
-                            {order.items} items
-                          </Typography>
-                        </Box>
-                      </Box>
+                      <Typography sx={{ fontWeight: 700, color: '#1565C0', fontSize: 14 }}>
+                        {order.tableNumber
+                          ? `Table ${order.tableNumber}`
+                          : order.orderType === 'DINE_IN'
+                          ? '—'
+                          : 'N/A'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell sx={{ py: 2 }}>
+                      <OrderCardMeta order={order} />
+                      <Typography sx={{ fontSize: 11, color: '#999', mt: 0.5 }}>
+                        {order.items} items
+                      </Typography>
                     </TableCell>
                     <TableCell sx={{ py: 2 }}>
                       <Typography sx={{ fontSize: 14, color: '#333' }}>
@@ -960,12 +1029,14 @@ const AdminOrders: React.FC = () => {
               const orderNumber = String(d.orderNumber || selectedOrder?.orderNumber || '');
               const createdAt = d.createdAt || selectedOrder?.createdAt || '';
               const status = String(d.status || selectedOrder?.status || '');
-              const orderType = String(d.orderType || '').toUpperCase();
-              const isOnline = orderType && orderType !== 'DINE_IN';
+              const orderType = String(d.orderType || selectedOrder?.orderType || '').toUpperCase();
+              const isDineIn = isDineInOrder(d as Record<string, unknown>);
+              const isOnline = orderType && !isDineIn;
+              const waiterName =
+                getWaiterDisplayName(d as Record<string, unknown>) ||
+                getWaiterDisplayName(selectedOrder as unknown as Record<string, unknown>);
               const customerName =
-                d.customer?.displayName ||
-                d.customer?.name ||
-                d.customerName ||
+                getCustomerDisplayName(d as Record<string, unknown>) ||
                 selectedOrder?.customerName ||
                 '';
               const customerEmail = d.customer?.email || '';
@@ -1039,6 +1110,16 @@ const AdminOrders: React.FC = () => {
                       <Box />
                     )}
                   </Box>
+
+                  {isDineIn && (
+                    <>
+                      <Divider sx={{ my: 2 }} />
+                      <Typography sx={{ fontWeight: 900, color: '#111', fontSize: 14, mb: 1 }}>
+                        Waiter
+                      </Typography>
+                      <Typography sx={{ fontSize: 13, color: '#111', fontWeight: 700 }}>{waiterName || '—'}</Typography>
+                    </>
+                  )}
 
                   {isOnline && (customerName || customerEmail || customerPhone || addressLine) && (
                     <>

@@ -1,6 +1,6 @@
 import { Notification } from '../models/Notification';
 import { User } from '../models/User';
-import { Order } from '../models/Order';
+import { dispatchNotification } from './notificationDispatchService';
 
 interface NotificationData {
   recipient: string;
@@ -37,59 +37,19 @@ class NotificationService {
         priority: notificationData.priority || 'NORMAL',
       });
 
-      // Get user for role info
-      const user = await User.findById(notificationData.recipient);
-      if (!user) {
-        console.error('[Notification] User not found:', notificationData.recipient);
-        return null;
-      }
-
-      // Create in-app notification
-      const notification = new Notification({
+      return await dispatchNotification({
         recipient: notificationData.recipient,
-        recipientRole: notificationData.recipientRole || user.role,
-        recipientBranch: notificationData.recipientBranch || user.assignedBranch,
         type: notificationData.type,
         title: notificationData.title,
-        body: notificationData.message,
+        message: notificationData.message,
         description: notificationData.description,
-        priority: notificationData.priority || 'NORMAL',
+        priority: notificationData.priority,
         data: notificationData.data,
         relatedOrder: notificationData.relatedOrder,
         actionUrl: notificationData.actionUrl,
-        deliveryMethod: 'IN_APP',
-        isRead: false,
+        recipientRole: notificationData.recipientRole,
+        recipientBranch: notificationData.recipientBranch,
       });
-
-      await notification.save();
-      console.log('[Notification] In-app notification saved:', notification._id);
-
-      // Emit realtime notification (Socket.IO) if available
-      try {
-        const ws = (globalThis as any).ws;
-        if (ws?.sendNotification) {
-          ws.sendNotification(notificationData.recipient, {
-            type: notificationData.type,
-            title: notificationData.title,
-            message: notificationData.message,
-            data: notificationData.data,
-          });
-        }
-      } catch (wsError) {
-        console.error('[Notification] WebSocket emit error:', wsError);
-      }
-
-      // TODO: Send push notification if FCM token exists
-      // if (user.fcmToken) {
-      //   await this.sendPushNotification(user, notification);
-      // }
-
-      // TODO: Send SMS for URGENT priority
-      // if (notificationData.priority === 'URGENT' && user.phone) {
-      //   await this.sendSMSNotification(user, notificationData.message);
-      // }
-
-      return notification;
     } catch (error) {
       console.error('[Notification] Send error:', error);
       return null;

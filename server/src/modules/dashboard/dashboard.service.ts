@@ -758,242 +758,299 @@ export class DashboardService {
     };
   }
 
-  // Admin Analytics with time range filtering
-  async getAdminAnalytics(timeRange: string = '30d', branchId?: string) {
-    // Calculate date range
-    const now = new Date();
-    let startDate: Date;
+  private buildAnalyticsBranchMatch(branchId?: string): Record<string, unknown> {
+    if (!branchId || branchId === 'all') return {};
+    const branchObjectId = Types.ObjectId.isValid(branchId) ? new Types.ObjectId(branchId) : undefined;
+    const branchIn: unknown[] = [];
+    if (branchObjectId) branchIn.push(branchObjectId);
+    branchIn.push(branchId);
+    return { branch: { $in: branchIn } };
+  }
 
-    switch (timeRange) {
-      case '7d':
-        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        break;
-      case '30d':
-        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        break;
-      case '90d':
-        startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-        break;
-      case '1y':
-        startDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
-        break;
-      default:
-        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  private resolveAnalyticsDateRange(
+    timeRange: string,
+    customRange?: { startDate?: string; endDate?: string }
+  ): { startDate: Date; endDate: Date; periodLabel: string } {
+    const now = new Date();
+    let endDate = new Date(now);
+    endDate.setHours(23, 59, 59, 999);
+
+    if (customRange?.startDate && customRange?.endDate) {
+      const startDate = new Date(customRange.startDate);
+      startDate.setHours(0, 0, 0, 0);
+      const customEnd = new Date(customRange.endDate);
+      customEnd.setHours(23, 59, 59, 999);
+      if (customEnd < startDate) {
+        return {
+          startDate: customEnd,
+          endDate: startDate,
+          periodLabel: `${customRange.endDate} to ${customRange.startDate}`,
+        };
+      }
+      return {
+        startDate,
+        endDate: customEnd,
+        periodLabel: `${customRange.startDate} to ${customRange.endDate}`,
+      };
     }
 
-    const branchMatch = branchId ? { branch: (branchId as any) } : {};
+    let startDate: Date;
+    let periodLabel: string;
+    switch (timeRange) {
+      case 'today':
+      case '1d': {
+        startDate = new Date(now);
+        startDate.setHours(0, 0, 0, 0);
+        periodLabel = 'Today';
+        break;
+      }
+      case 'week':
+      case '7d':
+        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        startDate.setHours(0, 0, 0, 0);
+        periodLabel = 'This week';
+        break;
+      case 'quarter':
+      case '90d':
+        startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+        startDate.setHours(0, 0, 0, 0);
+        periodLabel = 'This quarter';
+        break;
+      case 'year':
+      case '1y':
+        startDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+        startDate.setHours(0, 0, 0, 0);
+        periodLabel = 'This year';
+        break;
+      case 'month':
+      case '30d':
+      default:
+        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        startDate.setHours(0, 0, 0, 0);
+        periodLabel = 'This month';
+    }
 
-    // Total revenue for the period
-    const totalRevenue = branchId
-      ? await Payment.aggregate([
-          { $match: { status: 'COMPLETED', createdAt: { $gte: startDate } } },
-          {
-            $lookup: {
-              from: 'orders',
-              localField: 'order',
-              foreignField: '_id',
-              as: 'order'
-            }
-          },
-          { $unwind: '$order' },
-          { $match: { 'order.branch': (branchId as any) } },
-          { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]).then(result => result[0]?.total || 0)
-      : await Payment.aggregate([
-          { $match: { status: 'COMPLETED', createdAt: { $gte: startDate } } },
-          { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]).then(result => result[0]?.total || 0);
+    return { startDate, endDate, periodLabel };
+  }
 
-    // Total orders for the period
-    const totalOrders = await Order.countDocuments({ createdAt: { $gte: startDate }, ...branchMatch });
+  // Admin Analytics — order-based revenue (matches dashboard stats)
+  async getAdminAnalytics(
+    timeRange: string = '30d',
+    branchId?: string,
+    customRange?: { startDate?: string; endDate?: string }
+  ) {
+    const { startDate, endDate } = this.resolveAnalyticsDateRange(timeRange, customRange);
+    const branchMatch = this.buildAnalyticsBranchMatch(branchId);
 
-    // Average order value
-    const averageOrderValue = totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0;
+    const dateMatch = { createdAt: { $gte: startDate, $lte: endDate } };
+    const ordersInPeriodMatch = { ...branchMatch, ...dateMatch };
 
-    // Revenue by month
-    const revenueByMonth = branchId
-      ? await Payment.aggregate([
-          { $match: { status: 'COMPLETED', createdAt: { $gte: startDate } } },
-          {
-            $lookup: {
-              from: 'orders',
-              localField: 'order',
-              foreignField: '_id',
-              as: 'order'
-            }
-          },
-          { $unwind: '$order' },
-          { $match: { 'order.branch': (branchId as any) } },
-          {
-            $group: {
-              _id: {
-                year: { $year: '$createdAt' },
-                month: { $month: '$createdAt' }
-              },
-              revenue: { $sum: '$amount' },
-              orders: { $sum: 1 }
-            }
-          },
-          {
-            $project: {
-              month: {
-                $concat: [
-                  { $arrayElemAt: [['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], '$_id.month'] },
-                  ' ',
-                  { $toString: '$_id.year' }
-                ]
-              },
-              revenue: 1,
-              orders: 1
-            }
-          },
-          { $sort: { '_id.year': 1, '_id.month': 1 } }
-        ])
-      : await Payment.aggregate([
-          { $match: { status: 'COMPLETED', createdAt: { $gte: startDate } } },
-          {
-            $group: {
-              _id: {
-                year: { $year: '$createdAt' },
-                month: { $month: '$createdAt' }
-              },
-              revenue: { $sum: '$amount' },
-              orders: { $sum: 1 }
-            }
-          },
-          {
-            $project: {
-              month: {
-                $concat: [
-                  { $arrayElemAt: [['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], '$_id.month'] },
-                  ' ',
-                  { $toString: '$_id.year' }
-                ]
-              },
-              revenue: 1,
-              orders: 1
-            }
-          },
-          { $sort: { '_id.year': 1, '_id.month': 1 } }
-        ]);
+    const completedRevenueMatch = {
+      ...ordersInPeriodMatch,
+      status: { $in: ['COMPLETED', 'DELIVERED', 'SERVED'] },
+      $or: [{ paymentStatus: 'SUCCESS' }, { paymentMethod: { $exists: true, $ne: null } }],
+    };
 
-    // Top restaurants
-    const topRestaurants = await Payment.aggregate([
-      { $match: { status: 'COMPLETED', createdAt: { $gte: startDate } } },
+    const [totalOrders, revenueResult, totalCustomers, topProductsRaw] = await Promise.all([
+      Order.countDocuments(ordersInPeriodMatch),
+      Order.aggregate([
+        { $match: completedRevenueMatch },
+        { $group: { _id: null, total: { $sum: '$totalAmount' } } },
+      ]),
+      Order.distinct('customer', ordersInPeriodMatch),
+      Order.aggregate([
+        { $match: completedRevenueMatch },
+        { $unwind: '$items' },
+        {
+          $group: {
+            _id: '$items.productName',
+            name: { $first: '$items.productName' },
+            count: { $sum: '$items.quantity' },
+            revenue: { $sum: '$items.totalPrice' },
+          },
+        },
+        { $sort: { revenue: -1 } },
+        { $limit: 10 },
+      ]),
+    ]);
+
+    const totalRevenue = revenueResult[0]?.total || 0;
+    const completedOrders = await Order.countDocuments(completedRevenueMatch);
+    const averageOrderValue =
+      completedOrders > 0 ? Math.round(totalRevenue / completedOrders) : 0;
+
+    const daysInRange =
+      Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000)));
+    const trendFormat = daysInRange <= 62 ? '%Y-%m-%d' : '%Y-%m';
+
+    const revenueTrendRaw = await Order.aggregate([
+      { $match: completedRevenueMatch },
       {
-        $lookup: {
-          from: 'orders',
-          localField: 'order',
-          foreignField: '_id',
-          as: 'order'
-        }
+        $group: {
+          _id: { $dateToString: { format: trendFormat, date: '$createdAt' } },
+          revenue: { $sum: '$totalAmount' },
+          orders: { $sum: 1 },
+        },
       },
-      { $unwind: '$order' },
-      ...(branchId ? [{ $match: { 'order.branch': (branchId as any) } }] : []),
+      { $sort: { _id: 1 } },
+    ]);
+
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const formatTrendLabel = (key: string) => {
+      if (trendFormat === '%Y-%m') {
+        const [y, m] = key.split('-');
+        const mi = parseInt(m, 10) - 1;
+        return `${monthNames[mi] || m} ${y}`;
+      }
+      const [y, m, d] = key.split('-');
+      const mi = parseInt(m, 10) - 1;
+      return `${monthNames[mi] || m} ${parseInt(d, 10)}`;
+    };
+
+    const revenueByMonth = revenueTrendRaw.map((r) => ({
+      month: formatTrendLabel(r._id),
+      revenue: r.revenue,
+      orders: r.orders,
+    }));
+
+    const topRestaurants = await Order.aggregate([
+      { $match: completedRevenueMatch },
       {
         $lookup: {
           from: 'branches',
-          localField: 'order.branch',
+          localField: 'branch',
           foreignField: '_id',
-          as: 'branch'
-        }
+          as: 'branch',
+        },
       },
-      { $unwind: '$branch' },
+      { $unwind: { path: '$branch', preserveNullAndEmptyArrays: true } },
       {
         $group: {
           _id: '$branch._id',
           name: { $first: '$branch.branchName' },
-          revenue: { $sum: '$amount' },
-          orders: { $sum: 1 }
-        }
+          revenue: { $sum: '$totalAmount' },
+          orders: { $sum: 1 },
+        },
       },
       { $sort: { revenue: -1 } },
-      { $limit: 5 }
+      { $limit: 5 },
     ]);
 
-    // User growth data (simplified - using user registration dates)
-    const userGrowth = await User.aggregate([
-      { $match: { createdAt: { $gte: startDate } } },
+    const userGrowthRaw = await User.aggregate([
+      { $match: { createdAt: { $gte: startDate, $lte: endDate } } },
       {
         $group: {
-          _id: {
-            year: { $year: '$createdAt' },
-            month: { $month: '$createdAt' }
-          },
-          users: { $sum: 1 }
-        }
+          _id: { $dateToString: { format: trendFormat, date: '$createdAt' } },
+          users: { $sum: 1 },
+        },
       },
-      {
-        $project: {
-          month: {
-            $concat: [
-              { $arrayElemAt: [['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], '$_id.month'] },
-              ' ',
-              { $toString: '$_id.year' }
-            ]
-          },
-          users: 1
-        }
-      },
-      { $sort: { '_id.year': 1, '_id.month': 1 } }
+      { $sort: { _id: 1 } },
     ]);
 
-    // Order status distribution
-    const orderStatusDistribution = await Order.aggregate([
-      { $match: { createdAt: { $gte: startDate }, ...branchMatch } },
-      {
-        $group: {
-          _id: '$status',
-          count: { $sum: 1 }
-        }
-      },
-      {
-        $project: {
-          status: '$_id',
-          count: 1,
-          _id: 0
-        }
-      }
+    const userGrowth = userGrowthRaw.map((u) => ({
+      month: formatTrendLabel(u._id),
+      users: u.users,
+    }));
+
+    const orderStatusRows = await Order.aggregate([
+      { $match: ordersInPeriodMatch },
+      { $group: { _id: '$status', count: { $sum: 1 } } },
     ]);
 
-    // Convert status distribution to expected format
-    const statusMap: { [key: string]: number } = {
-      PENDING: 0,
-      CONFIRMED: 0,
-      PREPARING: 0,
-      READY: 0,
-      OUT_FOR_DELIVERY: 0,
-      DELIVERED: 0,
-      CANCELLED: 0
-    };
-
-    orderStatusDistribution.forEach((item: any) => {
-      const status = item.status.toLowerCase().replace(/\s+/g, '_');
-      if (statusMap.hasOwnProperty(status.toUpperCase())) {
-        statusMap[status.toUpperCase()] = item.count;
-      }
+    const orderStatusDistribution: Record<string, number> = {};
+    orderStatusRows.forEach((row: { _id: string; count: number }) => {
+      const key = String(row._id || 'UNKNOWN').toUpperCase();
+      orderStatusDistribution[key] = row.count;
     });
+
+    const topProducts = topProductsRaw.map((p: { name: string; count: number; revenue: number }) => ({
+      name: p.name || 'Unknown',
+      count: p.count || 0,
+      revenue: p.revenue || 0,
+    }));
+
+    const revenueByBranch = topRestaurants.map((r) => ({
+      branchName: r.name || 'Unknown Branch',
+      revenue: r.revenue || 0,
+      orders: r.orders || 0,
+    }));
 
     return {
       totalRevenue,
       totalOrders,
+      totalCustomers: Array.isArray(totalCustomers) ? totalCustomers.length : 0,
       averageOrderValue,
-      topRestaurants: topRestaurants.map(r => ({
-        name: r.name || 'Unknown Restaurant',
+      topProducts,
+      topRestaurants: topRestaurants.map((r) => ({
+        name: r.name || 'Unknown Branch',
         revenue: r.revenue,
-        orders: r.orders
+        orders: r.orders,
       })),
-      revenueByMonth: revenueByMonth.map(r => ({
-        month: r.month,
-        revenue: r.revenue,
-        orders: r.orders
-      })),
-      userGrowth: userGrowth.map(u => ({
-        month: u.month,
-        users: u.users
-      })),
-      orderStatusDistribution: statusMap
+      revenueByBranch,
+      revenueByMonth,
+      userGrowth,
+      orderStatusDistribution,
+      periodStart: startDate.toISOString(),
+      periodEnd: endDate.toISOString(),
     };
+  }
+
+  buildAnalyticsCsv(
+    analytics: {
+      totalOrders: number;
+      totalRevenue: number;
+      averageOrderValue: number;
+      topRestaurants: Array<{ name: string; revenue: number; orders: number }>;
+      revenueByMonth: Array<{ month: string; revenue: number; orders: number }>;
+      userGrowth: Array<{ month: string; users: number }>;
+      orderStatusDistribution: Record<string, number>;
+    },
+    meta: { periodLabel: string; branchLabel?: string; generatedAt?: string }
+  ): string {
+    const escape = (value: string | number) => {
+      const s = String(value ?? '');
+      if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+        return `"${s.replace(/"/g, '""')}"`;
+      }
+      return s;
+    };
+
+    const lines: string[] = [
+      'Restaurant Analytics Report',
+      `Generated At,${escape(meta.generatedAt || new Date().toISOString())}`,
+      `Period,${escape(meta.periodLabel)}`,
+      `Branch,${escape(meta.branchLabel || 'All Branches')}`,
+      '',
+      'Summary',
+      'Metric,Value',
+      `Total Revenue,${analytics.totalRevenue}`,
+      `Total Orders,${analytics.totalOrders}`,
+      `Average Order Value,${analytics.averageOrderValue}`,
+      '',
+      'Revenue By Month',
+      'Month,Revenue,Orders',
+      ...analytics.revenueByMonth.map(
+        (row) => `${escape(row.month)},${row.revenue},${row.orders}`
+      ),
+      '',
+      'Top Branches / Restaurants',
+      'Name,Revenue,Orders',
+      ...analytics.topRestaurants.map(
+        (row) => `${escape(row.name)},${row.revenue},${row.orders}`
+      ),
+      '',
+      'User Growth',
+      'Month,New Users',
+      ...analytics.userGrowth.map((row) => `${escape(row.month)},${row.users}`),
+      '',
+      'Order Status Distribution',
+      'Status,Count',
+      ...Object.entries(analytics.orderStatusDistribution || {}).map(
+        ([status, count]) => `${escape(status)},${count}`
+      ),
+    ];
+
+    return lines.join('\n');
   }
 
   // Customer Dashboard Stats

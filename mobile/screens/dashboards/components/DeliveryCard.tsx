@@ -46,7 +46,16 @@ interface DeliveryCardProps {
   onNavigateToDelivery?: () => void;
   onCallCustomer?: () => void;
   onReject?: () => void;
+  onPickUp?: () => void;
   formatPrice?: (price: number) => string;
+  proximity?: {
+    branchDistanceMeters?: number | null;
+    deliveryDistanceMeters?: number | null;
+    canPickUp?: boolean;
+    canDeliver?: boolean;
+    pickupRangeMeters?: number;
+    deliveryRangeMeters?: number;
+  };
 }
 
 const DeliveryCard: React.FC<DeliveryCardProps> = ({
@@ -59,7 +68,9 @@ const DeliveryCard: React.FC<DeliveryCardProps> = ({
   onNavigateToDelivery,
   onCallCustomer,
   onReject,
+  onPickUp,
   formatPrice = (p) => `$${p.toFixed(2)}`,
+  proximity,
 }) => {
   // Status color mapping
   const getStatusColor = (status: string) => {
@@ -104,7 +115,11 @@ const DeliveryCard: React.FC<DeliveryCardProps> = ({
 
   const isActive = delivery.status === 'assigned' || delivery.status === 'picked_up' || delivery.status === 'in_delivery';
   const isPending = delivery.status === 'pending';
-  const canStartRide = delivery.status === 'assigned' || delivery.status === 'picked_up';
+  const canStartRide = delivery.status === 'picked_up';
+  const branchDist = proximity?.branchDistanceMeters;
+  const deliveryDist = proximity?.deliveryDistanceMeters;
+  const canPickUp = proximity?.canPickUp ?? false;
+  const canDeliver = proximity?.canDeliver ?? false;
 
   return (
     <TouchableOpacity
@@ -175,6 +190,26 @@ const DeliveryCard: React.FC<DeliveryCardProps> = ({
         </View>
       </View>
 
+      {delivery.status === 'assigned' && branchDist != null && (
+        <View style={styles.proximityBanner}>
+          <Text style={styles.proximityText}>
+            {canPickUp
+              ? 'At branch ✓ — ready to pick up'
+              : `Reach branch to pick up (${Math.round(branchDist)}m away)`}
+          </Text>
+        </View>
+      )}
+
+      {delivery.status === 'in_delivery' && deliveryDist != null && (
+        <View style={styles.proximityBanner}>
+          <Text style={styles.proximityText}>
+            {canDeliver
+              ? 'Near customer ✓ — ready to deliver'
+              : `Reach customer to deliver (${Math.round(deliveryDist)}m away)`}
+          </Text>
+        </View>
+      )}
+
       {/* Action Buttons */}
       {isPending && (
         <TouchableOpacity onPress={onAccept} style={styles.acceptButton} activeOpacity={0.8}>
@@ -185,6 +220,17 @@ const DeliveryCard: React.FC<DeliveryCardProps> = ({
 
       {isActive && (
         <View style={styles.activeActions}>
+          {delivery.status === 'assigned' && onPickUp && (
+            <TouchableOpacity
+              onPress={onPickUp}
+              style={[styles.startRideButton, !canPickUp && styles.disabledBtn]}
+              activeOpacity={canPickUp ? 0.8 : 1}
+              disabled={!canPickUp}
+            >
+              <Ionicons name="bag-check" size={20} color={COLORS.white} />
+              <Text style={styles.actionButtonText}>Mark Picked Up</Text>
+            </TouchableOpacity>
+          )}
           {canStartRide && (
             <TouchableOpacity onPress={onStartRide} style={styles.startRideButton} activeOpacity={0.8}>
               <Ionicons name="bicycle" size={20} color={COLORS.white} />
@@ -199,7 +245,12 @@ const DeliveryCard: React.FC<DeliveryCardProps> = ({
             <Ionicons name="navigate" size={20} color={COLORS.white} />
             <Text style={styles.actionButtonText}>Delivery</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={onMarkDelivered} style={styles.deliveredButton} activeOpacity={0.8}>
+          <TouchableOpacity
+            onPress={onMarkDelivered}
+            style={[styles.deliveredButton, delivery.status === 'in_delivery' && !canDeliver && styles.disabledBtn]}
+            activeOpacity={delivery.status === 'in_delivery' && !canDeliver ? 1 : 0.8}
+            disabled={delivery.status === 'in_delivery' && !canDeliver}
+          >
             <Ionicons name="checkmark-circle" size={20} color={COLORS.white} />
             <Text style={styles.actionButtonText}>Mark Delivered</Text>
           </TouchableOpacity>
@@ -355,6 +406,21 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 10,
     gap: 6,
+  },
+  proximityBanner: {
+    backgroundColor: '#FFF8E6',
+    padding: 10,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    borderRadius: 8,
+  },
+  proximityText: {
+    fontSize: 12,
+    color: COLORS.darkText,
+    fontWeight: '600',
+  },
+  disabledBtn: {
+    opacity: 0.45,
   },
   deliveredButton: {
     flexGrow: 1,

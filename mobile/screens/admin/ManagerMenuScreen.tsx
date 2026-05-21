@@ -96,13 +96,17 @@ export default function ManagerMenuScreen() {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
 
-  const loadMenu = useCallback(async () => {
+  const loadMenu = useCallback(async (branchIdOverride?: string) => {
     try {
       setLoading(true);
 
       const params = new URLSearchParams();
       params.append('page', '1');
       params.append('limit', '1000');
+      const branchId = branchIdOverride || assignedBranch._id;
+      if (branchId) {
+        params.append('activationBranchId', branchId);
+      }
 
       const [productsResponse, categoriesResponse] = await Promise.all([
         api.get(`/menu/admin/products?${params.toString()}`),
@@ -137,15 +141,15 @@ export default function ManagerMenuScreen() {
 
       if (productsResponse.success) {
         const products: Product[] = productsResponse.data?.products || [];
-        const activeProducts = products.filter((product) => product?.isActivatedForBranch);
 
         const byCategory = new Map<string, Category>();
-        for (const product of activeProducts) {
+        for (const product of products) {
           const categoryData: any = product?.category;
-          const categoryId =
+          const categoryId = String(
             typeof categoryData === 'string'
               ? categoryData
-              : categoryData?._id || 'uncategorized';
+              : categoryData?._id || 'uncategorized'
+          ).trim();
           const categoryName =
             typeof categoryData === 'string'
               ? 'Category'
@@ -176,28 +180,29 @@ export default function ManagerMenuScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [assignedBranch._id]);
 
   const loadBranchAndMenu = useCallback(async () => {
     try {
+      let branchId = assignedBranch._id || '';
       const stored = await AsyncStorage.getItem('userData');
       if (stored) {
         const parsed = JSON.parse(stored);
         const branchData = parsed.assignedBranch || parsed.branch;
         if (branchData) {
-          const branchId = branchData._id || branchData.branchId || parsed.branchId || '';
+          branchId = branchData._id || branchData.branchId || parsed.branchId || '';
           setAssignedBranch({
             _id: branchId,
-            name: branchData.name || branchData.branchName || 'My Branch'
+            name: branchData.name || branchData.branchName || 'My Branch',
           });
         }
       }
 
-      await loadMenu();
+      await loadMenu(branchId);
     } catch (error) {
       console.error('Error loading branch:', error);
     }
-  }, [loadMenu]);
+  }, [assignedBranch._id, loadMenu]);
 
   useFocusEffect(
     useCallback(() => {
@@ -256,7 +261,9 @@ export default function ManagerMenuScreen() {
   const visibleCategories =
     selectedCategoryId === 'all'
       ? categories
-      : categories.filter((category) => category._id === selectedCategoryId);
+      : categories.filter(
+          (category) => String(category._id).trim() === String(selectedCategoryId).trim()
+        );
 
   // Get parent tab navigation for bottom nav
   const tabNavigation = navigation.getParent();
@@ -332,7 +339,6 @@ export default function ManagerMenuScreen() {
     { name: 'Deals', icon: 'pricetag-outline', screen: 'AdminDeals' },
     { name: 'Product Size', icon: 'resize-outline', screen: 'AdminProductSizes' },
     { name: t('nav.reports'), icon: 'bar-chart-outline', screen: 'AdminReports' },
-    { name: t('nav.settings'), icon: 'settings-outline', screen: 'AdminSettings' },
   ];
 
   return (
@@ -487,10 +493,7 @@ export default function ManagerMenuScreen() {
           // @ts-ignore
           navigation.navigate('Welcome');
         }}
-        onChangePassword={() => {
-          // @ts-ignore
-          navigation.navigate('ChangePassword');
-        }}
+        navigation={navigation}
       />
 
       <AdminBottomNavigation onMorePress={() => setShowMoreMenu(true)} tabNavigation={tabNavigation} />

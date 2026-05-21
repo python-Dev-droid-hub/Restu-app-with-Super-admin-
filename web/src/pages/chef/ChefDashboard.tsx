@@ -24,6 +24,9 @@ import { AccessTime, CheckCircle, Notifications, RestaurantMenu, Warning } from 
 import { useLocation } from 'react-router-dom';
 import { api } from '../../services/api';
 import { io, type Socket } from 'socket.io-client';
+import { resolveSocketUrl } from '../../utils/resolveSocketUrl';
+import { enrichOrderParty } from '../../utils/orderParty';
+import { OrderCardMeta } from '../../components/orders/OrderCardMeta';
 
 type MainTab = 'home' | 'cooking' | 'notifications' | 'profile';
 type HomeTab = 'Active' | 'Ready' | 'Completed' | 'Cancelled';
@@ -47,7 +50,11 @@ type KitchenOrder = {
   orderNumber?: string;
   status?: string;
   orderType?: string;
-  tableNumber?: string;
+  tableNumber?: string | null;
+  partyLabel?: string;
+  partyName?: string;
+  waiterName?: string | null;
+  customerName?: string;
   createdAt?: string;
   orderTime?: string;
   expectedReadyTime?: number;
@@ -78,23 +85,7 @@ const parseStoredUser = (): any => {
   }
 };
 
-const getServerHost = (): string => {
-  const rawApiUrl = (import.meta as any)?.env?.VITE_API_URL as string | undefined;
-  const rawProxyTarget = (import.meta as any)?.env?.VITE_PROXY_TARGET as string | undefined;
-
-  const normalizeHost = (value?: string): string => {
-    const v = (value || '').trim();
-    if (!v) return '';
-    return v.replace(/\/?api\/?$/, '').replace(/\/$/, '');
-  };
-
-  const fromEnv = normalizeHost(rawProxyTarget) || normalizeHost(rawApiUrl);
-  if (fromEnv) return fromEnv;
-
-  const protocol = window.location.protocol || 'http:';
-  const hostname = window.location.hostname || 'localhost';
-  return `${protocol}//${hostname}:3101`;
-};
+const getServerHost = (): string => resolveSocketUrl();
 
 const formatMinutesAgo = (iso?: string): string => {
   if (!iso) return '';
@@ -261,8 +252,11 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
       const notificationsRaw = payload?.notifications || payload?.data?.notifications || payload?.data?.notifications?.notifications || [];
       const unreadRaw = payload?.unreadCount ?? payload?.data?.unreadCount;
 
-      setOrders(Array.isArray(ordersRaw) ? (ordersRaw as KitchenOrder[]) : []);
-      setCookingOrders(Array.isArray(cookingRaw) ? (cookingRaw as KitchenOrder[]) : []);
+      const mapOrders = (list: unknown[]) =>
+        (Array.isArray(list) ? list : []).map((o) => enrichOrderParty((o || {}) as Record<string, unknown>)) as KitchenOrder[];
+
+      setOrders(mapOrders(ordersRaw));
+      setCookingOrders(mapOrders(cookingRaw));
       setMostOrdered(Array.isArray(mostOrderedRaw) ? (mostOrderedRaw as MostOrderedItem[]) : []);
       const normalizedNotifications = Array.isArray(notificationsRaw)
         ? (notificationsRaw as any[]).map((n) => ({
@@ -292,6 +286,7 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
 
     const onInvalidate = () => requestChefDashboard();
     const onNotification = () => requestChefDashboard();
+    const onOrderEvent = () => requestChefDashboard();
     const onConnectError = () => {
       setLoading(false);
       setNotificationsLoading(false);
@@ -302,6 +297,9 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
     socket.on('chef_dashboard:data', onData);
     socket.on('chef_dashboard:error', onError);
     socket.on('chef_dashboard:invalidate', onInvalidate);
+    socket.on('order:created', onOrderEvent);
+    socket.on('order:updated', onOrderEvent);
+    socket.on('order:status_updated', onOrderEvent);
     socket.on('notification', onNotification);
     socket.on('connect_error', onConnectError);
     socket.on('connect', onConnect);
@@ -312,6 +310,9 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
       socket.off('chef_dashboard:data', onData);
       socket.off('chef_dashboard:error', onError);
       socket.off('chef_dashboard:invalidate', onInvalidate);
+      socket.off('order:created', onOrderEvent);
+      socket.off('order:updated', onOrderEvent);
+      socket.off('order:status_updated', onOrderEvent);
       socket.off('notification', onNotification);
       socket.off('connect_error', onConnectError);
       socket.off('connect', onConnect);
@@ -525,7 +526,6 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
 
     const canStartPreparing = ['PENDING', 'KITCHEN_ACCEPTED'].includes(statusUpper);
     const canMarkReady = ['PREPARING', 'KITCHEN_ACCEPTED'].includes(statusUpper);
-
     return (
       <Card key={id} sx={{ borderRadius: 4, boxShadow: '0 4px 16px rgba(0,0,0,0.08)', mb: 2 }}>
         <CardContent sx={{ p: 2.5 }}>
@@ -537,8 +537,8 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
                 </Typography>
                 <StatusChip status={statusUpper} />
                 <Chip size="small" label={orderTypeUpper || 'ORDER'} sx={{ fontWeight: 800 }} />
-                {o?.tableNumber ? <Chip size="small" label={`Table ${o.tableNumber}`} sx={{ fontWeight: 800 }} /> : null}
               </Box>
+              <OrderCardMeta order={o} />
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.75, color: '#666' }}>
                 <AccessTime sx={{ fontSize: 16, color: '#999' }} />
                 <Typography sx={{ fontSize: 12, color: '#666' }}>{timeAgo}</Typography>

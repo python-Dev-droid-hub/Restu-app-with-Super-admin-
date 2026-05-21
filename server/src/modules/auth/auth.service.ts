@@ -5,11 +5,43 @@ import { createError } from '@/middleware/errorHandler';
 import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
 
+type LoginAttemptEntry = { failures: number; lockUntil: number };
+
 export class AuthService {
   private userRepository: UserRepository;
+  private static loginAttempts = new Map<string, LoginAttemptEntry>();
+  private static readonly MAX_FAILURES = 5;
+  private static readonly LOCK_MS = 15 * 60 * 1000;
 
   constructor() {
     this.userRepository = new UserRepository();
+  }
+
+  private loginAttemptKey(email: string): string {
+    return email.trim().toLowerCase();
+  }
+
+  private assertLoginAllowed(email: string): void {
+    const entry = AuthService.loginAttempts.get(this.loginAttemptKey(email));
+    if (entry && entry.lockUntil > Date.now()) {
+      const minutes = Math.ceil((entry.lockUntil - Date.now()) / 60000);
+      throw createError(`Too many failed login attempts. Try again in ${minutes} minute(s).`, 429);
+    }
+  }
+
+  private recordLoginFailure(email: string): void {
+    const key = this.loginAttemptKey(email);
+    const entry = AuthService.loginAttempts.get(key) || { failures: 0, lockUntil: 0 };
+    entry.failures += 1;
+    if (entry.failures >= AuthService.MAX_FAILURES) {
+      entry.lockUntil = Date.now() + AuthService.LOCK_MS;
+      entry.failures = 0;
+    }
+    AuthService.loginAttempts.set(key, entry);
+  }
+
+  private clearLoginFailures(email: string): void {
+    AuthService.loginAttempts.delete(this.loginAttemptKey(email));
   }
 
   async register(userData: {
@@ -73,9 +105,12 @@ export class AuthService {
   }
 
   async login(email: string, password: string): Promise<{ user: IUser; tokens: any }> {
+    this.assertLoginAllowed(email);
+
     // Find user with password
     const user = await this.userRepository.findByEmailWithPassword(email);
     if (!user) {
+      this.recordLoginFailure(email);
       throw createError('Invalid email or password', 401);
     }
 
@@ -87,8 +122,11 @@ export class AuthService {
     // Verify password
     const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) {
+      this.recordLoginFailure(email);
       throw createError('Invalid email or password', 401);
     }
+
+    this.clearLoginFailures(email);
 
     // Generate tokens with proper assignedBranch handling
     let assignedBranchId: string | undefined;

@@ -23,6 +23,9 @@ import { useLocalization } from '../../context/LocalizationContext';
 import { COLORS } from '../../constants/colors';
 import { getSpacing } from '../../utils/responsive';
 import { useUserData } from '../../hooks/useUserData';
+import { isAdminRole } from '../../utils/permissionHelpers';
+import { useBranch } from '../../context/BranchContext';
+import GlobalBranchBar from '../../components/admin/GlobalBranchBar';
 
 // Components
 import ResponsiveHeader from '../../components/layout/ResponsiveHeader';
@@ -58,9 +61,8 @@ export default function AdminCouponsScreen() {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   const [userRole, setUserRole] = useState<string>('');
-  const [assignedBranch, setAssignedBranch] = useState<{_id?: string; name?: string; code?: string}>({});
+  const { branchRevision, isReady } = useBranch();
 
-  // Load user role and branch on mount
   useEffect(() => {
     loadUserData();
   }, []);
@@ -71,15 +73,6 @@ export default function AdminCouponsScreen() {
       if (stored) {
         const parsed = JSON.parse(stored);
         setUserRole(parsed.role || '');
-        // Get manager's assigned branch
-        const branchData = parsed.assignedBranch || parsed.branch;
-        if (branchData) {
-          setAssignedBranch({
-            _id: branchData._id || branchData.branchId || parsed.branchId,
-            name: branchData.name || branchData.branchName || 'My Branch',
-            code: branchData.code || branchData.branchCode || ''
-          });
-        }
       }
     } catch (error) {
       console.error('Error loading user data:', error);
@@ -90,18 +83,21 @@ export default function AdminCouponsScreen() {
     { name: t('nav.notifications'), icon: 'notifications-outline', screen: 'AdminNotifications' },
     { name: 'Table Assignment', icon: 'grid-outline', screen: 'TableAssignment' },
     // Only show Branches for SUPER_ADMIN
-    ...(userRole === 'SUPER_ADMIN' ? [{ name: t('nav.branches'), icon: 'business-outline', screen: 'AdminBranches' }] : []),
+    ...(isAdminRole(userRole) ? [{ name: t('nav.branches'), icon: 'business-outline', screen: 'AdminBranches' }] : []),
     { name: t('nav.deals'), icon: 'pricetag-outline', screen: 'AdminDeals' },
     { name: t('nav.coupons'), icon: 'ticket-outline', screen: 'AdminCoupons' },
     { name: t('nav.productSizes'), icon: 'resize-outline', screen: 'AdminProductSizes' },
     { name: t('nav.categories'), icon: 'grid-outline', screen: 'AdminCategories' },
     { name: t('nav.reports'), icon: 'bar-chart-outline', screen: 'AdminReports' },
-    { name: t('nav.settings'), icon: 'settings-outline', screen: 'AdminSettings' },
+    ...(isAdminRole(userRole)
+      ? [{ name: t('nav.settings'), icon: 'settings-outline', screen: 'AdminSettings' }]
+      : []),
   ];
 
   useEffect(() => {
+    if (!isReady) return;
     loadCoupons();
-  }, []);
+  }, [isReady, branchRevision]);
 
   const loadCoupons = async () => {
     try {
@@ -187,22 +183,7 @@ export default function AdminCouponsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        {/* Branch Info */}
-        <View style={styles.branchInfoContainer}>
-          <View style={styles.branchInfo}>
-            <Ionicons name="business-outline" size={18} color="#E87E35" />
-            <Text style={styles.branchInfoText}>
-              {userRole === 'ADMIN' || userRole === 'SUPER_ADMIN'
-                ? 'All Branches'
-                : (assignedBranch.name || 'Loading Branch...')}
-            </Text>
-            {userRole !== 'ADMIN' && userRole !== 'SUPER_ADMIN' && assignedBranch.code && (
-              <View style={styles.branchCodeBadge}>
-                <Text style={styles.branchCodeText}>{assignedBranch.code}</Text>
-              </View>
-            )}
-          </View>
-        </View>
+        <GlobalBranchBar />
 
         {/* Stats */}
         <View style={styles.statsRow}>
@@ -347,10 +328,7 @@ export default function AdminCouponsScreen() {
           // @ts-ignore
           navigation.navigate('Welcome');
         }}
-        onChangePassword={() => {
-          // @ts-ignore
-          navigation.navigate('ChangePassword');
-        }}
+        navigation={navigation}
       />
     </View>
   );

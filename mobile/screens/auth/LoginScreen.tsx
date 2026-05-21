@@ -18,7 +18,9 @@ import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '../../components/api/client';
 import { Ionicons } from '@expo/vector-icons';
-import { initializeSocket } from '../../services/realtimeService';
+import { initializeSocket, subscribeToNotifications } from '../../services/realtimeService';
+import { handleNotificationByType } from '../../services/notificationHandler';
+import { getDashboardRouteForRole } from '../../utils/permissionHelpers';
 import Toast from 'react-native-toast-message';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -47,7 +49,9 @@ export default function LoginScreen() {
       });
 
       if (response.success && response.data) {
-        await AsyncStorage.setItem('authToken', response.data.tokens.accessToken);
+        const { accessToken, refreshToken } = response.data.tokens;
+        const { setAuthTokens } = await import('../../utils/secureAuthStorage');
+        await setAuthTokens(accessToken, refreshToken);
         await AsyncStorage.setItem('userRole', response.data.user.role);
         await AsyncStorage.setItem('userData', JSON.stringify(response.data.user));
 
@@ -58,7 +62,10 @@ export default function LoginScreen() {
         if (userId && userRole) {
           console.log('[LoginScreen] Initializing WebSocket for user:', userId, 'role:', userRole);
           initializeSocket(userId.toString(), userRole, response.data.tokens.accessToken);
-          
+          subscribeToNotifications((notification) => {
+            handleNotificationByType(notification);
+          });
+
           Toast.show({
             type: 'success',
             text1: 'Welcome back!',
@@ -67,35 +74,7 @@ export default function LoginScreen() {
           });
         }
 
-        // Navigate to appropriate dashboard based on user role
-        const role = response.data.user.role;
-        let dashboardName = 'CustomerDashboard';
-
-        switch (role) {
-          case 'SUPER_ADMIN':
-            dashboardName = 'SuperAdminDashboard';
-            break;
-          case 'ADMIN':
-            dashboardName = 'AdminDashboard';
-            break;
-          case 'BRANCH_MANAGER':
-            dashboardName = 'ManagerTabs';
-            break;
-          case 'CHEF':
-            dashboardName = 'ChefDashboard';
-            break;
-          case 'WAITER':
-            dashboardName = 'WaiterDashboard';
-            break;
-          case 'RIDER':
-            dashboardName = 'RiderDashboard';
-            break;
-          case 'CUSTOMER':
-          default:
-            dashboardName = 'CustomerDashboard';
-            break;
-        }
-
+        const dashboardName = getDashboardRouteForRole(response.data.user.role);
         // @ts-ignore
         navigation.navigate(dashboardName);
       } else {

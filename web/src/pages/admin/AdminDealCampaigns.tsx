@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -37,6 +37,7 @@ import {
 } from '@mui/icons-material';
 import { api } from '../../services/api';
 import { useSettings } from '../../context/SettingsContext';
+import { useRealtimeRefresh } from '../../hooks/useRealtimeRefresh';
 
 
 interface DealProductItem {
@@ -226,6 +227,14 @@ const AdminDealCampaigns: React.FC = () => {
       setLoading(false);
     }
   };
+
+  const loadCampaignsStable = useCallback(() => {
+    void loadCampaigns();
+  }, []);
+
+  useRealtimeRefresh(loadCampaignsStable, {
+    matchTypes: ['DEAL', 'PROMOTION', 'ORDER', 'NOTIFICATION'],
+  });
 
   const loadCategories = async () => {
     try {

@@ -25,10 +25,25 @@ import { getSpacing } from '../../utils/responsive';
 import ResponsiveHeader from '../../components/layout/ResponsiveHeader';
 import ProfileMenu from '../../components/common/ProfileMenu';
 import AdminBottomNavigation from '../../components/navigation/AdminBottomNavigation';
+import { isAdminRole } from '../../utils/permissionHelpers';
+import { useBranch } from '../../context/BranchContext';
+import { useSettings } from '../../context/SettingsContext';
+import GlobalBranchBar from '../../components/admin/GlobalBranchBar';
+import { shareCsvReport } from '../../utils/reportExport';
+import { navigateToTabScreen } from '../../utils/navigateToOrder';
+import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import { useRealtimeRefresh } from '../../hooks/useRealtimeRefresh';
 
 const { width } = Dimensions.get('window');
 
-type PeriodTab = 'today' | 'month';
+type PeriodFilter = 'today' | '7d' | '30d' | 'custom';
+
+const toDateString = (d: Date) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
 
 interface ReportData {
   totalOrders: number;
@@ -65,13 +80,23 @@ export default function AdminReportsScreen() {
   const { t } = useLocalization();
   const [loading, setLoading] = useState(true);
   const [reportData, setReportData] = useState<ReportData | null>(null);
-  const [activeTab, setActiveTab] = useState<PeriodTab>('month');
+  const [periodFilter, setPeriodFilter] = useState<PeriodFilter>('30d');
+  const [customStartDate, setCustomStartDate] = useState(() =>
+    toDateString(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000))
+  );
+  const [customEndDate, setCustomEndDate] = useState(() => toDateString(new Date()));
+  const [showStartDatePicker, setShowStartDatePicker] = useState(false);
+  const [showEndDatePicker, setShowEndDatePicker] = useState(false);
+  const [tempStartDate, setTempStartDate] = useState(new Date());
+  const [tempEndDate, setTempEndDate] = useState(new Date());
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [userRole, setUserRole] = useState<string>('');
-  const [assignedBranch, setAssignedBranch] = useState<{_id?: string; name?: string; code?: string}>({});
+  const { getApiBranchParam, branchRevision, isReady, selectedBranchName } = useBranch();
+  const { formatPrice } = useSettings();
   const [profileImage, setProfileImage] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
 
   // Get parent tab navigation for bottom nav (undefined for stack screens)
   const tabNavigation = navigation.getParent();
@@ -88,15 +113,6 @@ export default function AdminReportsScreen() {
         const parsed = JSON.parse(stored);
         setUserRole(parsed.role || '');
         setProfileImage(parsed.image || parsed.profileImage || parsed.avatar || '');
-        // Get manager's assigned branch
-        const branchData = parsed.assignedBranch || parsed.branch;
-        if (branchData) {
-          setAssignedBranch({
-            _id: branchData._id || branchData.branchId || parsed.branchId,
-            name: branchData.name || branchData.branchName || 'My Branch',
-            code: branchData.code || branchData.branchCode || ''
-          });
-        }
       }
     } catch (error) {
       console.error('Error loading user role:', error);
@@ -107,86 +123,193 @@ export default function AdminReportsScreen() {
     { name: t('nav.notifications'), icon: 'notifications-outline', screen: 'AdminNotifications' },
     { name: 'Table Assignment', icon: 'grid-outline', screen: 'TableAssignment' },
     // Only show Branches for SUPER_ADMIN
-    ...(userRole === 'SUPER_ADMIN' ? [{ name: t('nav.branches'), icon: 'business-outline', screen: 'AdminBranches' }] : []),
+    ...(isAdminRole(userRole) ? [{ name: t('nav.branches'), icon: 'business-outline', screen: 'AdminBranches' }] : []),
     { name: t('nav.deals'), icon: 'pricetag-outline', screen: 'AdminDeals' },
     { name: t('nav.coupons'), icon: 'ticket-outline', screen: 'AdminCoupons' },
     { name: t('nav.productSizes'), icon: 'resize-outline', screen: 'AdminProductSizes' },
     { name: t('nav.categories'), icon: 'grid-outline', screen: 'AdminCategories' },
     { name: t('nav.reports'), icon: 'bar-chart-outline', screen: 'AdminReports' },
-    { name: t('nav.settings'), icon: 'settings-outline', screen: 'AdminSettings' },
+    ...(isAdminRole(userRole)
+      ? [{ name: t('nav.settings'), icon: 'settings-outline', screen: 'AdminSettings' }]
+      : []),
   ];
 
   useEffect(() => {
+    if (!isReady) return;
+    if (periodFilter === 'custom') return;
     loadReports();
-  }, [activeTab]);
+  }, [periodFilter, isReady, branchRevision]);
+
+  useRealtimeRefresh(
+    () => {
+      if (isReady) loadReports();
+    },
+    { enabled: isReady, matchTypes: ['ORDER', 'PAYMENT'] }
+  );
+
+  const getRangeParam = () => {
+    if (periodFilter === 'today') return '1d';
+    if (periodFilter === '7d') return '7d';
+    return '30d';
+  };
+
+  const parseAnalyticsPayload = (payload: unknown): ReportData | null => {
+    if (!payload || typeof payload !== 'object') return null;
+    const data = payload as Record<string, unknown>;
+    const nested = data.data;
+    const source =
+      nested && typeof nested === 'object' && 'totalOrders' in (nested as object)
+        ? (nested as ReportData)
+        : (data as unknown as ReportData);
+    if (typeof source.totalOrders !== 'number' && typeof source.totalRevenue !== 'number') {
+      return null;
+    }
+    return {
+      totalOrders: Number(source.totalOrders || 0),
+      totalRevenue: Number(source.totalRevenue || 0),
+      averageOrderValue: Number(source.averageOrderValue || 0),
+      topRestaurants: Array.isArray(source.topRestaurants) ? source.topRestaurants : [],
+      revenueByMonth: Array.isArray(source.revenueByMonth) ? source.revenueByMonth : [],
+      userGrowth: Array.isArray(source.userGrowth) ? source.userGrowth : [],
+      orderStatusDistribution: source.orderStatusDistribution || {
+        PENDING: 0,
+        CONFIRMED: 0,
+        PREPARING: 0,
+        READY: 0,
+        OUT_FOR_DELIVERY: 0,
+        DELIVERED: 0,
+        CANCELLED: 0,
+      },
+    };
+  };
+
+  const buildReportsUrl = (role: string, exportMode = false) => {
+    const base =
+      role === 'BRANCH_MANAGER'
+        ? exportMode
+          ? '/dashboard/manager/analytics/export'
+          : '/dashboard/manager/analytics'
+        : exportMode
+          ? '/dashboard/admin/analytics/export'
+          : '/dashboard/admin/analytics';
+
+    let url: string;
+    if (periodFilter === 'custom') {
+      url = `${base}?range=custom&startDate=${encodeURIComponent(customStartDate)}&endDate=${encodeURIComponent(customEndDate)}`;
+    } else {
+      url = `${base}?range=${getRangeParam()}`;
+    }
+    const branchId = getApiBranchParam();
+    if (branchId && role !== 'BRANCH_MANAGER') {
+      url += `&branchId=${encodeURIComponent(branchId)}`;
+    }
+    return url;
+  };
 
   const loadReports = async () => {
     try {
       setLoading(true);
       setError(null);
-      // Get user data for branch manager filtering
-      const stored = await AsyncStorage.getItem('userData');
-      let branchId = '';
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        const branchData = parsed.assignedBranch || parsed.branch;
-        branchId = branchData?._id || branchData?.branchId || parsed.branchId || '';
-      }
-      
-      // Use manager-specific endpoint for BRANCH_MANAGER role
       const userRoleRaw = await AsyncStorage.getItem('userRole');
-      const userRole = (userRoleRaw || '').toUpperCase();
-      const endpoint = userRole === 'BRANCH_MANAGER'
-        ? `/dashboard/manager/analytics?range=${activeTab === 'today' ? '1d' : '30d'}`
-        : `/dashboard/admin/analytics?range=${activeTab === 'today' ? '1d' : '30d'}`;
-      
-      let url = endpoint;
-      if (branchId && userRole !== 'BRANCH_MANAGER') {
-        url += `&branchId=${branchId}`;
-      }
-      
+      const role = (userRoleRaw || '').toUpperCase();
+      const url = buildReportsUrl(role);
+
       console.log('[Reports] Fetching:', url);
       const response = await api.get(url);
-      console.log('[Reports] Response:', JSON.stringify(response, null, 2));
-      
-      if (response.success && response.data) {
-        setReportData(response.data);
+
+      if (response.success) {
+        const parsed = parseAnalyticsPayload(response.data ?? response);
+        if (parsed) {
+          setReportData(parsed);
+        } else {
+          setError('Invalid report data from server');
+          setReportData(null);
+        }
       } else {
-        setError('Failed to load reports');
+        setError(response.message || 'Failed to load reports');
         setReportData(null);
       }
-    } catch (error: any) {
-      console.error('Error loading reports:', error);
-      setError(error.message || 'Failed to load reports');
+    } catch (err: any) {
+      console.error('Error loading reports:', err);
+      setError(err.message || 'Failed to load reports');
       setReportData(null);
     } finally {
       setLoading(false);
     }
   };
 
-  const renderTab = (tab: PeriodTab, label: string) => {
-    const isActive = activeTab === tab;
+  const downloadReport = async () => {
+    try {
+      setDownloading(true);
+      const userRoleRaw = await AsyncStorage.getItem('userRole');
+      const role = (userRoleRaw || '').toUpperCase();
+      const url = buildReportsUrl(role, true);
+      const response = await api.get<{ csv?: string; fileName?: string }>(url);
+
+      if (!response.success) {
+        throw new Error(response.message || 'Export failed');
+      }
+
+      const payload = (response.data || {}) as { csv?: string; fileName?: string };
+      const csv = payload.csv;
+      if (!csv) {
+        throw new Error('No export data returned');
+      }
+
+      const fileName =
+        payload.fileName ||
+        `report-${periodFilter}-${selectedBranchName || 'branch'}.csv`.replace(/\s+/g, '-');
+
+      await shareCsvReport(csv, fileName);
+    } catch (err: any) {
+      console.error('[Reports] Download error:', err);
+      Alert.alert('Download failed', err?.message || 'Could not export report');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const renderPeriodTab = (tab: PeriodFilter, label: string) => {
+    const isActive = periodFilter === tab;
     return (
       <TouchableOpacity
         style={[styles.tab, isActive && styles.tabActive]}
-        onPress={() => setActiveTab(tab)}
+        onPress={() => setPeriodFilter(tab)}
       >
-        <Text style={[styles.tabText, isActive && styles.tabTextActive]}>
+        <Text style={[styles.tabText, isActive && styles.tabTextActive]} numberOfLines={1}>
           {label}
         </Text>
       </TouchableOpacity>
     );
   };
 
+  const applyCustomRange = () => {
+    if (customStartDate > customEndDate) {
+      Alert.alert('Invalid range', 'Start date must be on or before end date.');
+      return;
+    }
+    loadReports();
+  };
+
+  const newUsersInPeriod = (reportData?.userGrowth || []).reduce((sum, row) => sum + (row.users || 0), 0);
+
+  const statusEntries = Object.entries(reportData?.orderStatusDistribution || {}).filter(
+    ([, count]) => (count as number) > 0
+  );
+
   // Helper function to get color for order status
   const getStatusColor = (status: string): string => {
     const colors: { [key: string]: string } = {
       PENDING: '#FFC107',
-      CONFIRMED: '#2196F3',
+      KITCHEN_ACCEPTED: '#2196F3',
       PREPARING: '#FF9800',
       READY: '#9C27B0',
+      RIDER_ASSIGNED: '#7E57C2',
+      PICKED_UP: '#5C6BC0',
       OUT_FOR_DELIVERY: '#00BCD4',
       DELIVERED: '#4CAF50',
+      SERVED: '#66BB6A',
+      COMPLETED: '#2E7D32',
       CANCELLED: '#F44336',
     };
     return colors[status] || '#999';
@@ -288,7 +411,7 @@ export default function AdminReportsScreen() {
 
         <View style={styles.loadingContainer}>
           <Ionicons name="bar-chart-outline" size={64} color="#ccc" />
-          <Text style={styles.loadingText}>Failed to load reports</Text>
+          <Text style={styles.loadingText}>{error || 'Failed to load reports'}</Text>
           <TouchableOpacity style={styles.retryButton} onPress={loadReports}>
             <Text style={styles.retryButtonText}>Retry</Text>
           </TouchableOpacity>
@@ -317,32 +440,158 @@ export default function AdminReportsScreen() {
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={loading} onRefresh={loadReports} tintColor="#E87E35" />
+        }
       >
-        {/* Branch Info */}
-        <View style={styles.branchInfoContainer}>
-          <View style={styles.branchInfo}>
-            <Ionicons name="business-outline" size={18} color="#E87E35" />
-            <Text style={styles.branchInfoText}>
-              {userRole === 'ADMIN' || userRole === 'SUPER_ADMIN'
-                ? 'All Branches'
-                : (assignedBranch.name || 'Loading Branch...')}
-            </Text>
-            {userRole !== 'ADMIN' && userRole !== 'SUPER_ADMIN' && assignedBranch.code && (
-              <View style={styles.branchCodeBadge}>
-                <Text style={styles.branchCodeText}>{assignedBranch.code}</Text>
-              </View>
-            )}
-          </View>
-        </View>
+        <GlobalBranchBar />
 
-        {/* Tabs and Download */}
+        {/* Period filters and download */}
         <View style={styles.tabsContainer}>
-          {renderTab('today', 'Today')}
-          {renderTab('month', 'Month')}
-          <TouchableOpacity style={styles.filterButton}>
-            <Ionicons name="cloud-download-outline" size={20} color="#666" />
+          {renderPeriodTab('today', 'Today')}
+          {renderPeriodTab('7d', '7D')}
+          {renderPeriodTab('30d', '30D')}
+          {renderPeriodTab('custom', 'Custom')}
+          <TouchableOpacity
+            style={styles.filterButton}
+            onPress={downloadReport}
+            disabled={downloading || !reportData}
+          >
+            {downloading ? (
+              <ActivityIndicator size="small" color="#E87E35" />
+            ) : (
+              <Ionicons name="cloud-download-outline" size={20} color="#666" />
+            )}
           </TouchableOpacity>
         </View>
+
+        {periodFilter === 'custom' && (
+          <View style={styles.dateFilterCard}>
+            <View style={styles.dateFilterRow}>
+              <Text style={styles.dateFilterLabel}>From</Text>
+              <TouchableOpacity
+                style={styles.dateInput}
+                onPress={() => {
+                  setTempStartDate(new Date(`${customStartDate}T12:00:00`));
+                  setShowStartDatePicker(true);
+                }}
+              >
+                <Text style={styles.dateInputText}>{customStartDate}</Text>
+                <Ionicons name="calendar-outline" size={18} color="#666" />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.dateFilterRow}>
+              <Text style={styles.dateFilterLabel}>To</Text>
+              <TouchableOpacity
+                style={styles.dateInput}
+                onPress={() => {
+                  setTempEndDate(new Date(`${customEndDate}T12:00:00`));
+                  setShowEndDatePicker(true);
+                }}
+              >
+                <Text style={styles.dateInputText}>{customEndDate}</Text>
+                <Ionicons name="calendar-outline" size={18} color="#666" />
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity style={styles.applyRangeButton} onPress={applyCustomRange}>
+              <Text style={styles.applyRangeButtonText}>Apply range</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {Platform.OS !== 'ios' && showStartDatePicker && (
+          <DateTimePicker
+            value={tempStartDate}
+            mode="date"
+            display="default"
+            maximumDate={new Date(`${customEndDate}T23:59:59`)}
+            onChange={(event: DateTimePickerEvent, selectedDate?: Date) => {
+              setShowStartDatePicker(false);
+              if (event.type === 'set' && selectedDate) {
+                setCustomStartDate(toDateString(selectedDate));
+              }
+            }}
+          />
+        )}
+
+        {Platform.OS !== 'ios' && showEndDatePicker && (
+          <DateTimePicker
+            value={tempEndDate}
+            mode="date"
+            display="default"
+            minimumDate={new Date(`${customStartDate}T00:00:00`)}
+            maximumDate={new Date()}
+            onChange={(event: DateTimePickerEvent, selectedDate?: Date) => {
+              setShowEndDatePicker(false);
+              if (event.type === 'set' && selectedDate) {
+                setCustomEndDate(toDateString(selectedDate));
+              }
+            }}
+          />
+        )}
+
+        {Platform.OS === 'ios' && (
+          <Modal visible={showStartDatePicker} transparent animationType="fade" onRequestClose={() => setShowStartDatePicker(false)}>
+            <View style={styles.iosPickerOverlay}>
+              <View style={styles.iosPickerContainer}>
+                <View style={styles.iosPickerHeader}>
+                  <TouchableOpacity onPress={() => setShowStartDatePicker(false)}>
+                    <Text style={styles.iosPickerAction}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setCustomStartDate(toDateString(tempStartDate));
+                      setShowStartDatePicker(false);
+                    }}
+                  >
+                    <Text style={[styles.iosPickerAction, styles.iosPickerActionPrimary]}>Done</Text>
+                  </TouchableOpacity>
+                </View>
+                <DateTimePicker
+                  value={tempStartDate}
+                  mode="date"
+                  display="spinner"
+                  maximumDate={new Date(`${customEndDate}T23:59:59`)}
+                  onChange={(_, selectedDate) => {
+                    if (selectedDate) setTempStartDate(selectedDate);
+                  }}
+                />
+              </View>
+            </View>
+          </Modal>
+        )}
+
+        {Platform.OS === 'ios' && (
+          <Modal visible={showEndDatePicker} transparent animationType="fade" onRequestClose={() => setShowEndDatePicker(false)}>
+            <View style={styles.iosPickerOverlay}>
+              <View style={styles.iosPickerContainer}>
+                <View style={styles.iosPickerHeader}>
+                  <TouchableOpacity onPress={() => setShowEndDatePicker(false)}>
+                    <Text style={styles.iosPickerAction}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setCustomEndDate(toDateString(tempEndDate));
+                      setShowEndDatePicker(false);
+                    }}
+                  >
+                    <Text style={[styles.iosPickerAction, styles.iosPickerActionPrimary]}>Done</Text>
+                  </TouchableOpacity>
+                </View>
+                <DateTimePicker
+                  value={tempEndDate}
+                  mode="date"
+                  display="spinner"
+                  minimumDate={new Date(`${customStartDate}T00:00:00`)}
+                  maximumDate={new Date()}
+                  onChange={(_, selectedDate) => {
+                    if (selectedDate) setTempEndDate(selectedDate);
+                  }}
+                />
+              </View>
+            </View>
+          </Modal>
+        )}
 
         {/* Revenue Chart */}
         <RevenueChart />
@@ -352,10 +601,10 @@ export default function AdminReportsScreen() {
           {/* Total Revenue Card */}
           <View style={[styles.statCard, { backgroundColor: '#2E7D52' }]}>
             <Text style={styles.statLabel}>Total Revenue</Text>
-            <Text style={styles.statValue}>${(reportData?.totalRevenue || 0).toLocaleString()}</Text>
+            <Text style={styles.statValue}>{formatPrice(reportData?.totalRevenue || 0)}</Text>
             <View style={styles.changeRow}>
               <Ionicons name="cash-outline" size={12} color="#4CAF50" />
-              <Text style={styles.changeText}>Avg: ${(reportData?.averageOrderValue || 0).toLocaleString()}</Text>
+              <Text style={styles.changeText}>Avg: {formatPrice(reportData?.averageOrderValue || 0)}</Text>
             </View>
           </View>
 
@@ -372,7 +621,7 @@ export default function AdminReportsScreen() {
           {/* User Growth Card */}
           <View style={[styles.statCard, { backgroundColor: '#2196F3' }]}>
             <Text style={styles.statLabel}>User Growth</Text>
-            <Text style={styles.statValue}>{(reportData?.userGrowth || []).length}</Text>
+            <Text style={styles.statValue}>{newUsersInPeriod.toLocaleString()}</Text>
             <View style={styles.changeRow}>
               <Ionicons name="people-outline" size={12} color="#81D4FA" />
               <Text style={[styles.changeText, { color: '#81D4FA' }]}>New users</Text>
@@ -382,7 +631,7 @@ export default function AdminReportsScreen() {
 
         {/* Top Restaurants Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Top Restaurants</Text>
+          <Text style={styles.sectionTitle}>Top Branches</Text>
           {(reportData?.topRestaurants || []).length === 0 ? (
             <Text style={{ color: '#999', padding: 20, textAlign: 'center' }}>No restaurant data available</Text>
           ) : (
@@ -395,7 +644,7 @@ export default function AdminReportsScreen() {
                   <Text style={styles.itemName}>{item.name}</Text>
                   <Text style={styles.itemMeta}>{item.orders} orders</Text>
                 </View>
-                <Text style={styles.itemRevenue}>${item.revenue.toLocaleString()}</Text>
+                <Text style={styles.itemRevenue}>{formatPrice(item.revenue)}</Text>
               </View>
             ))
           )}
@@ -404,7 +653,10 @@ export default function AdminReportsScreen() {
         {/* Order Status Distribution */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Order Status</Text>
-          {reportData?.orderStatusDistribution && Object.entries(reportData.orderStatusDistribution).map(([status, count]) => (
+          {statusEntries.length === 0 ? (
+            <Text style={{ color: '#999', paddingVertical: 12 }}>No orders in this period</Text>
+          ) : (
+          statusEntries.map(([status, count]) => (
             <View key={status} style={styles.statusRow}>
               <Text style={styles.statusLabel}>{status.replace(/_/g, ' ')}</Text>
               <View style={styles.statusBar}>
@@ -415,7 +667,7 @@ export default function AdminReportsScreen() {
               </View>
               <Text style={styles.statusCount}>{count as number}</Text>
             </View>
-          ))}
+          )))}
         </View>
 
         <View style={styles.bottomSpacer} />
@@ -445,8 +697,22 @@ export default function AdminReportsScreen() {
                 style={styles.menuItem}
                 onPress={() => {
                   setShowMoreMenu(false);
-                  // @ts-ignore
-                  navigation.navigate(item.screen);
+                  const tabScreens = new Set([
+                    'ManagerDashboard',
+                    'Home',
+                    'AdminOrders',
+                    'AdminProducts',
+                    'AdminUsers',
+                    'AdminReports',
+                    'ManagerMenu',
+                    'BannerManagement',
+                  ]);
+                  if (tabScreens.has(item.screen) && tabNavigation) {
+                    // @ts-ignore
+                    tabNavigation.navigate(item.screen);
+                  } else {
+                    navigateToTabScreen(navigation as never, item.screen);
+                  }
                 }}
               >
                 <Ionicons name={item.icon as any} size={24} color="#E87E35" />
@@ -466,10 +732,7 @@ export default function AdminReportsScreen() {
           // @ts-ignore
           navigation.navigate('Welcome');
         }}
-        onChangePassword={() => {
-          // @ts-ignore
-          navigation.navigate('ChangePassword');
-        }}
+        navigation={navigation}
       />
     </View>
   );
@@ -546,6 +809,81 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 20,
   },
+  dateFilterCard: {
+    marginHorizontal: 20,
+    marginBottom: 16,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: '#f8f8f8',
+    borderWidth: 1,
+    borderColor: '#eee',
+  },
+  dateFilterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    gap: 10,
+  },
+  dateFilterLabel: {
+    width: 40,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#444',
+  },
+  dateInput: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  dateInputText: {
+    fontSize: 14,
+    color: '#1a1a2e',
+  },
+  applyRangeButton: {
+    marginTop: 4,
+    backgroundColor: '#E87E35',
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  applyRangeButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  iosPickerOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  iosPickerContainer: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+  },
+  iosPickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  iosPickerAction: {
+    fontSize: 16,
+    color: '#666',
+  },
+  iosPickerActionPrimary: {
+    color: '#E87E35',
+    fontWeight: '600',
+  },
   tabsContainer: {
     flexDirection: 'row',
     paddingHorizontal: 20,
@@ -555,7 +893,7 @@ const styles = StyleSheet.create({
   },
   tab: {
     paddingVertical: 8,
-    paddingHorizontal: 16,
+    paddingHorizontal: 10,
     borderRadius: 20,
     backgroundColor: '#f5f5f5',
   },
@@ -563,7 +901,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#E87E35',
   },
   tabText: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#666',
     fontWeight: '500',
   },

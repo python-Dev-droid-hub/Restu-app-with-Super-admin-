@@ -1,5 +1,11 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { resolveApiBaseUrl } from '../../utils/resolveApiBaseUrl';
+import {
+  clearAuthTokens,
+  getAccessToken,
+  getRefreshToken,
+  setAuthTokens,
+} from '../../utils/secureAuthStorage';
 
 const appConfig = require('../../app.json');
 
@@ -13,6 +19,7 @@ class ApiClient {
   private instance: AxiosInstance;
   private baseURL: string;
   private baseURLSource: string;
+  private refreshInFlight: Promise<boolean> | null = null;
   private buildRequestTarget(config: any, fallbackUrl: string): string {
     const baseURL = String(config?.baseURL || this.baseURL || '');
     const url = String(config?.url || fallbackUrl || '');
@@ -25,96 +32,22 @@ class ApiClient {
   }
 
   constructor() {
-    const normalizeApiUrl = (value?: string | null): string | null => {
-      const trimmedValue = String(value || '').trim();
-      if (!trimmedValue) {
-        return null;
-      }
-
-      return trimmedValue.endsWith('/api')
-        ? trimmedValue
-        : `${trimmedValue.replace(/\/+$/, '')}/api`;
-    };
-
-    const PRODUCTION_API_FALLBACK = 'https://api.your-restaurant-app.com/api';
-
-    const isLocalOrPrivateNetworkUrl = (value: string): boolean => {
-      try {
-        const hostname = new URL(value).hostname.toLowerCase();
-        if (
-          hostname === 'localhost' ||
-          hostname === '127.0.0.1' ||
-          hostname === '::1' ||
-          hostname.endsWith('.local')
-        ) {
-          return true;
-        }
-
-        const octets = hostname.split('.').map((part) => Number(part));
-        if (octets.length !== 4 || octets.some((n) => Number.isNaN(n) || n < 0 || n > 255)) {
-          return false;
-        }
-
-        const [a, b] = octets;
-        if (a === 10) return true;
-        if (a === 192 && b === 168) return true;
-        if (a === 172 && b >= 16 && b <= 31) return true;
-        if (a === 169 && b === 254) return true;
-
-        return false;
-      } catch {
-        return false;
-      }
-    };
-
-    const getConfiguredAppApiUrl = (): string | null => {
-      return normalizeApiUrl(appConfig?.expo?.extra?.apiUrl);
-    };
-
-    const resolveApiConfig = (): { url: string; source: string } => {
-      const configuredUrl = normalizeApiUrl(process.env.EXPO_PUBLIC_API_URL);
-      if (configuredUrl) {
-        if (!__DEV__ && isLocalOrPrivateNetworkUrl(configuredUrl)) {
-          // Ignore local/private URLs in release builds.
-        } else {
-        return { url: configuredUrl, source: 'EXPO_PUBLIC_API_URL' };
-        }
-      }
-
-      const configuredProductionUrl = normalizeApiUrl(process.env.EXPO_PUBLIC_API_URL_PRODUCTION);
-      if (configuredProductionUrl) {
-        if (!__DEV__ && isLocalOrPrivateNetworkUrl(configuredProductionUrl)) {
-          // Ignore local/private URLs in release builds.
-        } else {
-        return { url: configuredProductionUrl, source: 'EXPO_PUBLIC_API_URL_PRODUCTION' };
-        }
-      }
-
-      const appConfigUrl = getConfiguredAppApiUrl();
-      if (appConfigUrl) {
-        if (!__DEV__ && isLocalOrPrivateNetworkUrl(appConfigUrl)) {
-          // Ignore local/private URLs in release builds.
-        } else {
-        return { url: appConfigUrl, source: 'app.json extra.apiUrl' };
-        }
-      }
-
-      return { url: PRODUCTION_API_FALLBACK, source: 'default production fallback' };
-    };
-
-    const resolvedConfig = resolveApiConfig();
+    const resolvedConfig = resolveApiBaseUrl(appConfig?.expo?.extra?.apiUrl);
     this.baseURL = resolvedConfig.url;
     this.baseURLSource = resolvedConfig.source;
 
     if (__DEV__) {
       console.log('[API] Base URL:', this.baseURL);
       console.log('[API] Base URL source:', this.baseURLSource);
-      console.log('[API] Host sources:', {
-        env: process.env.EXPO_PUBLIC_API_URL || null,
-        envProd: process.env.EXPO_PUBLIC_API_URL_PRODUCTION || null,
-        appConfig: appConfig?.expo?.extra?.apiUrl || null,
+      console.log('[API] Mode:', resolvedConfig.mode);
+      console.log('[API] Env:', {
+        apiTarget: process.env.EXPO_PUBLIC_API_TARGET || 'local',
+        devUrl: process.env.EXPO_PUBLIC_API_URL || '(auto from Expo Metro IP)',
+        devPort: process.env.EXPO_PUBLIC_API_DEV_PORT || '3101',
+        prodUrl: process.env.EXPO_PUBLIC_API_URL_PRODUCTION || null,
+        appEnv: process.env.EXPO_PUBLIC_APP_ENV || '(unset)',
       });
-      console.log('[API] Environment:', __DEV__ ? 'development' : 'production');
+      this.logDevServerReachability();
     }
 
     this.instance = axios.create({
@@ -128,7 +61,7 @@ class ApiClient {
     // Request interceptor to add auth token
     this.instance.interceptors.request.use(
       async (config: any) => {
-        const token = await AsyncStorage.getItem('authToken');
+        const token = await getAccessToken();
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
         }
@@ -158,17 +91,70 @@ class ApiClient {
             error.config?.baseURL || this.baseURL
           );
         }
-        if (error.response?.status === 401) {
-          await AsyncStorage.removeItem('authToken');
-          await AsyncStorage.removeItem('userRole');
+        const originalRequest = error.config;
+        if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
+          originalRequest._retry = true;
+          const refreshed = await this.tryRefreshToken();
+          if (refreshed) {
+            const token = await getAccessToken();
+            if (token) {
+              originalRequest.headers.Authorization = `Bearer ${token}`;
+            }
+            return this.instance(originalRequest);
+          }
+          await clearAuthTokens();
         }
         return Promise.reject(error);
       }
     );
   }
 
+  private async tryRefreshToken(): Promise<boolean> {
+    if (this.refreshInFlight) return this.refreshInFlight;
+    this.refreshInFlight = (async () => {
+      try {
+        const refreshToken = await getRefreshToken();
+        if (!refreshToken) return false;
+        const response = await axios.post(
+          `${this.baseURL}/auth/refresh`,
+          { refreshToken },
+          { timeout: 15000, headers: { 'Content-Type': 'application/json' } }
+        );
+        const data = response.data?.data || response.data;
+        const accessToken = data?.tokens?.accessToken || data?.accessToken;
+        const newRefresh = data?.tokens?.refreshToken || data?.refreshToken;
+        if (!accessToken) return false;
+        await setAuthTokens(accessToken, newRefresh || refreshToken);
+        return true;
+      } catch {
+        return false;
+      } finally {
+        this.refreshInFlight = null;
+      }
+    })();
+    return this.refreshInFlight;
+  }
+
   getBaseURL(): string {
     return this.baseURL;
+  }
+
+  private async logDevServerReachability(): Promise<void> {
+    const healthUrl = this.baseURL.replace(/\/api\/?$/, '/health');
+    try {
+      const response = await fetch(healthUrl, { method: 'GET' });
+      if (response.ok) {
+        console.log('[API] Backend reachable:', healthUrl);
+        return;
+      }
+      console.warn('[API] Backend responded with HTTP', response.status, '|', healthUrl);
+    } catch {
+      console.error(
+        '[API] Cannot reach backend at',
+        healthUrl,
+        '— start server: cd server && pnpm dev (PORT must match EXPO_PUBLIC_API_DEV_PORT, default 3101)'
+      );
+    }
   }
 
   async get<T = any>(url: string): Promise<ApiResponse<T>> {

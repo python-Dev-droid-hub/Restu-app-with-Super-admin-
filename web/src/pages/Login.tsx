@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
+import { setAuthSession } from '../utils/authStorage';
 import './Login.css';
 
 export function Login() {
@@ -10,14 +11,21 @@ export function Login() {
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
 
-  const waitForAuthToken = async (maxWaitMs: number) => {
-    const startedAt = Date.now();
-    while (Date.now() - startedAt < maxWaitMs) {
-      const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
-      if (token) return token;
-      await new Promise((r) => setTimeout(r, 50));
+  const redirectByRole = (roleRaw: string) => {
+    const role = String(roleRaw || '').trim().toUpperCase();
+    if (role === 'ADMIN' || role === 'SUPER_ADMIN') {
+      navigate('/admin/dashboard');
+    } else if (role === 'BRANCH_MANAGER') {
+      navigate('/manager/dashboard');
+    } else if (role === 'CHEF') {
+      navigate('/chef/dashboard');
+    } else if (role === 'WAITER') {
+      navigate('/waiter');
+    } else if (role === 'RIDER') {
+      navigate('/rider');
+    } else {
+      navigate('/customer');
     }
-    return null;
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -28,103 +36,55 @@ export function Login() {
     setError(null);
 
     try {
-      localStorage.removeItem('userRole');
-      localStorage.removeItem('userData');
       const result: any = await api.post('/auth/login', { email, password });
       if (!result?.success) {
         setError(result?.message || 'Login failed. Please check your credentials.');
-        setIsLoading(false);
         return;
       }
 
-      // Store auth token immediately
-      const accessToken = result?.data?.tokens?.accessToken || result?.data?.token;
-      if (accessToken) {
-        localStorage.setItem('auth_token', accessToken);
-        localStorage.setItem('authToken', accessToken);
+      const tokens = result?.data?.tokens;
+      const accessToken =
+        tokens?.accessToken || result?.data?.token || result?.accessToken || result?.token;
+
+      if (!accessToken) {
+        setError('Login succeeded but no access token was returned.');
+        return;
       }
 
-      console.log('Login result:', result);
+      setAuthSession(accessToken, tokens?.refreshToken);
 
-      // Persist user data for web pages that depend on it
-      const user = result?.data?.user || result?.user || result?.data;
+      const user = result?.data?.user || result?.user;
       if (user && typeof user === 'object') {
         localStorage.setItem('userData', JSON.stringify(user));
-        if ((user as any)?._id || (user as any)?.id) {
-          localStorage.setItem('userId', String((user as any)?._id || (user as any)?.id));
+        if (user._id || user.id) {
+          localStorage.setItem('userId', String(user._id || user.id));
         }
-        if (user?.role) {
+        if (user.role) {
           localStorage.setItem('userRole', String(user.role));
+          redirectByRole(user.role);
+          return;
         }
-      }
-
-      // Fallback token storage
-      const token = result?.data?.tokens?.accessToken || result?.tokens?.accessToken || result?.accessToken || result?.token;
-      if (token && !localStorage.getItem('auth_token')) {
-        localStorage.setItem('auth_token', String(token));
-      }
-
-      const storedToken = await waitForAuthToken(1000);
-      if (!storedToken) {
-        console.error('Login succeeded but no auth token was persisted; refusing to navigate to authenticated routes');
-        return;
       }
 
       const meRes: any = await api.get('/auth/me');
       if (meRes?.success && meRes?.data) {
         localStorage.setItem('userData', JSON.stringify(meRes.data));
-        if ((meRes.data as any)?._id || (meRes.data as any)?.id) {
-          localStorage.setItem('userId', String((meRes.data as any)?._id || (meRes.data as any)?.id));
+        if (meRes.data._id || meRes.data.id) {
+          localStorage.setItem('userId', String(meRes.data._id || meRes.data.id));
         }
-        if ((meRes.data as any)?.role) {
-          localStorage.setItem('userRole', String((meRes.data as any).role));
+        if (meRes.data.role) {
+          localStorage.setItem('userRole', String(meRes.data.role));
+          redirectByRole(meRes.data.role);
+          return;
         }
       }
 
-      // Extract user role from login result or wait for it to be available
-      const checkUserRole = () => {
-        // Prefer userData.role (authoritative), then fall back to userRole key
-        let userRole = '';
-        try {
-          const rawUser = localStorage.getItem('userData');
-          const parsed = rawUser ? JSON.parse(rawUser) : null;
-          userRole = String(parsed?.role || '');
-        } catch {
-          userRole = '';
-        }
-        if (!userRole) {
-          userRole = localStorage.getItem('userRole') || '';
-        }
-
-        // If not found, try to extract from login result or auth state
-        if (!userRole && result && typeof result === 'object' && (result.data?.user?.role || result.user?.role)) {
-          userRole = result.data?.user?.role || result.user?.role;
-          if (userRole) {
-            localStorage.setItem('userRole', userRole);
-          }
-        }
-
-        const normalizedRole = String(userRole || '').trim().toUpperCase();
-        console.log('Final user role:', normalizedRole);
-
-        // Handle role-based redirection
-        if (normalizedRole === 'ADMIN' || normalizedRole === 'SUPER_ADMIN') {
-          navigate('/admin/dashboard');
-        } else if (normalizedRole === 'BRANCH_MANAGER') {
-          navigate('/manager/dashboard');
-        } else if (normalizedRole === 'CHEF') {
-          navigate('/chef/dashboard');
-        } else if (normalizedRole === 'WAITER') {
-          navigate('/waiter');
-        } else if (normalizedRole === 'RIDER') {
-          navigate('/rider');
-        } else {
-          navigate('/customer');
-        }
-      };
-
-      // Check immediately, then retry after a short delay
-      checkUserRole();
+      const role = localStorage.getItem('userRole') || '';
+      if (role) {
+        redirectByRole(role);
+      } else {
+        setError('Logged in but could not determine your role. Contact support.');
+      }
     } catch (err: any) {
       console.error('Login error:', err);
       setError(err?.message || 'Login failed. Please try again.');

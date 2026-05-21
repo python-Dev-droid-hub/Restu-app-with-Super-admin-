@@ -22,6 +22,20 @@ export interface Notification {
   };
 }
 
+const isApiSuccess = (response: any): boolean => {
+  if (!response) return false;
+  if (response.success === true) return true;
+  if (response.statusCode >= 200 && response.statusCode < 300) return true;
+  const data = response.data;
+  if (data && (typeof data.modifiedCount === 'number' || typeof data.deletedCount === 'number')) {
+    return true;
+  }
+  return false;
+};
+
+const buildBranchQuery = (branchId?: string) =>
+  branchId ? `?branchId=${encodeURIComponent(branchId)}` : '';
+
 const normalizeNotification = (n: any): Notification => {
   const read =
     typeof n?.read === 'boolean'
@@ -144,6 +158,95 @@ export const deleteNotification = async (notificationId: string) => {
     return !!response.success;
   } catch (error) {
     console.error('Delete notification error:', error);
+    return false;
+  }
+};
+
+/**
+ * Admin notifications list (dashboard / admin tab)
+ */
+export const getAdminNotificationsList = async (limit = 50, branchId?: string) => {
+  try {
+    const params = new URLSearchParams();
+    params.append('limit', String(limit));
+    params.append('page', '1');
+    if (branchId) {
+      params.append('branchId', branchId);
+    }
+    const response: any = await api.get(`/notifications/admin?${params.toString()}`);
+    const responseData = response.data || response;
+    const raw = responseData.notifications || responseData.data?.notifications || [];
+    const normalized = (Array.isArray(raw) ? raw : []).map(normalizeNotification);
+    return {
+      success: isApiSuccess(response) || normalized.length > 0,
+      notifications: normalized,
+      total: responseData.pagination?.total ?? normalized.length,
+    };
+  } catch (error) {
+    console.error('[notificationService] Admin notifications error:', error);
+    return { success: false, notifications: [], total: 0 };
+  }
+};
+
+export const markAllAdminNotificationsAsRead = async (branchId?: string) => {
+  try {
+    const params = buildBranchQuery(branchId);
+    let response = await api.put(`/notifications/admin/mark-all-read${params}`);
+    if (!isApiSuccess(response)) {
+      response = await api.patch(`/notifications/admin/mark-all-read${params}`);
+    }
+    return isApiSuccess(response);
+  } catch (error) {
+    console.error('Mark all admin read error:', error);
+    return false;
+  }
+};
+
+export const clearAllAdminNotifications = async (branchId?: string) => {
+  try {
+    const params = buildBranchQuery(branchId);
+    const response = await api.delete(`/notifications/admin/clear-all${params}`);
+    return isApiSuccess(response);
+  } catch (error) {
+    console.error('Clear all admin notifications error:', error);
+    return false;
+  }
+};
+
+export const markAdminNotificationAsRead = async (
+  notificationId: string,
+  branchId?: string
+) => {
+  try {
+    const params = buildBranchQuery(branchId);
+    let response = await api.put(`/notifications/admin/${notificationId}/read${params}`);
+    if (!isApiSuccess(response)) {
+      response = await api.patch(`/notifications/admin/${notificationId}/read${params}`);
+    }
+    return isApiSuccess(response);
+  } catch (error) {
+    console.error('Mark admin notification read error:', error);
+    return false;
+  }
+};
+
+export const registerDeviceForPush = async (fcmToken: string) => {
+  try {
+    const response = await api.post('/notifications/register-device', { fcmToken, token: fcmToken });
+    return isApiSuccess(response);
+  } catch (error) {
+    console.error('[notificationService] register device error:', error);
+    return false;
+  }
+};
+
+export const deleteAdminNotification = async (notificationId: string, branchId?: string) => {
+  try {
+    const params = buildBranchQuery(branchId);
+    const response = await api.delete(`/notifications/admin/${notificationId}${params}`);
+    return isApiSuccess(response);
+  } catch (error) {
+    console.error('Delete admin notification error:', error);
     return false;
   }
 };

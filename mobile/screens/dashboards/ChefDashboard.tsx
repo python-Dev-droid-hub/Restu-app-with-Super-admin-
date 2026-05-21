@@ -22,7 +22,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '../../components/api/client';
-import OrderCard from '../../components/ChefDashboard/OrderCard';
+import OrderCard from '../../components/orders/OrderCard';
 import { CommonActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import EditProfileScreen from '../profile/EditProfileScreen';
@@ -35,6 +35,7 @@ import NotificationHistoryScreen from '../profile/NotificationHistoryScreen';
 import LogoutConfirmScreen from '../profile/LogoutConfirmScreen';
 import { getNotifications } from '../../services/notificationService';
 import { getSocket, initializeSocket } from '../../services/realtimeService';
+import { enrichOrderParty } from '../../utils/orderParty';
 import * as ImagePicker from 'expo-image-picker';
 
 // Notification types with colors and icons
@@ -90,6 +91,7 @@ interface KitchenOrder {
   id?: string;
   orderNumber: string;
   tableNumber: string;
+  waiterName?: string;
   orderType: 'DINE_IN' | 'DELIVERY' | 'TAKEAWAY';
   items: KitchenOrderItem[];
   priority: 'NORMAL' | 'HIGH' | 'URGENT';
@@ -102,6 +104,26 @@ interface KitchenOrder {
   expectedTime?: number;
   isLate?: boolean;
   lateBy?: number;
+}
+
+function mapChefDashboardOrder(raw: any): KitchenOrder {
+  const e = enrichOrderParty(raw || {});
+  return {
+    ...(raw || {}),
+    _id: String(raw?._id || raw?.id || ''),
+    id: String(raw?.id || raw?._id || ''),
+    orderNumber: String(raw?.orderNumber || raw?.order_number || ''),
+    tableNumber: String(e.tableNumber || raw?.tableNumber || raw?.table_number || '—'),
+    waiterName: e.waiterName || undefined,
+    orderType: (e.orderType || raw?.orderType || 'DINE_IN') as KitchenOrder['orderType'],
+    items: raw?.items || [],
+    priority: raw?.priority || 'NORMAL',
+    orderTime: raw?.orderTime || raw?.createdAt || '',
+    estimatedReadyTime: raw?.estimatedReadyTime || '',
+    specialInstructions: raw?.specialInstructions,
+    createdAt: raw?.createdAt || new Date().toISOString(),
+    status: raw?.status || 'PENDING',
+  };
 }
 
 interface ChefStats {
@@ -293,7 +315,8 @@ export default function ChefDashboard() {
   // WebSocket listener for real-time updates (replaces 5-second polling)
   useEffect(() => {
     const setupSocket = async () => {
-      const token = await AsyncStorage.getItem('authToken');
+      const { getAccessToken } = await import('../../utils/secureAuthStorage');
+      const token = await getAccessToken();
       const userRaw = await AsyncStorage.getItem('userData');
       const parsedUser = userRaw ? JSON.parse(userRaw) : null;
       const userId = parsedUser?._id || parsedUser?.id;
@@ -306,8 +329,8 @@ export default function ChefDashboard() {
       if (!socket) return;
 
       socket.on('chef_dashboard:data', (payload: any) => {
-        setOrders(payload?.orders || []);
-        setCookingOrders(payload?.cookingOrders || []);
+        setOrders((payload?.orders || []).map(mapChefDashboardOrder));
+        setCookingOrders((payload?.cookingOrders || []).map(mapChefDashboardOrder));
         setMostOrdered(payload?.mostOrdered || []);
         setNotificationList(payload?.notifications || []);
         setUnreadCount(payload?.unreadCount || 0);
@@ -712,7 +735,7 @@ export default function ChefDashboard() {
           console.log('First order status:', loadedOrders[0]?.status);
           console.log('First order id:', loadedOrders[0]?.id);
         }
-        setOrders(loadedOrders);
+        setOrders(loadedOrders.map(mapChefDashboardOrder));
       }
       
       let loadedCookingOrders = [];
@@ -722,7 +745,7 @@ export default function ChefDashboard() {
         if (loadedCookingOrders.length > 0) {
           console.log('First cooking order:', JSON.stringify(loadedCookingOrders[0], null, 2));
         }
-        setCookingOrders(loadedCookingOrders);
+        setCookingOrders(loadedCookingOrders.map(mapChefDashboardOrder));
       }
       
       if (mostOrderedResponse.success && mostOrderedResponse.data) {
@@ -949,6 +972,7 @@ export default function ChefDashboard() {
                       status: o.status as any,
                       orderType: o.orderType,
                       tableNumber: o.tableNumber,
+                      waiterName: o.waiterName,
                       items: o.items as any,
                       createdAt: o.createdAt || o.orderTime,
                       expectedReadyTime: (o as any).expectedReadyTime,
@@ -1088,6 +1112,7 @@ export default function ChefDashboard() {
                   status: o.status as any,
                   orderType: o.orderType,
                   tableNumber: o.tableNumber,
+                  waiterName: o.waiterName,
                   items: o.items as any,
                   createdAt: o.createdAt || o.orderTime,
                   expectedReadyTime: (o as any).expectedReadyTime,

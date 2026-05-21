@@ -23,6 +23,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalization } from '../../context/LocalizationContext';
 import { useUserData } from '../../hooks/useUserData';
+import { isAdminRole } from '../../utils/permissionHelpers';
 import { COLORS } from '../../constants/colors';
 import { getSpacing } from '../../utils/responsive';
 
@@ -84,7 +85,7 @@ export default function AdminBranchesScreen() {
     { name: t('nav.notifications'), icon: 'notifications-outline', screen: 'AdminNotifications' },
     { name: 'Table Assignment', icon: 'grid-outline', screen: 'TableAssignment' },
     // Only show Branches for SUPER_ADMIN
-    ...(userRole === 'SUPER_ADMIN' ? [{ name: t('nav.branches'), icon: 'business-outline', screen: 'AdminBranches' }] : []),
+    ...(isAdminRole(userRole) ? [{ name: t('nav.branches'), icon: 'business-outline', screen: 'AdminBranches' }] : []),
     { name: t('nav.deals'), icon: 'pricetag-outline', screen: 'AdminDeals' },
     { name: t('nav.coupons'), icon: 'ticket-outline', screen: 'AdminCoupons' },
     { name: t('nav.productSizes'), icon: 'resize-outline', screen: 'AdminProductSizes' },
@@ -268,7 +269,7 @@ export default function AdminBranchesScreen() {
       </ScrollView>
 
       {/* Only show Add button for SUPER_ADMIN and ADMIN, not BRANCH_MANAGER */}
-      {(userRole === 'SUPER_ADMIN' || userRole === 'ADMIN') && (
+      {isAdminRole(userRole) && (
         <TouchableOpacity 
           style={[
             styles.floatingButton,
@@ -327,10 +328,7 @@ export default function AdminBranchesScreen() {
           // @ts-ignore
           navigation.navigate('Welcome');
         }}
-        onChangePassword={() => {
-          // @ts-ignore
-          navigation.navigate('ChangePassword');
-        }}
+        navigation={navigation}
       />
     </View>
   );

@@ -21,7 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../../constants/colors';
 import { getSpacing } from '../../utils/responsive';
-import { isSuperAdmin, getRoleDisplayName } from '../../utils/permissionHelpers';
+import { isAdminRole, getRoleDisplayName } from '../../utils/permissionHelpers';
 
 // Theme mapping
 const theme = {
@@ -99,8 +99,8 @@ export default function CreateBranchScreen() {
       const storedRole = await AsyncStorage.getItem('userRole');
       if (storedRole) {
         setUserRole(storedRole);
-        if (!isSuperAdmin(storedRole)) {
-          Alert.alert('Access Denied', 'Only Super Admin can create branches.');
+        if (!isAdminRole(storedRole)) {
+          Alert.alert('Access Denied', 'Only administrators can create branches.');
           navigation.goBack();
         }
       }

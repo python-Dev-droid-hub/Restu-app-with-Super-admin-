@@ -79,7 +79,11 @@ export default function SignUpScreen() {
 
       if (response.success && response.data) {
         // Auto-login after successful registration
-        await AsyncStorage.setItem('authToken', response.data.tokens.accessToken);
+        const { setAuthTokens } = await import('../../utils/secureAuthStorage');
+        await setAuthTokens(
+          response.data.tokens.accessToken,
+          response.data.tokens.refreshToken
+        );
         await AsyncStorage.setItem('userRole', response.data.user.role);
         await AsyncStorage.setItem('userData', JSON.stringify(response.data.user));
 

@@ -31,7 +31,7 @@ const theme = {
   border: COLORS.border,
 };
 import { getSpacing } from '../../utils/responsive';
-import { isSuperAdmin, getRoleDisplayName } from '../../utils/permissionHelpers';
+import { isAdminRole, getRoleDisplayName } from '../../utils/permissionHelpers';
 
 // Components
 import AdminBottomNavigation from '../../components/navigation/AdminBottomNavigation';
@@ -80,7 +80,7 @@ export default function BranchManagementScreen() {
     { name: 'Notifications', icon: 'notifications-outline', screen: 'AdminNotifications' },
     { name: 'Table Assignment', icon: 'grid-outline', screen: 'TableAssignment' },
     // Only show Branches for SUPER_ADMIN
-    ...(userRole === 'SUPER_ADMIN' ? [{ name: 'Branches', icon: 'business-outline', screen: 'AdminBranches' }] : []),
+    ...(isAdminRole(userRole) ? [{ name: 'Branches', icon: 'business-outline', screen: 'AdminBranches' }] : []),
     { name: 'Deals', icon: 'pricetag-outline', screen: 'AdminDeals' },
     { name: 'Coupons', icon: 'ticket-outline', screen: 'AdminCoupons' },
     { name: 'Product Size', icon: 'resize-outline', screen: 'AdminProductSizes' },
@@ -104,8 +104,8 @@ export default function BranchManagementScreen() {
       const storedRole = await AsyncStorage.getItem('userRole');
       if (storedRole) {
         setUserRole(storedRole);
-        if (!isSuperAdmin(storedRole)) {
-          Alert.alert('Access Denied', 'Only Super Admin can manage branches.');
+        if (!isAdminRole(storedRole)) {
+          Alert.alert('Access Denied', 'Only administrators can manage branches.');
           navigation.goBack();
         }
       }

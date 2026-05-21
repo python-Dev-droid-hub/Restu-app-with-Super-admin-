@@ -867,7 +867,8 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
       }
       
       // Fallback: try to load from backend settings
-      const authToken = await AsyncStorage.getItem('authToken');
+      const { getAccessToken } = await import('../utils/secureAuthStorage');
+      const authToken = await getAccessToken();
       if (authToken) {
         try {
           // Use the API client instead of direct fetch

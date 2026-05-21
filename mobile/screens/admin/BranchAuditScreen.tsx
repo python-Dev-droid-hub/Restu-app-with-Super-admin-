@@ -18,7 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../../constants/colors';
 import { getSpacing } from '../../utils/responsive';
-import { isSuperAdmin, canAuditBranches } from '../../utils/permissionHelpers';
+import { isAdminRole, canAuditBranches } from '../../utils/permissionHelpers';
 import { useSettings } from '../../context/SettingsContext';
 
 const { width } = Dimensions.get('window');
@@ -104,7 +104,7 @@ export default function BranchAuditScreen() {
       if (storedRole) {
         setUserRole(storedRole);
         if (!canAuditBranches(storedRole)) {
-          Alert.alert('Access Denied', 'Only Super Admin can audit branches.');
+          Alert.alert('Access Denied', 'Only administrators can audit branches.');
           navigation.goBack();
         }
       }

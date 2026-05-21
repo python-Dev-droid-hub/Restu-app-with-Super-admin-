@@ -17,9 +17,20 @@ import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { api } from '../../components/api/client';
 import { useLocalization } from '../../context/LocalizationContext';
+import {
+  getAdminNotificationsList,
+  markAllAdminNotificationsAsRead,
+  clearAllAdminNotifications,
+  markAdminNotificationAsRead,
+  deleteAdminNotification,
+  Notification,
+} from '../../services/notificationService';
 import { useUserData } from '../../hooks/useUserData';
+import { isAdminRole } from '../../utils/permissionHelpers';
+import { useBranch } from '../../context/BranchContext';
+import GlobalBranchBar from '../../components/admin/GlobalBranchBar';
+import { navigateToOrder } from '../../utils/navigateToOrder';
 
 // Components
 import ResponsiveHeader from '../../components/layout/ResponsiveHeader';
@@ -32,23 +43,13 @@ import { COLORS } from '../../constants/colors';
 const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 0;
 const FOOTER_MARGIN = Platform.OS === 'android' ? 20 : 10;
 
-interface Notification {
-  _id: string;
-  title: string;
-  message: string;
-  type: 'INFO' | 'WARNING' | 'ERROR' | 'SUCCESS';
-  targetUsers: string[];
-  isActive: boolean;
-  createdAt: string;
-  sentAt?: string;
-}
-
 export default function AdminNotificationsScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { t } = useLocalization();
   const { profileImage } = useUserData();
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [actionLoading, setActionLoading] = useState(false);
   
   // Get parent tab navigation for bottom nav (undefined for stack screens)
   const tabNavigation = navigation.getParent();
@@ -59,29 +60,17 @@ export default function AdminNotificationsScreen() {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   const [userRole, setUserRole] = useState<string>('');
-  const [assignedBranch, setAssignedBranch] = useState<{_id?: string; name?: string; code?: string}>({});
-  
-  // Branch filter for admin
-  const [branches, setBranches] = useState<{_id: string; name: string}[]>([]);
-  const [selectedBranch, setSelectedBranch] = useState<string>('all');
-  const [showBranchDropdown, setShowBranchDropdown] = useState(false);
+  const { getApiBranchParam, branchRevision, isReady } = useBranch();
 
   // Load user role and branch on mount
   useEffect(() => {
     loadUserData();
   }, []);
 
-  // Load branches for admin roles when userRole is set
   useEffect(() => {
-    if (userRole === 'SUPER_ADMIN' || userRole === 'ADMIN') {
-      loadBranches();
-    }
-  }, [userRole]);
-
-  // Reload notifications when branch filter changes (only for admin roles)
-  useEffect(() => {
+    if (!isReady) return;
     loadNotifications();
-  }, [selectedBranch]);
+  }, [branchRevision, isReady]);
 
   const loadUserData = async () => {
     try {
@@ -89,15 +78,6 @@ export default function AdminNotificationsScreen() {
       if (stored) {
         const parsed = JSON.parse(stored);
         setUserRole(parsed.role || '');
-        // Get manager's assigned branch
-        const branchData = parsed.assignedBranch || parsed.branch;
-        if (branchData) {
-          setAssignedBranch({
-            _id: branchData._id || branchData.branchId || parsed.branchId,
-            name: branchData.name || branchData.branchName || 'My Branch',
-            code: branchData.code || branchData.branchCode || ''
-          });
-        }
       }
     } catch (error) {
       console.error('Error loading user data:', error);
@@ -108,55 +88,24 @@ export default function AdminNotificationsScreen() {
     { name: t('nav.notifications'), icon: 'notifications-outline', screen: 'AdminNotifications' },
     { name: 'Table Assignment', icon: 'grid-outline', screen: 'TableAssignment' },
     // Only show Branches for SUPER_ADMIN
-    ...(userRole === 'SUPER_ADMIN' ? [{ name: t('nav.branches'), icon: 'business-outline', screen: 'AdminBranches' }] : []),
+    ...(isAdminRole(userRole) ? [{ name: t('nav.branches'), icon: 'business-outline', screen: 'AdminBranches' }] : []),
     { name: t('nav.deals'), icon: 'pricetag-outline', screen: 'AdminDeals' },
     { name: t('nav.coupons'), icon: 'ticket-outline', screen: 'AdminCoupons' },
     { name: t('nav.productSizes'), icon: 'resize-outline', screen: 'AdminProductSizes' },
     { name: t('nav.categories'), icon: 'grid-outline', screen: 'AdminCategories' },
     { name: t('nav.reports'), icon: 'bar-chart-outline', screen: 'AdminReports' },
-    { name: t('nav.settings'), icon: 'settings-outline', screen: 'AdminSettings' },
+    ...(isAdminRole(userRole)
+      ? [{ name: t('nav.settings'), icon: 'settings-outline', screen: 'AdminSettings' }]
+      : []),
   ];
-
-  useEffect(() => {
-    loadNotifications();
-  }, []);
-
-  const loadBranches = async () => {
-    try {
-      const response: any = await api.get('/branches');
-      if (response?.success) {
-        const rawList = response?.data?.branches || response?.data?.data?.branches || response?.data?.data?.restaurants || response?.data || [];
-        const normalized = (Array.isArray(rawList) ? rawList : []).map((b: any) => ({
-          _id: b?._id || b?.id,
-          name: b?.name || b?.branchName || b?.restaurantName,
-        })).filter((b: any) => !!b._id && !!b.name);
-        setBranches(normalized);
-      }
-    } catch (error) {
-      console.error('Error loading branches:', error);
-    }
-  };
 
   const loadNotifications = async () => {
     try {
       setLoading(true);
-      const params = new URLSearchParams();
-      params.append('limit', '50');
-      // Only apply branch filter for admin roles
-      if ((userRole === 'SUPER_ADMIN' || userRole === 'ADMIN') && selectedBranch !== 'all') {
-        params.append('branchId', selectedBranch);
-      }
-      // For branch managers, the backend will filter by their assigned branch
-      const url = `/notifications/admin?${params.toString()}`;
-      console.log('[AdminNotifications] Fetching from:', url);
-      const response = await api.get(url);
-      console.log('[AdminNotifications] Response:', JSON.stringify(response, null, 2));
-      if (response.success) {
-        // Handle nested data structure
-        const responseData = (response as any).data || response;
-        const notificationsData = responseData.notifications || responseData.data || [];
-        console.log('[AdminNotifications] Loaded notifications:', notificationsData.length);
-        setNotifications(notificationsData);
+      const branchId = getApiBranchParam();
+      const result = await getAdminNotificationsList(50, branchId);
+      if (result.success) {
+        setNotifications(result.notifications);
       }
     } catch (error) {
       console.error('Error loading notifications:', error);
@@ -166,26 +115,106 @@ export default function AdminNotificationsScreen() {
     }
   };
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await Promise.all([loadNotifications(), loadBranches()]);
-    setRefreshing(false);
+  const handleMarkAllRead = () => {
+    Alert.alert('Mark all as read?', 'Mark every notification in this list as read?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Mark all read',
+        onPress: async () => {
+          try {
+            setActionLoading(true);
+            const branchId = getApiBranchParam();
+            const ok = await markAllAdminNotificationsAsRead(branchId);
+            if (ok) {
+              await loadNotifications();
+            } else {
+              Alert.alert('Error', 'Could not mark notifications as read');
+            }
+          } finally {
+            setActionLoading(false);
+          }
+        },
+      },
+    ]);
   };
 
-  const toggleNotificationStatus = async (notificationId: string, currentStatus: boolean) => {
-    try {
-      const response = await api.put(`/notifications/${notificationId}`, {
-        isActive: !currentStatus
-      });
+  const handleDeleteAll = () => {
+    Alert.alert(
+      'Delete all notifications?',
+      'This removes all notifications in the current list. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete all',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setActionLoading(true);
+              const branchId = getApiBranchParam();
+              const ok = await clearAllAdminNotifications(branchId);
+              if (ok) {
+                setNotifications([]);
+              } else {
+                Alert.alert('Error', 'Could not delete notifications');
+              }
+            } finally {
+              setActionLoading(false);
+            }
+          },
+        },
+      ]
+    );
+  };
 
-      if (response.success) {
-        Alert.alert('Success', `Notification ${!currentStatus ? 'activated' : 'deactivated'}`);
-        loadNotifications();
-      }
-    } catch (error) {
-      console.error('Error updating notification status:', error);
-      Alert.alert('Error', 'Failed to update notification status');
+  const handleNotificationPress = async (notification: Notification) => {
+    const branchId = getApiBranchParam();
+    const orderId =
+      notification.data?.orderId ||
+      (notification.data as { order_id?: string })?.order_id;
+    const orderNumber =
+      notification.data?.orderNumber ||
+      (notification.data as { order_number?: string })?.order_number;
+
+    if (orderId || orderNumber) {
+      navigateToOrder(navigation as never, {
+        _id: orderId ? String(orderId) : undefined,
+        orderNumber: orderNumber ? String(orderNumber) : undefined,
+      });
     }
+
+    if (notification.read) return;
+
+    const ok = await markAdminNotificationAsRead(notification._id, branchId);
+    if (ok) {
+      setNotifications((prev) =>
+        prev.map((n) => (n._id === notification._id ? { ...n, read: true } : n))
+      );
+    }
+  };
+
+  const handleDeleteOne = (notificationId: string) => {
+    Alert.alert('Delete notification?', undefined, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          const branchId = getApiBranchParam();
+          const ok = await deleteAdminNotification(notificationId, branchId);
+          if (ok) {
+            setNotifications((prev) => prev.filter((n) => n._id !== notificationId));
+          } else {
+            Alert.alert('Error', 'Could not delete notification');
+          }
+        },
+      },
+    ]);
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadNotifications();
+    setRefreshing(false);
   };
 
   const handleLogout = async () => {
@@ -215,12 +244,6 @@ export default function AdminNotificationsScreen() {
     );
   };
 
-  const getSelectedBranchName = () => {
-    if (selectedBranch === 'all') return 'All Branches';
-    const branch = branches.find(b => b._id === selectedBranch);
-    return branch?.name || 'Select Branch';
-  };
-
   const getNotificationTypeColor = (type: string) => {
     const colors: Record<string, string> = {
       INFO: '#2196f3',
@@ -231,18 +254,23 @@ export default function AdminNotificationsScreen() {
     return colors[type] || '#757575';
   };
 
-  const filteredNotifications = activeTab === 'unread' 
-    ? notifications.filter((n: any) => !n.isRead)
-    : notifications;
+  const filteredNotifications =
+    activeTab === 'unread' ? notifications.filter((n) => !n.read) : notifications;
 
-  const NotificationCard = ({ notification }: { notification: any }) => {
+  const unreadCount = notifications.filter((n) => !n.read).length;
+
+  const NotificationCard = ({ notification }: { notification: Notification }) => {
     // Extract waiter name from notification data
     const waiterName = notification.data?.waiterName || notification.data?.waiter?.name || 
                        notification.waiterName || notification.assignedTo?.name ||
                        (notification.body?.includes('by') && notification.body.split('by')[1]?.trim()) ||
                        null;
     return (
-      <View style={styles.notificationCard}>
+      <TouchableOpacity
+        style={[styles.notificationCard, !notification.read && styles.notificationCardUnread]}
+        activeOpacity={0.85}
+        onPress={() => handleNotificationPress(notification)}
+      >
         <View style={styles.notificationHeader}>
           <View style={styles.notificationInfo}>
             <Text style={styles.notificationTitle}>{notification.title}</Text>
@@ -256,20 +284,28 @@ export default function AdminNotificationsScreen() {
               </View>
             )}
           </View>
-          <View style={[styles.typeBadge, { backgroundColor: getNotificationTypeColor(notification.type || 'INFO') }]}>
-            <Text style={styles.typeText}>{notification.type || 'INFO'}</Text>
+          <View style={styles.notificationActions}>
+            <View style={[styles.typeBadge, { backgroundColor: getNotificationTypeColor(notification.type || 'INFO') }]}>
+              <Text style={styles.typeText}>{notification.type || 'INFO'}</Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => handleDeleteOne(notification._id)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="trash-outline" size={20} color="#E74C3C" />
+            </TouchableOpacity>
           </View>
         </View>
 
         <View style={styles.notificationDetails}>
           <Text style={styles.notificationDetail}>
-            {notification.isRead ? '✓ Read' : '● Unread'}
+            {notification.read ? '✓ Read' : '● Unread'}
           </Text>
           <Text style={styles.notificationDetail}>
-            📅 {notification.createdAt ? new Date(notification.createdAt).toLocaleString() : 'Just now'}
+            {notification.createdAt ? new Date(notification.createdAt).toLocaleString() : 'Just now'}
           </Text>
         </View>
-      </View>
+      </TouchableOpacity>
     );
   };
 
@@ -289,58 +325,26 @@ export default function AdminNotificationsScreen() {
         onProfilePress={() => setShowProfileMenu(true)}
       />
 
-      {/* Branch Selector - Only for ADMIN and SUPER_ADMIN */}
-      {(userRole === 'SUPER_ADMIN' || userRole === 'ADMIN') && (
-        <View style={styles.branchSelectorContainer}>
-          <TouchableOpacity 
-            style={styles.branchSelector}
-            onPress={() => setShowBranchDropdown(!showBranchDropdown)}
-          >
-            <Ionicons name="business-outline" size={18} color="#E87E35" />
-            <Text style={styles.branchSelectorText}>{getSelectedBranchName()}</Text>
-            <Ionicons name={showBranchDropdown ? "chevron-up" : "chevron-down"} size={16} color="#666" />
-          </TouchableOpacity>
-        </View>
-      )}
+      <GlobalBranchBar />
 
-      {/* Branch Name Display for BRANCH_MANAGER */}
-      {userRole === 'BRANCH_MANAGER' && assignedBranch.name && (
-        <View style={styles.branchSelectorContainer}>
-          <View style={styles.branchLabel}>
-            <Ionicons name="business-outline" size={18} color="#E87E35" />
-            <Text style={styles.branchLabelText}>{assignedBranch.name}</Text>
-          </View>
-        </View>
-      )}
-
-      {/* Branch Dropdown - Only for ADMIN and SUPER_ADMIN */}
-      {showBranchDropdown && (userRole === 'SUPER_ADMIN' || userRole === 'ADMIN') && (
-        <View style={styles.branchDropdownContainer}>
+      {notifications.length > 0 && (
+        <View style={styles.bulkActions}>
           <TouchableOpacity
-            style={[styles.branchDropdownItem, selectedBranch === 'all' && styles.branchDropdownItemActive]}
-            onPress={() => {
-              setSelectedBranch('all');
-              setShowBranchDropdown(false);
-            }}
+            style={[styles.bulkButton, actionLoading && styles.bulkButtonDisabled]}
+            onPress={handleMarkAllRead}
+            disabled={actionLoading || unreadCount === 0}
           >
-            <Text style={[styles.branchDropdownText, selectedBranch === 'all' && styles.branchDropdownTextActive]}>
-              All Branches
-            </Text>
+            <Ionicons name="checkmark-done-outline" size={18} color="#E87E35" />
+            <Text style={styles.bulkButtonText}>Read all</Text>
           </TouchableOpacity>
-          {branches.map((branch) => (
-            <TouchableOpacity
-              key={branch._id}
-              style={[styles.branchDropdownItem, selectedBranch === branch._id && styles.branchDropdownItemActive]}
-              onPress={() => {
-                setSelectedBranch(branch._id);
-                setShowBranchDropdown(false);
-              }}
-            >
-              <Text style={[styles.branchDropdownText, selectedBranch === branch._id && styles.branchDropdownTextActive]}>
-                {branch.name}
-              </Text>
-            </TouchableOpacity>
-          ))}
+          <TouchableOpacity
+            style={[styles.bulkButton, styles.bulkButtonDanger, actionLoading && styles.bulkButtonDisabled]}
+            onPress={handleDeleteAll}
+            disabled={actionLoading}
+          >
+            <Ionicons name="trash-outline" size={18} color="#E74C3C" />
+            <Text style={[styles.bulkButtonText, styles.bulkButtonTextDanger]}>Delete all</Text>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -358,7 +362,7 @@ export default function AdminNotificationsScreen() {
           onPress={() => setActiveTab('unread')}
         >
           <Text style={[styles.tabText, activeTab === 'unread' && styles.tabTextActive]}>
-            Unread ({notifications.filter((n: any) => !n.isRead).length})
+            Unread ({unreadCount})
           </Text>
         </TouchableOpacity>
       </View>
@@ -369,30 +373,13 @@ export default function AdminNotificationsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        {/* Branch Info */}
-        <View style={styles.branchInfoContainer}>
-          <View style={styles.branchInfo}>
-            <Ionicons name="business-outline" size={18} color="#E87E35" />
-            <Text style={styles.branchInfoText}>
-              {userRole === 'BRANCH_MANAGER' 
-                ? (assignedBranch.name || 'Loading Branch...')
-                : getSelectedBranchName()}
-            </Text>
-            {userRole === 'BRANCH_MANAGER' && assignedBranch.code && (
-              <View style={styles.branchCodeBadge}>
-                <Text style={styles.branchCodeText}>{assignedBranch.code}</Text>
-              </View>
-            )}
-          </View>
-        </View>
-
         <View style={styles.statsContainer}>
           <View style={[styles.statCard, { borderLeftColor: '#1976d2' }]}>
             <Text style={styles.statValue}>{notifications.length}</Text>
             <Text style={styles.statLabel}>Total</Text>
           </View>
           <View style={[styles.statCard, { borderLeftColor: '#4caf50' }]}>
-            <Text style={styles.statValue}>{notifications.filter((n: any) => !n.isRead).length}</Text>
+            <Text style={styles.statValue}>{unreadCount}</Text>
             <Text style={styles.statLabel}>Unread</Text>
           </View>
         </View>
@@ -432,10 +419,7 @@ export default function AdminNotificationsScreen() {
           // @ts-ignore
           navigation.navigate('Welcome');
         }}
-        onChangePassword={() => {
-          // @ts-ignore
-          navigation.navigate('ChangePassword');
-        }}
+        navigation={navigation}
       />
 
       {/* More Menu Modal */}
@@ -485,6 +469,39 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+  },
+  bulkActions: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    gap: 10,
+  },
+  bulkButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: '#FFF3E0',
+    borderWidth: 1,
+    borderColor: '#FFE0B2',
+  },
+  bulkButtonDanger: {
+    backgroundColor: '#FFEBEE',
+    borderColor: '#FFCDD2',
+  },
+  bulkButtonDisabled: {
+    opacity: 0.5,
+  },
+  bulkButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#E87E35',
+  },
+  bulkButtonTextDanger: {
+    color: '#E74C3C',
   },
   tabNavigation: {
     flexDirection: 'row',
@@ -551,6 +568,14 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 16,
     marginBottom: 12,
+  },
+  notificationCardUnread: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#E87E35',
+  },
+  notificationActions: {
+    alignItems: 'flex-end',
+    gap: 8,
   },
   notificationHeader: {
     flexDirection: 'row',

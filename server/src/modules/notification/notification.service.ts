@@ -80,29 +80,55 @@ export class NotificationService {
   // ADMIN NOTIFICATIONS
   // ============================================
 
-  async getAdminNotifications(page: number = 1, limit: number = 20, branchId?: string) {
-    const skip = (page - 1) * limit;
+  private buildAdminNotificationFilter(branchId?: string, userId?: string): Record<string, unknown> {
+    const orConditions: Record<string, unknown>[] = [];
 
-    // Build filter - admin sees all system-wide notifications
-    const filter: any = {};
+    if (userId) {
+      orConditions.push({ recipient: new Types.ObjectId(userId) });
+    }
 
-    // If branchId is provided, filter notifications related to that branch
     if (branchId) {
-      filter.$or = [
+      const branchOid = Types.ObjectId.isValid(branchId) ? new Types.ObjectId(branchId) : branchId;
+      orConditions.push(
         { 'data.branchId': branchId },
-        { branch: branchId },
+        { 'data.branchId': String(branchOid) },
+        { recipientBranch: branchOid },
         { recipientBranch: branchId }
-      ];
+      );
     } else {
-      // No branch filter - show all admin-relevant notifications
-      // Admin notifications are those without a specific recipient OR with admin-relevant types
-      filter.$or = [
+      orConditions.push(
         { recipient: null },
         { recipient: { $exists: false } },
         { recipientRole: { $in: ['ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER'] } },
-        { type: { $in: ['SYSTEM', 'ORDER_ALERT', 'PAYMENT_ALERT', 'SYSTEM_ALERT', 'SECURITY_ALERT', 'NEW_USER', 'TECHNICAL_ISSUE'] } }
-      ];
+        {
+          type: {
+            $in: [
+              'SYSTEM',
+              'ORDER_ALERT',
+              'PAYMENT_ALERT',
+              'SYSTEM_ALERT',
+              'SECURITY_ALERT',
+              'NEW_USER',
+              'TECHNICAL_ISSUE',
+              'NEW_ORDER',
+              'BRANCH_ORDER',
+            ],
+          },
+        }
+      );
     }
+
+    return { $or: orConditions };
+  }
+
+  async getAdminNotifications(
+    page: number = 1,
+    limit: number = 20,
+    branchId?: string,
+    userId?: string
+  ) {
+    const skip = (page - 1) * limit;
+    const filter = this.buildAdminNotificationFilter(branchId, userId);
 
     console.log('[NotificationService] Admin notifications filter:', JSON.stringify(filter));
 
@@ -124,6 +150,66 @@ export class NotificationService {
       notifications,
       pagination: { page, limit, total, pages: Math.ceil(total / limit) }
     };
+  }
+
+  async markAllAdminAsRead(branchId?: string, userId?: string) {
+    const filter = this.buildAdminNotificationFilter(branchId, userId);
+    const result = await Notification.updateMany(
+      { $and: [filter, { isRead: false }] },
+      { $set: { isRead: true, readAt: new Date() } }
+    );
+    return result.modifiedCount;
+  }
+
+  async clearAllAdminNotifications(branchId?: string, userId?: string) {
+    const filter = this.buildAdminNotificationFilter(branchId, userId);
+    const result = await Notification.deleteMany(filter);
+    return result.deletedCount;
+  }
+
+  async markAdminNotificationAsRead(
+    notificationId: string,
+    branchId?: string,
+    userId?: string
+  ) {
+    if (!Types.ObjectId.isValid(notificationId)) {
+      return null;
+    }
+
+    const filter = {
+      $and: [
+        { _id: new Types.ObjectId(notificationId) },
+        this.buildAdminNotificationFilter(branchId, userId),
+      ],
+    };
+
+    const notification = await Notification.findOneAndUpdate(
+      filter,
+      { $set: { isRead: true, readAt: new Date() } },
+      { new: true }
+    );
+
+    return notification;
+  }
+
+  async deleteAdminNotification(
+    notificationId: string,
+    branchId?: string,
+    userId?: string
+  ) {
+    if (!Types.ObjectId.isValid(notificationId)) {
+      return 0;
+    }
+
+    const filter = {
+      $and: [
+        { _id: new Types.ObjectId(notificationId) },
+        this.buildAdminNotificationFilter(branchId, userId),
+      ],
+    };
+
+    const result = await Notification.deleteOne(filter);
+    return result.deletedCount;
   }
 
   async getAdminUnreadCount() {

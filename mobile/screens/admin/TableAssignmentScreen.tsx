@@ -25,6 +25,7 @@ import ResponsiveHeader from '../../components/layout/ResponsiveHeader';
 import ProfileMenu from '../../components/common/ProfileMenu';
 import AdminBottomNavigation from '../../components/navigation/AdminBottomNavigation';
 import { useUserData } from '../../hooks/useUserData';
+import { isAdminRole } from '../../utils/permissionHelpers';
 
 interface Table {
   _id: string;
@@ -116,13 +117,15 @@ export default function TableAssignmentScreen() {
     { name: 'Notifications', icon: 'notifications-outline', screen: 'AdminNotifications' },
     { name: 'Table Assignment', icon: 'grid-outline', screen: 'TableAssignment' },
     // Only show Branches for SUPER_ADMIN
-    ...(userRole === 'SUPER_ADMIN' ? [{ name: 'Branches', icon: 'business-outline', screen: 'AdminBranches' }] : []),
+    ...(isAdminRole(userRole) ? [{ name: 'Branches', icon: 'business-outline', screen: 'AdminBranches' }] : []),
     { name: 'Deals', icon: 'pricetag-outline', screen: 'AdminDeals' },
     { name: 'Coupons', icon: 'ticket-outline', screen: 'AdminCoupons' },
     { name: 'Product Size', icon: 'resize-outline', screen: 'AdminProductSizes' },
     { name: 'Categories', icon: 'grid-outline', screen: 'AdminCategories' },
     { name: 'Reports', icon: 'bar-chart-outline', screen: 'AdminReports' },
-    { name: 'Settings', icon: 'settings-outline', screen: 'AdminSettings' },
+    ...(isAdminRole(userRole)
+      ? [{ name: 'Settings', icon: 'settings-outline', screen: 'AdminSettings' }]
+      : []),
   ];
 
   // Load user data and initial data
@@ -626,7 +629,7 @@ export default function TableAssignmentScreen() {
       />
 
       {/* Branch Selector (SUPER_ADMIN and ADMIN). Managers see fixed branch name + code (no filter). */}
-      {userRole === 'SUPER_ADMIN' || userRole === 'ADMIN' ? (
+      {isAdminRole(userRole) ? (
         <>
           <TouchableOpacity
             style={styles.branchSelector}

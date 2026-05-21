@@ -74,8 +74,20 @@ const orderItemSchema = new Schema({
   // Item-level status for tracking individual item preparation
   status: {
     type: String,
-    enum: ['PENDING', 'PREPARING', 'READY', 'SERVED'],
+    enum: ['PENDING', 'PREPARING', 'READY', 'SERVED', 'RETURNED'],
     default: 'PENDING',
+  },
+  isReturned: {
+    type: Boolean,
+    default: false,
+  },
+  returnedAt: {
+    type: Date,
+  },
+  returnReason: {
+    type: String,
+    trim: true,
+    maxlength: [500, 'Return reason cannot exceed 500 characters'],
   },
   // Timestamps for item preparation tracking
   preparingAt: {
@@ -153,6 +165,18 @@ const orderSchema = new Schema({
   table: {
     type: Schema.Types.ObjectId,
     ref: 'RestaurantTable',
+  },
+  /** Denormalized for kitchen/admin cards (table ref may be unpopulated) */
+  tableNumber: {
+    type: String,
+    trim: true,
+    maxlength: [50, 'Table number cannot exceed 50 characters'],
+  },
+  /** Denormalized waiter display name for dine-in order cards */
+  waiterName: {
+    type: String,
+    trim: true,
+    maxlength: [100, 'Waiter name cannot exceed 100 characters'],
   },
   subtotal: {
     type: Number,

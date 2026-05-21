@@ -8,33 +8,66 @@ const router = Router() as any;
 const orderController = new OrderController();
 
 // Validation schemas
+const customizationSchema = Joi.alternatives().try(
+  Joi.string(),
+  Joi.object({
+    optionName: Joi.string().required(),
+    optionValue: Joi.string().required(),
+    extraPrice: Joi.number().optional(),
+  })
+);
+
+const deliveryAddressSchema = Joi.object({
+  street: Joi.string().trim().allow('').default(''),
+  city: Joi.string().trim().allow('').default(''),
+  state: Joi.string().trim().allow('').default(''),
+  zipCode: Joi.string().trim().allow('').default(''),
+  address: Joi.string().trim().optional().allow(''),
+  coordinates: Joi.object({
+    lat: Joi.number().min(-90).max(90),
+    lng: Joi.number().min(-180).max(180),
+  }).optional(),
+}).unknown(true);
+
+const dineInOrderTypes = ['DINE_IN', 'dine_in', 'pickup'];
+
 const createOrderSchema = Joi.object({
   items: Joi.array().items(
     Joi.object({
       menuItemId: Joi.string().required(),
       quantity: Joi.number().min(1).required(),
-      customizations: Joi.array().items(Joi.string()).optional(),
+      customizations: Joi.array().items(customizationSchema).optional(),
       specialInstructions: Joi.string().max(500).optional().allow(''),
     })
   ).min(1).required(),
   restaurantId: Joi.string().required(),
-  customerName: Joi.string().trim().min(2).max(100).optional().allow(''),
+  customerName: Joi.string().trim().max(100).optional().allow(''),
   phoneNumber: Joi.string().max(30).optional().allow(''),
   alternatePhoneNumber: Joi.string().max(30).optional().allow(''),
-  deliveryAddress: Joi.object({
-    street: Joi.string().required(),
-    city: Joi.string().required(),
-    state: Joi.string().required(),
-    zipCode: Joi.string().required(),
-    coordinates: Joi.object({
-      lat: Joi.number().min(-90).max(90),
-      lng: Joi.number().min(-180).max(180),
-    }).optional(),
-  }).required(),
-  orderType: Joi.string().valid('DELIVERY', 'DINE_IN', 'TAKEAWAY').required(),
+  deliveryAddress: Joi.when('orderType', {
+    is: Joi.valid(...dineInOrderTypes),
+    then: deliveryAddressSchema.optional(),
+    otherwise: deliveryAddressSchema
+      .required()
+      .custom((value, helpers) => {
+        const v = value || {};
+        const missing = ['street', 'city', 'state', 'zipCode'].filter(
+          (k) => !String((v as any)[k] ?? '').trim()
+        );
+        if (missing.length) {
+          return helpers.error('any.custom', {
+            message: `deliveryAddress.${missing.join(', deliveryAddress.')} required for delivery orders`,
+          });
+        }
+        return value;
+      }),
+  }),
+  orderType: Joi.string().valid('DELIVERY', 'DINE_IN', 'TAKEAWAY', 'dine_in', 'pickup').required(),
   paymentMethod: Joi.string().valid('cash', 'card', 'digital_wallet').required(),
   deliveryInstructions: Joi.string().max(500).optional().allow(''),
   tableId: Joi.string().optional(),
+  tableNumber: Joi.alternatives().try(Joi.string(), Joi.number()).optional().allow(''),
+  table_number: Joi.alternatives().try(Joi.string(), Joi.number()).optional().allow(''),
   specialInstructions: Joi.string().max(1000).optional().allow(''),
 });
 
@@ -55,6 +88,8 @@ const updateStatusSchema = Joi.object({
   ready_at: Joi.string().isoDate().optional(),
   paymentMethod: Joi.string().valid('CASH', 'CARD', 'BANK_TRANSFER').optional(),
   paymentStatus: Joi.string().valid('PENDING', 'SUCCESS', 'FAILED').optional(),
+  latitude: Joi.number().min(-90).max(90).optional(),
+  longitude: Joi.number().min(-180).max(180).optional(),
 });
 
 const cancelOrderSchema = Joi.object({
@@ -75,35 +110,7 @@ const restaurantParamsSchema = Joi.object({
 });
 
 // Public guest order creation - no auth
-const createGuestOrderSchema = Joi.object({
-  items: Joi.array().items(
-    Joi.object({
-      menuItemId: Joi.string().required(),
-      quantity: Joi.number().min(1).required(),
-      customizations: Joi.array().items(Joi.string()).optional(),
-      specialInstructions: Joi.string().max(500).optional().allow(''),
-    })
-  ).min(1).required(),
-  restaurantId: Joi.string().required(),
-  customerName: Joi.string().trim().min(2).max(100).optional().allow(''),
-  phoneNumber: Joi.string().max(30).optional().allow(''),
-  alternatePhoneNumber: Joi.string().max(30).optional().allow(''),
-  deliveryAddress: Joi.object({
-    street: Joi.string().required(),
-    city: Joi.string().required(),
-    state: Joi.string().required(),
-    zipCode: Joi.string().required(),
-    coordinates: Joi.object({
-      lat: Joi.number().min(-90).max(90),
-      lng: Joi.number().min(-180).max(180),
-    }).optional(),
-  }).required(),
-  orderType: Joi.string().valid('DELIVERY', 'DINE_IN', 'TAKEAWAY').required(),
-  paymentMethod: Joi.string().valid('cash', 'card', 'digital_wallet').required(),
-  deliveryInstructions: Joi.string().max(500).optional().allow(''),
-  tableId: Joi.string().optional(),
-  specialInstructions: Joi.string().max(1000).optional().allow(''),
-});
+const createGuestOrderSchema = createOrderSchema;
 
 router.post('/guest', validate(createGuestOrderSchema), orderController.createOrder);
 router.get('/guest/status/:id', validateParams(orderParamsSchema), orderController.getGuestOrderStatus);
@@ -142,7 +149,13 @@ router.post('/:orderId/submit-to-kitchen', authenticate, authorize('WAITER', 'BR
 router.put('/:orderId', authenticate, authorize('WAITER', 'BRANCH_MANAGER', 'ADMIN', 'SUPER_ADMIN'), orderController.updateOrder);
 
 // Update item status - Chef can mark individual items as PREPARING, READY, SERVED
-router.patch('/:orderId/items/:itemId/status', authenticate, authorize('CHEF', 'KITCHEN', 'COOK', 'HEAD_CHEF', 'SOUS_CHEF', 'KITCHEN_MANAGER', 'ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER'), orderController.updateItemStatus);
+router.patch('/:orderId/items/:itemId/status', authenticate, authorize('CHEF', 'KITCHEN', 'COOK', 'HEAD_CHEF', 'SOUS_CHEF', 'KITCHEN_MANAGER', 'ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER', 'WAITER'), orderController.updateItemStatus);
+
+const returnItemSchema = Joi.object({
+  reason: Joi.string().max(500).optional().allow(''),
+});
+
+router.post('/:orderId/items/:itemId/return', authenticate, authorize('WAITER', 'BRANCH_MANAGER', 'ADMIN', 'SUPER_ADMIN'), validate(returnItemSchema), orderController.returnOrderItem);
 
 // Get orders for waiter - filtered by status
 router.get('/waiter/my-orders', authenticate, authorize('WAITER', 'SUPER_ADMIN'), orderController.getWaiterOrders);
@@ -154,6 +167,25 @@ router.get('/branch/all', authenticate, authorize('WAITER', 'BRANCH_MANAGER', 'A
 router.patch('/:orderId', authenticate, authorize('WAITER', 'BRANCH_MANAGER', 'MANAGER', 'ADMIN', 'CHEF', 'KITCHEN', 'COOK', 'HEAD_CHEF', 'SOUS_CHEF', 'KITCHEN_MANAGER', 'SUPER_ADMIN'), orderController.patchOrderStatus);
 
 // PATCH order status with /status suffix - for CHEF role status updates
-router.patch('/:orderId/status', authenticate, authorize('BRANCH_MANAGER', 'MANAGER', 'ADMIN', 'CHEF', 'KITCHEN', 'COOK', 'HEAD_CHEF', 'SOUS_CHEF', 'KITCHEN_MANAGER', 'RIDER', 'SUPER_ADMIN'), orderController.patchOrderStatus);
+router.patch('/:orderId/status', authenticate, authorize('BRANCH_MANAGER', 'MANAGER', 'ADMIN', 'CHEF', 'KITCHEN', 'COOK', 'HEAD_CHEF', 'SOUS_CHEF', 'KITCHEN_MANAGER', 'RIDER', 'WAITER', 'SUPER_ADMIN'), validate(updateStatusSchema), orderController.patchOrderStatus);
+
+router.post(
+  '/:id/generate-bill',
+  authenticate,
+  authorize('WAITER', 'BRANCH_MANAGER', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'),
+  orderController.generateBill
+);
+router.post(
+  '/:id/print-bill',
+  authenticate,
+  authorize('WAITER', 'BRANCH_MANAGER', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'),
+  orderController.generateBill
+);
+router.get(
+  '/:id/proximity',
+  authenticate,
+  authorize('RIDER', 'ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER'),
+  orderController.getOrderProximity
+);
 
 export default router;

@@ -47,6 +47,18 @@ function sortDealsByDisplayOrder<T extends { displayOrder?: number; title?: stri
   });
 }
 
+function emitDealCampaignInvalidate(): void {
+  try {
+    const io = (globalThis as { ws?: { io?: import('socket.io').Server } }).ws?.io;
+    if (!io) return;
+    const patch = { timestamp: new Date().toISOString() };
+    io.emit('customer_home:invalidate', patch);
+    io.to('admin').emit('admin_deals:invalidate', patch);
+  } catch {
+    /* non-fatal */
+  }
+}
+
 function sortCampaignsByDisplayOrder<T extends { displayOrder?: number; name?: string; deals?: any[] }>(campaigns: T[] = []): T[] {
   return [...campaigns]
     .map((campaign) => ({
@@ -104,6 +116,7 @@ export class DealCampaignController {
         updatedBy: user?._id || null,
       });
 
+      emitDealCampaignInvalidate();
       return res.status(201).json({ success: true, data: { campaign } });
     } catch (error: any) {
       console.error('[DealCampaign] createCampaign error:', error);
@@ -248,6 +261,7 @@ export class DealCampaignController {
         runValidators: true,
       }).lean();
 
+      emitDealCampaignInvalidate();
       return res.status(200).json({ success: true, data: { campaign } });
     } catch (error: any) {
       return res.status(500).json({ success: false, message: 'Failed to update campaign', error: error.message });
@@ -280,6 +294,7 @@ export class DealCampaignController {
         updatedBy: user?._id || null,
       });
 
+      emitDealCampaignInvalidate();
       return res.status(200).json({ success: true, message: 'Campaign deleted' });
     } catch (error: any) {
       return res.status(500).json({ success: false, message: 'Failed to delete campaign', error: error.message });
@@ -342,6 +357,7 @@ export class DealCampaignController {
 
       const saved = campaign.deals[campaign.deals.length - 1];
 
+      emitDealCampaignInvalidate();
       return res.status(201).json({ success: true, data: { deal: saved } });
     } catch (error: any) {
       return res.status(500).json({ success: false, message: 'Failed to add deal item', error: error.message });
@@ -396,6 +412,7 @@ export class DealCampaignController {
       campaign.updatedBy = user?._id || null;
       await campaign.save();
 
+      emitDealCampaignInvalidate();
       return res.status(200).json({ success: true, data: { deal } });
     } catch (error: any) {
       return res.status(500).json({ success: false, message: 'Failed to update deal item', error: error.message });
@@ -431,6 +448,7 @@ export class DealCampaignController {
       campaign.updatedBy = user?._id || null;
       await campaign.save();
 
+      emitDealCampaignInvalidate();
       return res.status(200).json({ success: true, message: 'Deal item deleted' });
     } catch (error: any) {
       return res.status(500).json({ success: false, message: 'Failed to delete deal item', error: error.message });
@@ -466,6 +484,7 @@ export class DealCampaignController {
       campaign.updatedBy = user?._id || null;
       await campaign.save();
 
+      emitDealCampaignInvalidate();
       return res.status(200).json({ success: true, data: { deal } });
     } catch (error: any) {
       return res.status(500).json({ success: false, message: 'Failed to toggle deal item', error: error.message });

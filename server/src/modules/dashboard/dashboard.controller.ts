@@ -4,6 +4,7 @@ import { sendSuccess } from '@/utils/response';
 import { asyncHandler, IAuthRequest } from '@/utils';
 import { logger } from '@/utils/logger';
 import { OrderRepository } from '@/modules/order/order.repository';
+import { normalizeOrderPayload } from '@/utils/normalizeOrderPayload';
 
 export class DashboardController {
   private dashboardService: DashboardService;
@@ -134,26 +135,118 @@ export class DashboardController {
     sendSuccess(res, data, 'Admin branches performance retrieved successfully');
   });
 
+  private resolveAdminAnalyticsContext = async (
+    req: IAuthRequest,
+    range: string,
+    branchIdQuery?: string,
+    customRange?: { startDate?: string; endDate?: string }
+  ) => {
+    const User = await import('@/models/User').then((m) => m.User);
+    const role = String(req.user?.role || '').toUpperCase();
+    let branchId =
+      branchIdQuery && branchIdQuery !== 'all' ? String(branchIdQuery) : undefined;
+
+    if (role === 'BRANCH_MANAGER') {
+      const user = await User.findById(req.user!._id).select('assignedBranch');
+      const assigned = user?.assignedBranch as { _id?: { toString(): string }; toString?: () => string } | undefined;
+      const assignedStr =
+        assigned?._id?.toString?.() ||
+        (typeof assigned?.toString === 'function' ? assigned.toString() : undefined);
+      branchId = assignedStr || branchId;
+    }
+
+    const analytics = await this.dashboardService.getAdminAnalytics(range, branchId, customRange);
+    let branchLabel = branchId || 'All Branches';
+    if (branchId) {
+      const Branch = await import('@/models/Branch').then((m) => m.Branch);
+      const branch = await Branch.findById(branchId).select('branchName');
+      if (branch?.branchName) {
+        branchLabel = branch.branchName;
+      }
+    }
+
+    const periodLabel =
+      customRange?.startDate && customRange?.endDate
+        ? `${customRange.startDate} to ${customRange.endDate}`
+        : range === '1d'
+          ? 'Today'
+          : range === '7d'
+            ? 'Last 7 days'
+            : range === '90d'
+              ? 'Last 90 days'
+              : range === '1y'
+                ? 'Last year'
+                : 'Last 30 days';
+
+    return { analytics, branchId, branchLabel, range, periodLabel };
+  };
+
   // Admin Analytics with time range filtering
   getAdminAnalytics = asyncHandler(async (req: IAuthRequest, res: Response) => {
-    const { range = '30d' } = req.query;
+    const { range = '30d', branchId, startDate, endDate } = req.query;
+    const { assertBranchAccess } = await import('@/middleware/branchAccess');
+    if (branchId && branchId !== 'all') {
+      assertBranchAccess(req, String(branchId));
+    }
+    const customRange =
+      startDate && endDate
+        ? { startDate: String(startDate), endDate: String(endDate) }
+        : undefined;
 
     logger.info('📈 [ADMIN ANALYTICS] Request received', {
       user: req.user?.email,
       role: req.user?.role,
       userId: req.user?._id,
-      range
+      range,
+      branchId,
+      startDate,
+      endDate,
     });
 
-    const analytics = await this.dashboardService.getAdminAnalytics(range as string);
+    const { analytics } = await this.resolveAdminAnalyticsContext(
+      req,
+      range as string,
+      branchId as string | undefined,
+      customRange
+    );
 
     logger.info('📈 [ADMIN ANALYTICS] Analytics retrieved successfully', {
       range,
       totalOrders: analytics.totalOrders,
-      totalRevenue: analytics.totalRevenue
+      totalRevenue: analytics.totalRevenue,
     });
 
     sendSuccess(res, analytics, 'Admin analytics retrieved successfully');
+  });
+
+  getAdminAnalyticsExport = asyncHandler(async (req: IAuthRequest, res: Response) => {
+    const { range = '30d', branchId, startDate, endDate } = req.query;
+    const customRange =
+      startDate && endDate
+        ? { startDate: String(startDate), endDate: String(endDate) }
+        : undefined;
+    const { analytics, branchLabel, range: resolvedRange, periodLabel } =
+      await this.resolveAdminAnalyticsContext(
+        req,
+        range as string,
+        branchId as string | undefined,
+        customRange
+      );
+
+    const csv = this.dashboardService.buildAnalyticsCsv(analytics, {
+      periodLabel,
+      branchLabel,
+      generatedAt: new Date().toISOString(),
+    });
+
+    sendSuccess(
+      res,
+      {
+        csv,
+        fileName: `restaurant-report-${resolvedRange}-${Date.now()}.csv`,
+      },
+      'Report export ready'
+    );
   });
 
   // Customer Dashboard Stats
@@ -223,7 +316,14 @@ export class DashboardController {
       console.log('Order statuses:', orders.map((o: any) => o.status));
 
       console.log('=== /dashboard/chef/orders END ===');
-      sendSuccess(res, { orders: filteredOrders, count: filteredOrders.length }, 'Chef orders retrieved successfully');
+      sendSuccess(
+        res,
+        {
+          orders: filteredOrders.map((o: any) => normalizeOrderPayload(o)),
+          count: filteredOrders.length,
+        },
+        'Chef orders retrieved successfully'
+      );
     } catch (error: any) {
       console.error('=== /dashboard/chef/orders ERROR ===');
       console.error('Error message:', error.message);
@@ -265,7 +365,14 @@ export class DashboardController {
       console.log('All order statuses:', orders.map((o: any) => o.status));
 
       console.log('=== /dashboard/kitchen/orders/cooking END ===');
-      sendSuccess(res, { orders: cookingOrders, count: cookingOrders.length }, 'Cooking orders retrieved successfully');
+      sendSuccess(
+        res,
+        {
+          orders: cookingOrders.map((o: any) => normalizeOrderPayload(o)),
+          count: cookingOrders.length,
+        },
+        'Cooking orders retrieved successfully'
+      );
     } catch (error: any) {
       console.error('=== /dashboard/kitchen/orders/cooking ERROR ===');
       console.error('Error message:', error.message);
@@ -308,11 +415,44 @@ export class DashboardController {
     sendSuccess(res, inventory, 'Branch inventory retrieved successfully');
   });
 
-  // Branch Manager Analytics
+  // Branch Manager Analytics (same payload shape as admin analytics)
   getBranchAnalytics = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
-    const managerId = req.user?._id;
-    const { range = '30d' } = req.query;
-    const analytics = await this.dashboardService.getBranchAnalytics(managerId!.toString(), range as string);
+    const { range = '30d', startDate, endDate } = req.query;
+    const customRange =
+      startDate && endDate
+        ? { startDate: String(startDate), endDate: String(endDate) }
+        : undefined;
+    const { analytics } = await this.resolveAdminAnalyticsContext(
+      req,
+      range as string,
+      undefined,
+      customRange
+    );
     sendSuccess(res, analytics, 'Branch analytics retrieved successfully');
+  });
+
+  getBranchAnalyticsExport = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
+    const { range = '30d', startDate, endDate } = req.query;
+    const customRange =
+      startDate && endDate
+        ? { startDate: String(startDate), endDate: String(endDate) }
+        : undefined;
+    const { analytics, branchLabel, range: resolvedRange, periodLabel } =
+      await this.resolveAdminAnalyticsContext(req, range as string, undefined, customRange);
+
+    const csv = this.dashboardService.buildAnalyticsCsv(analytics, {
+      periodLabel,
+      branchLabel,
+      generatedAt: new Date().toISOString(),
+    });
+
+    sendSuccess(
+      res,
+      {
+        csv,
+        fileName: `branch-report-${resolvedRange}-${Date.now()}.csv`,
+      },
+      'Report export ready'
+    );
   });
 }

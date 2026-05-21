@@ -16,6 +16,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '../../components/api/client';
+import { emitChefDashboardGet } from '../../hooks/useRealtimeRefresh';
+import { getSocket } from '../../services/realtimeService';
 
 const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 0;
 const { width } = Dimensions.get('window');
@@ -61,14 +63,65 @@ export default function KitchenDisplay() {
     loadUserData();
   }, []);
 
+  const applyChefOrders = useCallback((payload: { orders?: any[]; cookingOrders?: any[] }) => {
+    const rawOrders = [...(payload?.orders || []), ...(payload?.cookingOrders || [])];
+    const formattedOrders: Order[] = rawOrders.map((order: any) => {
+      const id = order.id || order._id;
+      const createdAt = order.created_at || order.createdAt || order.kitchen_accepted_at;
+      const orderNumber = order.order_number || order.orderNumber || `ORD-${String(id).slice(-6).toUpperCase()}`;
+      const itemsRaw = order.items || order.orderItems || [];
+      const items: OrderItem[] = itemsRaw.map((item: any) => ({
+        id: item.id || item._id || `${id}-${item.product_id || item.productId}`,
+        product_name: item.product_name || item.productName || item.product?.name || 'Item',
+        size_name: item.size_name || item.sizeName || item.size?.sizeName || null,
+        quantity: item.quantity || 1,
+        special_instructions: item.special_instructions || item.specialInstructions,
+      }));
+      return {
+        id: String(id),
+        order_number: String(orderNumber),
+        table_id: order.table_id || order.tableId || order.table?._id,
+        table_number: order.table_number || order.tableNumber || order.table?.tableNumber || '-',
+        status: (order.status || 'PENDING') as OrderStatus,
+        items,
+        special_instructions: order.special_instructions || order.specialInstructions,
+        created_at: createdAt || new Date().toISOString(),
+        kitchen_accepted_at: order.kitchen_accepted_at || order.kitchenAcceptedAt,
+        waiter_name: order.waiter?.display_name || order.waiter?.displayName || order.waiter_name,
+      };
+    });
+
+    const kitchenOrders = formattedOrders.filter(
+      (o) => o.status === 'KITCHEN_ACCEPTED' || o.status === 'PREPARING'
+    );
+    kitchenOrders.sort((a, b) => {
+      const aTime = new Date(a.kitchen_accepted_at || a.created_at).getTime();
+      const bTime = new Date(b.kitchen_accepted_at || b.created_at).getTime();
+      return aTime - bTime;
+    });
+    setOrders(kitchenOrders);
+    setLoading(false);
+    setRefreshing(false);
+  }, []);
+
   useEffect(() => {
-    if (userData) {
-      loadOrders();
-      // Poll for updates every 30 seconds
-      const interval = setInterval(loadOrders, 30000);
-      return () => clearInterval(interval);
+    if (!userData) return;
+
+    const socket = getSocket();
+    if (!socket) {
+      emitChefDashboardGet();
+      return;
     }
-  }, [userData]);
+
+    const handler = (payload: unknown) => applyChefOrders(payload as { orders?: any[]; cookingOrders?: any[] });
+    socket.on('chef_dashboard:data', handler);
+    setLoading(true);
+    emitChefDashboardGet();
+
+    return () => {
+      socket.off('chef_dashboard:data', handler);
+    };
+  }, [userData, applyChefOrders]);
 
   const loadUserData = async () => {
     try {
@@ -86,68 +139,14 @@ export default function KitchenDisplay() {
     }
   };
 
-  const loadOrders = async () => {
-    try {
-      setLoading(true);
-      
-      // Fetch orders with KITCHEN_ACCEPTED or PREPARING status
-      const response = await api.get('/orders?status=KITCHEN_ACCEPTED,PREPARING');
-      
-      if (response.success && response.data) {
-        const rawOrders = response.data.orders || response.data || [];
-        const formattedOrders: Order[] = rawOrders.map((order: any) => {
-          const id = order.id || order._id;
-          const createdAt = order.created_at || order.createdAt || order.kitchen_accepted_at;
-          const orderNumber = order.order_number || order.orderNumber || `ORD-${String(id).slice(-6).toUpperCase()}`;
-          
-          const itemsRaw = order.items || order.orderItems || [];
-          const items: OrderItem[] = itemsRaw.map((item: any) => ({
-            id: item.id || item._id || `${id}-${item.product_id || item.productId}`,
-            product_name: item.product_name || item.productName || item.product?.name || 'Item',
-            size_name: item.size_name || item.sizeName || item.size?.sizeName || null,
-            quantity: item.quantity || 1,
-            special_instructions: item.special_instructions || item.specialInstructions,
-          }));
-
-          return {
-            id: String(id),
-            order_number: String(orderNumber),
-            table_id: order.table_id || order.tableId || order.table?._id,
-            table_number: order.table_number || order.tableNumber || order.table?.tableNumber || '-',
-            status: (order.status || 'PENDING') as OrderStatus,
-            items,
-            special_instructions: order.special_instructions || order.specialInstructions,
-            created_at: createdAt || new Date().toISOString(),
-            kitchen_accepted_at: order.kitchen_accepted_at || order.kitchenAcceptedAt,
-            waiter_name: order.waiter?.display_name || order.waiter?.displayName || order.waiter_name,
-          };
-        });
-
-        // Filter for kitchen orders only
-        const kitchenOrders = formattedOrders.filter(
-          o => o.status === 'KITCHEN_ACCEPTED' || o.status === 'PREPARING'
-        );
-
-        // Sort by kitchen_accepted_at or created_at (oldest first - most urgent)
-        kitchenOrders.sort((a, b) => {
-          const aTime = new Date(a.kitchen_accepted_at || a.created_at).getTime();
-          const bTime = new Date(b.kitchen_accepted_at || b.created_at).getTime();
-          return aTime - bTime;
-        });
-
-        setOrders(kitchenOrders);
-      }
-    } catch (error) {
-      console.error('Error loading orders:', error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+  const refreshOrders = () => {
+    setLoading(true);
+    emitChefDashboardGet();
   };
 
-  const onRefresh = async () => {
+  const onRefresh = () => {
     setRefreshing(true);
-    await loadOrders();
+    emitChefDashboardGet();
   };
 
   const calculateElapsedMinutes = (order: Order): number => {
@@ -178,7 +177,7 @@ export default function KitchenDisplay() {
 
       if (response.success) {
         Alert.alert('Success', 'Order marked as ready!');
-        loadOrders();
+        refreshOrders();
       } else {
         Alert.alert('Error', response.message || 'Failed to update order');
       }
@@ -195,7 +194,7 @@ export default function KitchenDisplay() {
       });
 
       if (response.success) {
-        loadOrders();
+        refreshOrders();
       } else {
         Alert.alert('Error', response.message || 'Failed to update order');
       }

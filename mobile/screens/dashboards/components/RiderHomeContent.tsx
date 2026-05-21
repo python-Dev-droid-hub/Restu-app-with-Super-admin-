@@ -57,6 +57,8 @@ interface RiderHomeContentProps {
   onNavigateToDelivery?: (deliveryId: string) => void;
   onCallCustomer?: (phone: string) => void;
   onRejectOrder?: (deliveryId: string) => void;
+  onPickUp?: (deliveryId: string) => void;
+  proximityByOrder?: Record<string, any>;
   isLoading?: boolean;
   formatPrice?: (price: number) => string;
 }
@@ -79,6 +81,8 @@ const RiderHomeContent: React.FC<RiderHomeContentProps> = ({
   onNavigateToDelivery,
   onCallCustomer,
   onRejectOrder,
+  onPickUp,
+  proximityByOrder = {},
   isLoading = false,
   formatPrice = (p) => `$${p.toFixed(2)}`,
 }) => {
@@ -201,6 +205,8 @@ const RiderHomeContent: React.FC<RiderHomeContentProps> = ({
           onNavigateToDelivery={() => onNavigateToDelivery?.(delivery._id)}
           onCallCustomer={() => onCallCustomer?.(delivery.customerPhone || '')}
           onReject={delivery.status === 'assigned' ? () => onRejectOrder?.(delivery._id) : undefined}
+          onPickUp={() => onPickUp?.(delivery._id)}
+          proximity={proximityByOrder[delivery._id]}
           formatPrice={formatPrice}
         />
       ))}

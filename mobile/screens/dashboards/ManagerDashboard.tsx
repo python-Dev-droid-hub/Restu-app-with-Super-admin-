@@ -24,10 +24,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getSpacing } from '../../utils/responsive';
 import ResponsiveHeader from '../../components/layout/ResponsiveHeader';
 import ProfileMenu from '../../components/common/ProfileMenu';
-import AdminBottomNavigation from '../../components/navigation/AdminBottomNavigation';
 import { useLocalization } from '../../context/LocalizationContext';
 import { getNotifications } from '../../services/notificationService';
 import { useUserData } from '../../hooks/useUserData';
+import { useBranch } from '../../context/BranchContext';
+import { useAdminDashboardRealtime, AdminDashboardPayload } from '../../hooks/useAdminDashboardRealtime';
+import { navigateToOrder, navigateToTabScreen } from '../../utils/navigateToOrder';
+import { enrichOrderParty } from '../../utils/orderParty';
 
 const { width } = Dimensions.get('window');
 const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 0;
@@ -64,12 +67,27 @@ interface Order {
   _id: string;
   orderNumber?: string;
   status: string;
+  orderType?: string;
   customerName?: string;
   customerEmail?: string;
+  tableNumber?: string | null;
+  waiterName?: string | null;
+  partyName?: string;
   total?: number;
   totalAmount?: number;
   finalAmount?: number;
   createdAt: string;
+}
+
+function orderCardSubtitle(order: Order): string | null {
+  const type = String(order.orderType || '').toUpperCase();
+  if (type === 'DINE_IN') {
+    const parts: string[] = [];
+    if (order.tableNumber) parts.push(`Table ${order.tableNumber}`);
+    if (order.waiterName) parts.push(`Waiter: ${order.waiterName}`);
+    return parts.length ? parts.join(' · ') : null;
+  }
+  return order.customerName || null;
 }
 
 interface Product {
@@ -106,6 +124,7 @@ export default function ManagerDashboard() {
   const { t } = useLocalization();
   const insets = useSafeAreaInsets();
   const { profileImage: userProfileImage, assignedBranch: userBranch } = useUserData();
+  const { getApiBranchParam } = useBranch();
   console.log(' [DASHBOARD] Component mounting...');
   const [loading, setLoading] = useState(true);
   const [isLive, setIsLive] = useState(true);
@@ -149,15 +168,7 @@ export default function ManagerDashboard() {
   }, [navigation]);
 
   useEffect(() => {
-    loadUnreadCount();
     loadNotifications();
-
-    // Poll for real-time updates every 30 seconds (reduced from 5s to avoid log spam)
-    const interval = setInterval(() => {
-      loadOrdersSilent();
-    }, 30000);
-
-    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -179,46 +190,70 @@ export default function ManagerDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userBranch]);
 
-  const loadOrdersSilent = async () => {
-    try {
-      const branchId = await AsyncStorage.getItem('selectedBranchId');
-      const params = new URLSearchParams();
-      if (branchId) {
-        params.append('branchId', branchId);
-      }
-      
-      const ordersResponse = await api.get(`/orders?limit=10&${params.toString()}`);
-      if (ordersResponse.success && ordersResponse.data) {
-        const rawOrders = ordersResponse.data.orders || [];
-        // Normalize order data to ensure fields are correctly mapped
-        const normalizedOrders = rawOrders.map((order: any) => ({
-          _id: order.id || order._id,
-          orderNumber: order.orderNumber || order.order_number,
-          status: order.status,
-          totalAmount: order.totalAmount || order.total_amount || order.total || order.finalAmount || 0,
+  const applyRealtimeDashboard = useCallback((payload: AdminDashboardPayload) => {
+    const statsData = payload.stats as Record<string, number> | null;
+    if (statsData) {
+      setStats({
+        totalOrders: statsData.totalOrders ?? 0,
+        totalRevenue: statsData.totalRevenue ?? 0,
+        totalUsers: statsData.totalUsers ?? 0,
+        totalProducts: statsData.totalProducts ?? 0,
+        favoriteItems: statsData.favoriteItems ?? 0,
+        totalSpent: statsData.totalSpent ?? 0,
+        activeOrders: statsData.activeOrders ?? 0,
+      });
+    }
+
+    if (Array.isArray(payload.orders)) {
+      const normalizedOrders = payload.orders.map((order: any) => {
+        const e = enrichOrderParty(order || {});
+        return {
+          _id: String(e.id || e._id || order.id || order._id || ''),
+          orderNumber: e.orderNumber || order.orderNumber || order.order_number,
+          status: String(e.status || order.status || ''),
+          orderType: e.orderType,
+          totalAmount: Number(e.totalAmount ?? order.totalAmount ?? order.total ?? 0),
           finalAmount: order.finalAmount || order.final_amount,
           total: order.total,
-          createdAt: order.createdAt || order.created_at,
-          customerName: order.customerName,
+          createdAt: String(e.createdAt || order.createdAt || order.created_at || ''),
+          customerName: e.customerName,
+          tableNumber: e.tableNumber,
+          waiterName: e.waiterName,
+          partyName: e.partyName,
           customerEmail: order.customerEmail,
-          items: order.items || [],
-        }));
-        setRecentOrders(normalizedOrders);
-      }
-    } catch (error) {
-      console.error('Error loading orders silently:', error);
+        };
+      });
+      setRecentOrders(normalizedOrders);
     }
-  };
+
+    if (typeof payload.unreadCount === 'number') {
+      setUnreadCount(payload.unreadCount);
+    }
+
+    if (Array.isArray(payload.recentProducts)) {
+      setRecentProducts(payload.recentProducts as Product[]);
+    }
+
+    setLoading(false);
+  }, []);
+
+  const { refresh: refreshDashboardRealtime } = useAdminDashboardRealtime({
+    period: activePeriod,
+    branchId: assignedBranch._id,
+    enabled: !!assignedBranch._id,
+    onData: applyRealtimeDashboard,
+  });
 
   useEffect(() => {
     loadUserData();
   }, []);
 
   useEffect(() => {
-    // Load dashboard once we know the assigned branch (or fallback to unscoped if backend infers branch)
-    loadDashboardData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assignedBranch._id, activePeriod]);
+    if (assignedBranch._id) {
+      setLoading(true);
+      refreshDashboardRealtime();
+    }
+  }, [assignedBranch._id, activePeriod, refreshDashboardRealtime]);
 
   const loadUserData = async () => {
     try {
@@ -284,75 +319,9 @@ export default function ManagerDashboard() {
     void ensureBranchDetails();
   }, [assignedBranch._id, assignedBranch.name]);
 
-  const loadDashboardData = async () => {
-    try {
-      setLoading(true);
-      const params = new URLSearchParams();
-      // For manager, always use their assigned branch
-      if (assignedBranch._id) {
-        params.append('branchId', assignedBranch._id);
-      }
-      params.append('period', activePeriod);
-
-      // For manager, use the manager-specific endpoint
-      const statsResponse = await api.get(`/dashboard/manager/stats?${params.toString()}`);
-      if (statsResponse.success && statsResponse.data) {
-        setStats({
-          totalOrders: statsResponse.data.totalOrders ?? 0,
-          totalRevenue: statsResponse.data.totalRevenue ?? 0,
-          totalUsers: statsResponse.data.totalUsers ?? 0,
-          totalProducts: statsResponse.data.totalProducts ?? 0,
-          favoriteItems: statsResponse.data.favoriteItems ?? 0,
-          totalSpent: statsResponse.data.totalSpent ?? 0,
-          activeOrders: statsResponse.data.activeOrders ?? 0,
-        });
-      }
-
-      const ordersResponse = await api.get(`/orders?limit=10&${params.toString()}`);
-      if (ordersResponse.success && ordersResponse.data) {
-        const rawOrders = ordersResponse.data.orders || [];
-        // Normalize order data to ensure fields are correctly mapped
-        const normalizedOrders = rawOrders.map((order: any) => ({
-          _id: order.id || order._id,
-          orderNumber: order.orderNumber || order.order_number,
-          status: order.status,
-          totalAmount: order.totalAmount || order.total_amount || order.total || order.finalAmount || 0,
-          finalAmount: order.finalAmount || order.final_amount,
-          total: order.total,
-          createdAt: order.createdAt || order.created_at,
-          customerName: order.customerName,
-          customerEmail: order.customerEmail,
-        }));
-        setRecentOrders(normalizedOrders);
-        console.log('[MANAGER] Orders loaded:', normalizedOrders.length);
-      }
-
-      // Load recent products and count for stats
-      const productsResponse = await api.get('/menu/admin/products?limit=5');
-      console.log(' [DASHBOARD] Products API Response:', productsResponse);
-      console.log(' [DASHBOARD] Products success:', productsResponse.success);
-      console.log(' [DASHBOARD] Products data:', productsResponse.data);
-      if (productsResponse.success && productsResponse.data) {
-        const products = productsResponse.data.products || [];
-        console.log(' [DASHBOARD] Products array:', products);
-        console.log(' [DASHBOARD] Products length:', products.length);
-        console.log(' [DASHBOARD] Setting recent products:', products.length);
-        setRecentProducts(products);
-        // Update totalProducts stat from actual product count
-        setStats(prev => ({ ...prev, totalProducts: productsResponse.data.pagination?.total || products.length }));
-      } else {
-        console.log(' [DASHBOARD] Products API call failed');
-        setRecentProducts([]);
-      }
-    } catch (error) {
-      console.error('Error loading dashboard data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const onRefresh = () => {
-    loadDashboardData();
+    setLoading(true);
+    refreshDashboardRealtime();
     loadUnreadCount();
     loadNotifications();
   };
@@ -431,7 +400,6 @@ export default function ManagerDashboard() {
     { name: 'Deals', icon: 'pricetag-outline', screen: 'AdminDealCampaigns' },
     { name: 'Product Size', icon: 'resize-outline', screen: 'AdminProductSizes' },
     { name: t('nav.reports'), icon: 'bar-chart-outline', screen: 'AdminReports' },
-    { name: t('nav.settings'), icon: 'settings-outline', screen: 'AdminSettings' },
   ];
   
   // Debug: Log all menu items to verify Banner Management is included
@@ -440,8 +408,6 @@ export default function ManagerDashboard() {
   console.log('[MANAGER MENU] Banner Management present:', menuItems.some(i => i.screen === 'BannerManagement'));
 
   // Get parent tab navigation for bottom nav
-  const tabNavigation = navigation.getParent();
-
   return (
     <View style={[styles.rootContainer, { paddingBottom: insets.bottom }]}>
       <StatusBar barStyle="dark-content" backgroundColor={DESIGN.colors.white} />
@@ -495,8 +461,7 @@ export default function ManagerDashboard() {
           </TouchableOpacity>
           
           <TouchableOpacity style={[styles.statCard, styles.ordersCard]} onPress={() => {
-            // @ts-ignore
-            navigation.navigate('AdminOrders')
+            navigateToTabScreen(navigation as never, 'AdminOrders');
           }}>
             <View style={styles.statIconContainer}>
               <Ionicons name="receipt-outline" size={24} color="#fff" />
@@ -506,8 +471,7 @@ export default function ManagerDashboard() {
           </TouchableOpacity>
           
           <TouchableOpacity style={[styles.statCard, styles.menuCard]} onPress={() => {
-            // @ts-ignore
-            navigation.navigate('AdminProducts')
+            navigateToTabScreen(navigation as never, 'AdminProducts');
           }}>
             <View style={styles.statIconContainer}>
               <Ionicons name="restaurant-outline" size={24} color="#fff" />
@@ -521,8 +485,7 @@ export default function ManagerDashboard() {
             activeOpacity={0.8}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             onPress={() => {
-              // @ts-ignore
-              navigation.navigate('AdminUsers')
+              navigateToTabScreen(navigation as never, 'AdminUsers');
             }}>
             <View style={styles.statIconContainer}>
               <Ionicons name="people-outline" size={24} color="#fff" />
@@ -538,8 +501,7 @@ export default function ManagerDashboard() {
             <Text style={styles.sectionTitle}>{t('dashboard.recentOrders')}</Text>
             <TouchableOpacity
               onPress={() => {
-                // @ts-ignore
-                navigation.navigate('AdminOrders');
+                navigateToTabScreen(navigation as never, 'AdminOrders');
               }}
             >
               <Text style={styles.viewAllText}>{t('dashboard.viewAll')}</Text>
@@ -551,13 +513,14 @@ export default function ManagerDashboard() {
               <TouchableOpacity 
                 key={`recent-${order._id || index}`} 
                 style={styles.orderItem}
-                onPress={() => {
-                  // @ts-ignore
-                  navigation.navigate('AdminOrders', { 
-                    orderId: order._id,
-                    highlightOrder: true 
-                  });
-                }}
+                onPress={() =>
+                  navigateToOrder(navigation as never, order as {
+                    _id?: string;
+                    id?: string;
+                    orderNumber?: string;
+                    order_number?: string;
+                  })
+                }
                 activeOpacity={0.8}
               >
                 <View style={styles.orderIconContainer}>
@@ -568,6 +531,11 @@ export default function ManagerDashboard() {
                     Order #{order.orderNumber || String(order._id || '').slice(-6)}
                   </Text>
                   <Text style={styles.orderTime}>{formatTimeAgo(order.createdAt || new Date().toISOString())}</Text>
+                  {orderCardSubtitle(order) ? (
+                    <Text style={styles.orderMeta} numberOfLines={1}>
+                      {orderCardSubtitle(order)}
+                    </Text>
+                  ) : null}
                 </View>
                 <Text style={styles.orderAmount}>{formatPrice(order.totalAmount || order.finalAmount || order.total || 0)}</Text>
                 <View style={[styles.statusBadge, { backgroundColor: getStatusColor(order.status) + '20' }]}>
@@ -592,12 +560,8 @@ export default function ManagerDashboard() {
       <ProfileMenu
         visible={showProfileMenu}
         onClose={() => setShowProfileMenu(false)}
+        navigation={navigation}
         onLogout={handleLogout}
-        onChangePassword={() => {
-          setShowProfileMenu(false);
-          // @ts-ignore
-          navigation.navigate('AdminSettings');
-        }}
       />
 
       {/* Notification Panel Modal */}
@@ -630,7 +594,8 @@ export default function ManagerDashboard() {
                     setNotificationList(prev => prev.map(n => ({ ...n, is_read: true })));
                     setUnreadCount(0);
                     try {
-                      await api.put('/notifications/mark-all-read');
+                      const { markAllAdminNotificationsAsRead } = await import('../../services/notificationService');
+                      await markAllAdminNotificationsAsRead(getApiBranchParam());
                     } catch (error) {
                       console.log('Error marking all notifications as read:', error);
                     }
@@ -689,13 +654,6 @@ export default function ManagerDashboard() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Bottom Navigation */}
-      <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 999 }}>
-        <AdminBottomNavigation 
-          currentRoute="ManagerDashboard"
-          tabNavigation={tabNavigation}
-        />
-      </View>
     </View>
   );
 }
@@ -986,6 +944,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: DESIGN.colors.muted,
     marginTop: 2,
+  },
+  orderMeta: {
+    fontSize: 11,
+    color: DESIGN.colors.text,
+    marginTop: 2,
+    fontWeight: '600',
   },
   orderAmount: {
     fontSize: 15,

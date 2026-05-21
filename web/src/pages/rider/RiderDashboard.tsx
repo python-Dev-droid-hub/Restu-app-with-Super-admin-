@@ -37,6 +37,7 @@ import {
 import { useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../../services/api';
 import { useSettings } from '../../context/SettingsContext';
+import { emitRiderDashboardGet, getRealtimeSocket } from '../../hooks/useRealtimeRefresh';
 
 type RiderTabKey = 'home' | 'orders' | 'earnings' | 'notifications' | 'profile';
 
@@ -424,12 +425,63 @@ export default function RiderDashboard() {
     setGeoStatus('error');
   }, [onDuty]);
 
+  const applyRiderPayload = useCallback(
+    (payload: any) => {
+      const statsData = payload?.stats || {};
+      setStats({
+        assignedDeliveries: toNumber(statsData.assignedDeliveries, 0),
+        completedDeliveries: toNumber(statsData.completedDeliveries, 0),
+        todayEarnings: toNumber(statsData.todayEarnings, 0),
+        thisWeekEarnings: toNumber(statsData.thisWeekEarnings, 0),
+      });
+
+      const earningsData = payload?.earnings || {};
+      setEarnings({
+        totalEarnings: toNumber(earningsData.totalEarnings, 0),
+        thisWeekEarnings: toNumber(earningsData.thisWeekEarnings, 0),
+        thisMonthEarnings: toNumber(earningsData.thisMonthEarnings, 0),
+        lastMonthEarnings: toNumber(earningsData.lastMonthEarnings, 0),
+      });
+
+      if (Array.isArray(payload?.orders)) {
+        const normalized = normalizeOrders(payload.orders);
+        setMyOrders(normalized);
+        const activeStatuses = new Set(['RIDER_ASSIGNED', 'PICKED_UP', 'OUT_FOR_DELIVERY', 'IN_DELIVERY', 'ASSIGNED', 'IN_DELIVERY']);
+        const active = normalized.filter((o) => activeStatuses.has(String(o.status || '').toUpperCase()));
+        if (active.length > 0) {
+          // keep myOrders as full list
+        }
+      }
+
+      if (Array.isArray(payload?.availableOrders)) {
+        setAvailableOrders(normalizeOrders(payload.availableOrders));
+      }
+
+      if (Array.isArray(payload?.notifications)) {
+        const normalized = payload.notifications.map((n: any) => {
+          const id = String(n?._id || n?.id || '').trim();
+          const read = Boolean(n?.read ?? n?.isRead ?? n?.is_read ?? false);
+          return { ...n, id, read };
+        });
+        setNotifications(normalized);
+      }
+
+      if (typeof payload?.onDuty === 'boolean') {
+        setOnDuty(payload.onDuty);
+      }
+
+      setLoading(false);
+    },
+    []
+  );
+
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
       setLoading(true);
       try {
-        await Promise.all([loadProfile(), loadRiderStatus(), loadStats(), loadEarnings(), loadOrders(), loadNotifications()]);
+        await Promise.all([loadProfile(), loadRiderStatus()]);
+        if (!cancelled) emitRiderDashboardGet();
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -438,26 +490,39 @@ export default function RiderDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [loadEarnings, loadNotifications, loadOrders, loadProfile, loadRiderStatus, loadStats]);
+  }, [loadProfile, loadRiderStatus]);
 
   useEffect(() => {
-    if (!onDuty) return;
-    void updateLocation();
-    const id = window.setInterval(() => {
+    const socket = getRealtimeSocket();
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const request = () => {
+      setLoading(true);
+      emitRiderDashboardGet();
+    };
+
+    const debouncedRequest = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(request, 1500);
+    };
+
+    socket.on('rider_dashboard:data', applyRiderPayload);
+    socket.on('rider_dashboard:error', () => setLoading(false));
+    socket.on('notification', debouncedRequest);
+
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      socket.off('rider_dashboard:data', applyRiderPayload);
+      socket.off('rider_dashboard:error');
+      socket.off('notification', debouncedRequest);
+    };
+  }, [applyRiderPayload]);
+
+  useEffect(() => {
+    if (onDuty) {
       void updateLocation();
-    }, 60000);
-    return () => window.clearInterval(id);
+    }
   }, [onDuty, updateLocation]);
-
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      void loadStats();
-      void loadEarnings();
-      void loadOrders();
-      void loadNotifications();
-    }, 30000);
-    return () => window.clearInterval(id);
-  }, [loadEarnings, loadNotifications, loadOrders, loadStats]);
 
   const activeDeliveries = useMemo(() => {
     const activeStatuses = new Set(['RIDER_ASSIGNED', 'PICKED_UP', 'OUT_FOR_DELIVERY', 'IN_DELIVERY']);

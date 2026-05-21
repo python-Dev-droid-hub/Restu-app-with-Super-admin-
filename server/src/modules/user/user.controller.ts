@@ -3,6 +3,7 @@ import { UserRepository } from './user.repository';
 import { IAuthRequest, sendSuccess, sendError, asyncHandler } from '@/utils';
 import { createError } from '@/middleware/errorHandler';
 import { Types } from 'mongoose';
+import { updateRiderLocation as storeRiderLocation } from '@/services/locationService';
 
 export class UserController {
   private userRepository: UserRepository;
@@ -182,21 +183,61 @@ export class UserController {
     sendSuccess(res, { user: user.getPublicProfile() }, 'User activated successfully');
   });
 
-  updateUser = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  updateUser = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
     const { id } = req.params;
-    const { name, email, role, isActive, phone } = req.body;
+    const { name, email, role, isActive, phone, assignedBranch } = req.body;
 
-    const updateData: any = {};
+    const existing = await this.userRepository.findById(id);
+    if (!existing) {
+      throw createError('User not found', 404);
+    }
+
+    const updateData: Record<string, unknown> = {};
     if (name) updateData.displayName = name;
     if (email) updateData.email = email;
     if (role) updateData.role = role;
     if (isActive !== undefined) updateData.isActive = isActive;
     if (phone) updateData.phoneNumber = phone;
+    if (assignedBranch !== undefined) updateData.assignedBranch = assignedBranch;
 
     const user = await this.userRepository.updateById(id, updateData);
-    
+
     if (!user) {
       throw createError('User not found', 404);
+    }
+
+    const actorRole = String(req.user?.role || '').toUpperCase();
+    const previousRole = String(existing.role || '');
+    const newRole = role ? String(role) : previousRole;
+    const roleChanged = role && newRole !== previousRole;
+    const branchId =
+      (user.assignedBranch as any)?._id?.toString?.() ||
+      (user.assignedBranch ? String(user.assignedBranch) : undefined);
+
+    if (roleChanged) {
+      const {
+        notifyRoleAssignedByAdmin,
+        notifyRoleChangedByManager,
+      } = await import('@/services/roleNotificationService');
+
+      if (actorRole === 'ADMIN' || actorRole === 'SUPER_ADMIN') {
+        void notifyRoleAssignedByAdmin({
+          adminId: String(req.user!._id),
+          targetUserId: id,
+          newRole,
+          previousRole,
+          branchId,
+        });
+      } else if (actorRole === 'BRANCH_MANAGER') {
+        void notifyRoleChangedByManager({
+          managerId: String(req.user!._id),
+          targetUserId: id,
+          newRole,
+          previousRole,
+          branchId,
+          roleDetails: `Updated user ${user.displayName || user.email}`,
+        });
+      }
     }
 
     sendSuccess(res, { user: user.getPublicProfile() }, 'User updated successfully');
@@ -253,16 +294,23 @@ export class UserController {
       throw createError('Longitude and latitude are required', 400);
     }
 
+    const record = storeRiderLocation(userId.toString(), latitude, longitude);
+
     const updatedUser = await this.userRepository.updateRiderLocation(userId, longitude, latitude);
-    
+
     if (!updatedUser) {
       throw createError('User not found', 404);
     }
 
-    sendSuccess(res, { 
-      location: updatedUser.currentLocation,
-      lastLocationUpdate: updatedUser.lastLocationUpdate,
-    }, 'Location updated successfully');
+    sendSuccess(
+      res,
+      {
+        location: updatedUser.currentLocation,
+        lastLocationUpdate: updatedUser.lastLocationUpdate,
+        snapshot: record,
+      },
+      'Location updated successfully'
+    );
   });
 
   updateRiderDutyStatus = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {

@@ -2,6 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import { AuthService } from './auth.service';
 import { IAuthRequest, sendSuccess, sendError, asyncHandler } from '@/utils';
 import { createError } from '@/utils';
+import { parseDurationToMs } from '@/utils/tokenTtl';
+import { getAuthCookieOptions } from '@/config/cookies';
 
 export class AuthController {
   private authService: AuthService;
@@ -11,43 +13,27 @@ export class AuthController {
   }
 
   private setAuthCookies(res: Response, tokens: { accessToken: string; refreshToken: string }) {
-    const isProd = process.env.NODE_ENV === 'production';
-    const secure = (process.env.COOKIE_SECURE ? process.env.COOKIE_SECURE === 'true' : isProd);
-    const sameSite = (process.env.COOKIE_SAMESITE as any) || (isProd ? 'none' : 'lax');
-    const domain = process.env.COOKIE_DOMAIN || undefined;
+    const baseOptions = getAuthCookieOptions();
 
-    const baseOptions: any = {
-      httpOnly: true,
-      secure,
-      sameSite,
-      domain,
-      path: '/',
-    };
+    const accessMaxAge = parseDurationToMs(process.env.JWT_EXPIRE || '30m', 30 * 60 * 1000);
+    const refreshMaxAge = parseDurationToMs(
+      process.env.JWT_REFRESH_EXPIRE || '7d',
+      7 * 24 * 60 * 60 * 1000
+    );
 
     res.cookie('accessToken', tokens.accessToken, {
       ...baseOptions,
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge: accessMaxAge,
     });
 
     res.cookie('refreshToken', tokens.refreshToken, {
       ...baseOptions,
-      maxAge: 30 * 24 * 60 * 60 * 1000,
+      maxAge: refreshMaxAge,
     });
   }
 
   private clearAuthCookies(res: Response) {
-    const isProd = process.env.NODE_ENV === 'production';
-    const secure = (process.env.COOKIE_SECURE ? process.env.COOKIE_SECURE === 'true' : isProd);
-    const sameSite = (process.env.COOKIE_SAMESITE as any) || (isProd ? 'none' : 'lax');
-    const domain = process.env.COOKIE_DOMAIN || undefined;
-
-    const baseOptions: any = {
-      httpOnly: true,
-      secure,
-      sameSite,
-      domain,
-      path: '/',
-    };
+    const baseOptions = getAuthCookieOptions();
 
     res.clearCookie('accessToken', baseOptions);
     res.clearCookie('refreshToken', baseOptions);
@@ -208,9 +194,7 @@ export class AuthController {
 
     this.setAuthCookies(res, tokens);
 
-    sendSuccess(res, {
-      tokens: process.env.NODE_ENV === 'production' ? undefined : tokens,
-    }, 'Token refreshed successfully');
+    sendSuccess(res, { tokens }, 'Token refreshed successfully');
   });
 
   logout = asyncHandler(async (req: Request, res: Response): Promise<void> => {

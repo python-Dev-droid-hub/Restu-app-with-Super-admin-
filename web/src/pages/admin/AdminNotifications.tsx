@@ -4,6 +4,7 @@ import {
   Typography,
   List,
   ListItem,
+  ListItemButton,
   ListItemText,
   ListItemAvatar,
   Avatar,
@@ -33,6 +34,7 @@ import {
 } from '@mui/icons-material';
 import { api } from '../../services/api';
 import { io, type Socket } from 'socket.io-client';
+import { resolveSocketUrl } from '../../utils/resolveSocketUrl';
 
 interface NotificationItem {
   _id: string;
@@ -71,7 +73,7 @@ const AdminNotifications: React.FC = () => {
           title: n.title || 'Notification',
           message: n.message || n.body || '',
           type: n.type || 'INFO',
-          read: n.read ?? false,
+          read: n.read ?? n.isRead ?? false,
           createdAt: n.createdAt || new Date().toISOString(),
           data: n.data || {},
         }));
@@ -88,18 +90,8 @@ const AdminNotifications: React.FC = () => {
     if (socketRef.current) return;
 
     const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken') || '';
-    const rawApiUrl = (import.meta as any)?.env?.VITE_API_URL as string | undefined;
-    const rawProxyTarget = (import.meta as any)?.env?.VITE_PROXY_TARGET as string | undefined;
 
-    const normalizeHost = (value?: string): string => {
-      const v = (value || '').trim();
-      if (!v) return '';
-      return v.replace(/\/?api\/?$/, '').replace(/\/$/, '');
-    };
-
-    const socketUrl = normalizeHost(rawProxyTarget) || normalizeHost(rawApiUrl) || 'http://localhost:3101';
-
-    const socket = io(socketUrl, {
+    const socket = io(resolveSocketUrl(), {
       path: '/socket.io',
       transports: ['websocket', 'polling'],
       auth: token ? { token } : undefined,
@@ -119,6 +111,15 @@ const AdminNotifications: React.FC = () => {
       socketRef.current = null;
     };
   }, []);
+
+  const handleNotificationClick = async (notification: NotificationItem) => {
+    const orderId = notification.data?.orderId || notification.data?.order_id;
+    if (orderId) {
+      window.location.href = `/admin/orders?orderId=${encodeURIComponent(String(orderId))}`;
+    }
+    if (notification.read) return;
+    await handleMarkAsRead(notification._id);
+  };
 
   const handleMarkAsRead = async (id: string) => {
     try {
@@ -263,11 +264,7 @@ const AdminNotifications: React.FC = () => {
             filteredNotifications.map((notification, index) => (
               <React.Fragment key={notification._id}>
                 <ListItem
-                  sx={{
-                    px: { xs: 2, md: 3 },
-                    bgcolor: notification.read ? 'transparent' : getNotificationColor(notification.type),
-                    '&:hover': { bgcolor: '#f5f5f5' },
-                  }}
+                  disablePadding
                   secondaryAction={
                     <Box>
                       {!notification.read && (
@@ -281,6 +278,14 @@ const AdminNotifications: React.FC = () => {
                     </Box>
                   }
                 >
+                  <ListItemButton
+                    onClick={() => void handleNotificationClick(notification)}
+                    sx={{
+                      px: { xs: 2, md: 3 },
+                      bgcolor: notification.read ? 'transparent' : getNotificationColor(notification.type),
+                      '&:hover': { bgcolor: '#f5f5f5' },
+                    }}
+                  >
                   <ListItemAvatar>
                     <Avatar sx={{ bgcolor: 'transparent' }}>
                       {getNotificationIcon(notification.type)}
@@ -313,6 +318,7 @@ const AdminNotifications: React.FC = () => {
                       </Box>
                     }
                   />
+                  </ListItemButton>
                 </ListItem>
                 {index < filteredNotifications.length - 1 && <Divider />}
               </React.Fragment>

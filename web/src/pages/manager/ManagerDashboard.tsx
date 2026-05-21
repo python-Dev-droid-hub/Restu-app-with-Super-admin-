@@ -3,7 +3,9 @@ import { Box, Card, CardContent, Chip, Container, Grid, Paper, Skeleton, Table, 
 import { AccountBalanceWallet, People, ReceiptLong, RestaurantMenu } from '@mui/icons-material';
 import { useLocation } from 'react-router-dom';
 import { api } from '../../services/api';
+import { enrichOrderParty } from '../../utils/orderParty';
 import { io, type Socket } from 'socket.io-client';
+import { resolveSocketUrl } from '../../utils/resolveSocketUrl';
 import { useTheme } from '@mui/material/styles';
 import { useSettings } from '../../context/SettingsContext';
 
@@ -21,6 +23,11 @@ type ManagerOrder = {
   createdAt: string;
   total: number;
   customerName: string;
+  partyLabel?: string;
+  partyName?: string;
+  orderType?: string;
+  tableNumber?: string | null;
+  waiterName?: string | null;
 };
 
 type WaiterPerformanceRow = {
@@ -180,14 +187,22 @@ const ManagerDashboard: React.FC = () => {
         if (ordersRes.success && ordersRes.data) {
           const raw: any = ordersRes.data;
           const list = Array.isArray(raw.orders) ? raw.orders : Array.isArray(raw) ? raw : [];
-          const normalized = list.map((o: any): ManagerOrder => ({
-            _id: String(o._id || o.id || ''),
-            orderNumber: String(o.orderNumber || o.orderNo || o._id || ''),
-            status: String(o.status || ''),
-            createdAt: String(o.createdAt || o.created_at || ''),
-            total: Number(o.totalAmount ?? o.total ?? 0),
-            customerName: String(o.customerName || o.customer?.name || ''),
-          }));
+          const normalized = list.map((o: any): ManagerOrder => {
+            const enriched = enrichOrderParty(o || {});
+            return {
+              _id: String(o._id || o.id || ''),
+              orderNumber: String(o.orderNumber || o.orderNo || o._id || ''),
+              status: String(o.status || ''),
+              createdAt: String(o.createdAt || o.created_at || ''),
+              total: Number(o.totalAmount ?? o.total ?? 0),
+              orderType: enriched.orderType,
+              partyLabel: enriched.partyLabel,
+              partyName: enriched.partyName,
+              customerName: enriched.partyName,
+              tableNumber: enriched.tableNumber,
+              waiterName: enriched.waiterName,
+            };
+          });
           setRecentOrders(normalized);
         }
       } finally {
@@ -200,33 +215,53 @@ const ManagerDashboard: React.FC = () => {
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken') || '';
-    const rawApiUrl = (import.meta as any)?.env?.VITE_API_URL as string | undefined;
-    const rawProxyTarget = (import.meta as any)?.env?.VITE_PROXY_TARGET as string | undefined;
-
-    const normalizeHost = (value?: string): string => {
-      const v = (value || '').trim();
-      if (!v) return '';
-      return v.replace(/\/?api\/?$/, '').replace(/\/$/, '');
-    };
-
-    const socketUrl = normalizeHost(rawProxyTarget) || normalizeHost(rawApiUrl) || 'http://localhost:3101';
 
     if (!socketRef.current) {
-      const socket = io(socketUrl, {
+      const socket = io(resolveSocketUrl(), {
         path: '/socket.io',
         transports: ['websocket', 'polling'],
         auth: token ? { token } : undefined,
       });
       socketRef.current = socket;
 
-      socket.on('admin_dashboard:data', (payload: any) => {
+      const applyPayload = (payload: any) => {
         const waitersPerf = payload?.waitersPerformance;
         setWaitersPerformance(Array.isArray(waitersPerf?.waiters) ? waitersPerf.waiters : []);
 
         const ridersPerf = payload?.ridersPerformance;
         setRidersCount(typeof ridersPerf?.ridersCount === 'number' ? ridersPerf.ridersCount : 0);
         setRidersPerformance(Array.isArray(ridersPerf?.riders) ? ridersPerf.riders : []);
-      });
+
+        const rawOrders = Array.isArray(payload?.orders) ? payload.orders : [];
+        setRecentOrders(
+          rawOrders.map((o: any) => {
+            const enriched = enrichOrderParty(o || {});
+            return {
+              _id: String(o?._id || o?.id || ''),
+              orderNumber: String(o?.orderNumber || ''),
+              status: String(o?.status || ''),
+              orderType: enriched.orderType,
+              partyLabel: enriched.partyLabel,
+              partyName: enriched.partyName,
+              customerName: enriched.partyName,
+              tableNumber: enriched.tableNumber,
+              waiterName: enriched.waiterName,
+              total: Number(o?.total ?? o?.totalAmount ?? 0),
+              createdAt: String(o?.createdAt || ''),
+            };
+          })
+        );
+      };
+
+      socket.on('admin_dashboard:data', applyPayload);
+      const refresh = () => {
+        if (branchId) socket.emit('admin_dashboard:get', { period: 'all', branchId, limit: 50 });
+      };
+      socket.on('admin_dashboard:invalidate', refresh);
+      socket.on('order:created', refresh);
+      socket.on('order:updated', refresh);
+      socket.on('order:status_updated', refresh);
+      socket.on('notification', refresh);
     }
 
     if (branchId && socketRef.current?.connected) {
@@ -326,7 +361,8 @@ const ManagerDashboard: React.FC = () => {
               <TableHead>
                 <TableRow>
                   <TableCell sx={{ fontWeight: 600, color: '#666', borderBottom: '2px solid #f0f0f0' }}>Order</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: '#666', borderBottom: '2px solid #f0f0f0' }}>Customer</TableCell>
+                  <TableCell sx={{ fontWeight: 600, color: '#666', borderBottom: '2px solid #f0f0f0' }}>Table</TableCell>
+                  <TableCell sx={{ fontWeight: 600, color: '#666', borderBottom: '2px solid #f0f0f0' }}>Waiter</TableCell>
                   <TableCell sx={{ fontWeight: 600, color: '#666', borderBottom: '2px solid #f0f0f0' }}>Status</TableCell>
                   <TableCell align="right" sx={{ fontWeight: 600, color: '#666', borderBottom: '2px solid #f0f0f0' }}>Total</TableCell>
                 </TableRow>
@@ -344,7 +380,14 @@ const ManagerDashboard: React.FC = () => {
                     return (
                       <TableRow key={o._id} hover>
                         <TableCell sx={{ fontWeight: 700, color: '#111' }}>{o.orderNumber}</TableCell>
-                        <TableCell sx={{ color: '#444' }}>{o.customerName || '-'}</TableCell>
+                        <TableCell sx={{ fontWeight: 700, color: '#1565C0' }}>
+                          {o.tableNumber ? `Table ${o.tableNumber}` : o.orderType === 'DINE_IN' ? '—' : 'N/A'}
+                        </TableCell>
+                        <TableCell sx={{ fontWeight: 600, color: '#2E7D32' }}>
+                          {o.orderType === 'DINE_IN'
+                            ? o.waiterName || o.partyName || '—'
+                            : o.partyName || o.customerName || '—'}
+                        </TableCell>
                         <TableCell>
                           <Chip size="small" label={chip.label} color={chip.color} />
                         </TableCell>

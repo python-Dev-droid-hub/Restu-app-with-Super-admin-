@@ -1,9 +1,15 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { migrateLegacyAuthTokens, getAccessToken } from './utils/secureAuthStorage';
+import { initializeSocket, subscribeToNotifications } from './services/realtimeService';
+import { handleNotificationByType } from './services/notificationHandler';
 import { NavigationContainer } from '@react-navigation/native';
+import { navigationRef } from './utils/notificationNavigation';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Provider as PaperProvider } from 'react-native-paper';
 import Toast from 'react-native-toast-message';
 import { SettingsProvider } from './context/SettingsContext';
+import { BranchProvider } from './context/BranchContext';
 import { CartProvider } from './context/CartContext';
 import { LocalizationProvider } from './context/LocalizationContext';
 import { WebSocketProvider } from './context/WebSocketContext';
@@ -26,6 +32,7 @@ import AdminBranchesScreen from './screens/admin/AdminBranchesScreen';
 import AdminReportsScreen from './screens/admin/AdminReportsScreen';
 import AdminNotificationsScreen from './screens/admin/AdminNotificationsScreen';
 import AdminSettingsScreen from './screens/admin/AdminSettingsScreen';
+import PrinterSettingsScreen from './screens/admin/PrinterSettingsScreen';
 import AdminDealsScreen from './screens/admin/AdminDealsScreen';
 import AdminDealCampaignsScreen from './screens/admin/AdminDealCampaignsScreen';
 import AddDealCampaignScreen from './screens/admin/AddDealCampaignScreen';
@@ -44,6 +51,7 @@ import AddProductSizeScreen from './screens/admin/AddProductSizeScreen';
 import ForgotPasswordScreen from './screens/auth/ForgotPasswordScreen';
 import ResetPasswordScreen from './screens/auth/ResetPasswordScreen';
 import ChangePasswordScreen from './screens/auth/ChangePasswordScreen';
+import ProfileEditScreen from './screens/profile/ProfileEditScreen';
 import CustomerMenuScreen from './screens/CustomerMenuScreen';
 import OrderForm from './screens/waiter/OrderForm';
 import EditOrderScreen from './screens/waiter/EditOrderScreen';
@@ -57,14 +65,12 @@ import BranchAuditScreen from './screens/admin/BranchAuditScreen';
 import BannerManagementScreen from './screens/admin/BannerManagementScreen';
 import ManagerDashboard from './screens/dashboards/ManagerDashboard';
 import ManagerMenuScreen from './screens/admin/ManagerMenuScreen';
-import SuperAdminDashboard from './screens/dashboards/SuperAdminDashboard';
 import DealCampaignScreen from './screens/food-app/DealCampaignScreen';
 import RidersManagementScreen from './screens/dashboards/RidersManagementScreen';
 
 // Role-based tab navigators (centralized nav per role)
 import AdminTabsNavigator from './navigators/AdminTabsNavigator';
 import ManagerTabsNavigator from './navigators/ManagerTabsNavigator';
-import SuperAdminTabsNavigator from './navigators/SuperAdminTabsNavigator';
 import WaiterTabsNavigator from './navigators/WaiterTabsNavigator';
 import ChefTabsNavigator from './navigators/ChefTabsNavigator';
 import RiderTabsNavigator from './navigators/RiderTabsNavigator';
@@ -73,14 +79,37 @@ import CustomerTabsNavigator from './navigators/CustomerTabsNavigator';
 const Stack = createNativeStackNavigator();
 
 export default function App() {
+  useEffect(() => {
+    const bootstrap = async () => {
+      await migrateLegacyAuthTokens();
+      try {
+        const stored = await AsyncStorage.getItem('userData');
+        if (!stored) return;
+        const user = JSON.parse(stored);
+        const userId = user?._id || user?.id;
+        const userRole = user?.role;
+        if (!userId || !userRole) return;
+        const token = await getAccessToken();
+        initializeSocket(String(userId), String(userRole), token || undefined);
+        subscribeToNotifications((notification) => {
+          handleNotificationByType(notification);
+        });
+      } catch {
+        // ignore bootstrap errors
+      }
+    };
+    void bootstrap();
+  }, []);
+
   return (
     <SafeAreaProvider>
       <PaperProvider>
         <WebSocketProvider>
           <SettingsProvider>
+            <BranchProvider>
             <CartProvider>
               <LocalizationProvider>
-                <NavigationContainer>
+                <NavigationContainer ref={navigationRef}>
                 <Stack.Navigator
                   initialRouteName="Welcome"
                   screenOptions={{
@@ -100,7 +129,6 @@ export default function App() {
                   <Stack.Screen name="Login" component={LoginScreen} />
                   <Stack.Screen name="AdminDashboard" component={AdminTabsNavigator} />
                   <Stack.Screen name="ManagerTabs" component={ManagerTabsNavigator} options={{ headerShown: false }} />
-                  <Stack.Screen name="SuperAdminDashboard" component={SuperAdminTabsNavigator} options={{ headerShown: false }} />
                   <Stack.Screen name="AdminOrders" component={AdminOrdersScreen} options={{ headerShown: false }} />
                   <Stack.Screen name="AdminProducts" component={AdminProductsScreen} options={{ headerShown: false }} />
                   <Stack.Screen name="AdminUsers" component={AdminUsersScreen} options={{ headerShown: false }} />
@@ -108,6 +136,7 @@ export default function App() {
                   <Stack.Screen name="AdminReports" component={AdminReportsScreen} />
                   <Stack.Screen name="AdminNotifications" component={AdminNotificationsScreen} />
                   <Stack.Screen name="AdminSettings" component={AdminSettingsScreen} />
+                  <Stack.Screen name="PrinterSettings" component={PrinterSettingsScreen} />
                   <Stack.Screen name="CustomerDashboard" component={CustomerTabsNavigator} />
                   <Stack.Screen name="CustomerMenu" component={CustomerMenuScreen} />
                   <Stack.Screen name="ChefDashboard" component={ChefTabsNavigator} />
@@ -130,7 +159,8 @@ export default function App() {
                   <Stack.Screen name="AddProductSize" component={AddProductSizeScreen} />
                   <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
                   <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
-                  <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
+                  <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} options={{ headerShown: false }} />
+                  <Stack.Screen name="ProfileEdit" component={ProfileEditScreen} options={{ headerShown: false }} />
                   <Stack.Screen name="OrderForm" component={OrderForm} />
                   <Stack.Screen name="EditOrder" component={EditOrderScreen} options={{ headerShown: false }} />
                   <Stack.Screen name="KitchenDisplay" component={KitchenDisplay} />
@@ -148,6 +178,7 @@ export default function App() {
               </NavigationContainer>
             </LocalizationProvider>
           </CartProvider>
+            </BranchProvider>
         </SettingsProvider>
         </WebSocketProvider>
       </PaperProvider>

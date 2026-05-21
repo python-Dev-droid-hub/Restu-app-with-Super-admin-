@@ -19,6 +19,8 @@ import {
   formatNotificationTime,
   Notification,
 } from '../../../services/notificationService';
+import { getSocket } from '../../../services/realtimeService';
+import { emitRiderDashboardGet } from '../../../hooks/useRealtimeRefresh';
 
 const COLORS = {
   primary: '#FF6B35',
@@ -61,12 +63,29 @@ export default function RiderNotificationsTab({
   }, [onNotificationCountChange]);
 
   useEffect(() => {
-    fetchNotifications();
-    
-    // Poll for new notifications every 10 seconds
-    const interval = setInterval(fetchNotifications, 10000);
-    return () => clearInterval(interval);
-  }, [fetchNotifications]);
+    emitRiderDashboardGet();
+  }, []);
+
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+
+    const onRiderData = (payload: { notifications?: any[]; unreadCount?: number }) => {
+      if (!Array.isArray(payload?.notifications)) return;
+      setNotifications(payload.notifications);
+      const unread =
+        typeof payload.unreadCount === 'number'
+          ? payload.unreadCount
+          : payload.notifications.filter((n) => !n.read && !n.isRead).length;
+      onNotificationCountChange?.(unread);
+      setLoading(false);
+    };
+
+    socket.on('rider_dashboard:data', onRiderData);
+    return () => {
+      socket.off('rider_dashboard:data', onRiderData);
+    };
+  }, [onNotificationCountChange]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

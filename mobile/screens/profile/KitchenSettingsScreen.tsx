@@ -18,6 +18,7 @@ import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '../../components/api/client';
 import AdminBottomNavigation from '../../components/navigation/AdminBottomNavigation';
+import { isAdminRole } from '../../utils/permissionHelpers';
 import ManageIngredientsScreen from './ManageIngredientsScreen';
 import SetupIngredientsScreen from './SetupIngredientsScreen';
 
@@ -85,7 +86,7 @@ export default function KitchenSettingsScreen({ onBack, userRole, branchId }: Ki
     { name: 'Notifications', icon: 'notifications-outline', screen: 'AdminNotifications' },
     { name: 'Table Assignment', icon: 'grid-outline', screen: 'TableAssignment' },
     // Only show Branches for SUPER_ADMIN
-    ...(currentUserRole === 'SUPER_ADMIN' ? [{ name: 'Branches', icon: 'business-outline', screen: 'AdminBranches' }] : []),
+    ...(isAdminRole(currentUserRole) ? [{ name: 'Branches', icon: 'business-outline', screen: 'AdminBranches' }] : []),
     { name: 'Deals', icon: 'pricetag-outline', screen: 'AdminDealCampaigns' },
     { name: 'Coupons', icon: 'ticket-outline', screen: 'AdminCoupons' },
     { name: 'Product Size', icon: 'resize-outline', screen: 'AdminProductSizes' },

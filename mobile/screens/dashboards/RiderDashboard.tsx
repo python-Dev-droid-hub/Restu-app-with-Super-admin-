@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -29,6 +29,12 @@ import RiderNotificationsTab from './components/RiderNotificationsTab';
 import { api } from '../../components/api/client';
 import { useSettings } from '../../context/SettingsContext';
 import { extractDeliveryCoordinates } from '../../utils/riderCoordinateExtractor';
+import {
+  useRiderDashboardRealtime,
+  RiderDashboardPayload,
+} from '../../hooks/useRiderDashboardRealtime';
+import { useLocationTracking } from '../../hooks/useLocationTracking';
+import type { OrderProximity } from '../../hooks/useOrderProximity';
 
 // App Styling System
 export const COLORS = {
@@ -147,6 +153,8 @@ export default function RiderDashboard() {
     rating: 5.0,
     verification: 100,
   });
+  const onDutyRef = useRef(riderData.onDuty);
+  onDutyRef.current = riderData.onDuty;
 
   const [stats, setStats] = useState({
     activeDeliveries: 0,
@@ -332,7 +340,108 @@ export default function RiderDashboard() {
     return s !== 'delivered' && s !== 'completed';
   });
 
-  // Fetch dashboard stats
+  const formatRiderOrders = useCallback((deliveries: any[]) => {
+    return (deliveries || []).map((order: any) => {
+      const coords = extractDeliveryCoordinates(order);
+      const pickupAddress = buildAddressString([
+        order.branch?.addressLine,
+        order.branch?.city,
+        order.branch?.state,
+        order.branch?.postalCode,
+        order.branch?.country,
+      ]);
+      const deliveryAddress = buildAddressString([
+        order.deliveryAddress?.street,
+        order.deliveryAddress?.city,
+        order.deliveryAddress?.state,
+        order.deliveryAddress?.zipCode,
+        order.deliveryAddress?.country,
+      ]);
+      return {
+        _id: order._id,
+        id: order._id,
+        orderNumber: order.orderNumber || `ORD-${order._id?.toString().slice(-6).toUpperCase()}`,
+        customerName: order.customerName || order.customer?.displayName || order.customer?.name || 'Unknown Customer',
+        pickupLocation: order.branch?.branchName || order.branch?.name || 'Restaurant',
+        pickupAddress: pickupAddress || order.branch?.addressLine || '',
+        deliveryLocation: order.deliveryAddress?.street || order.deliveryAddress?.address || 'Delivery Address',
+        deliveryAddress: deliveryAddress || order.deliveryAddress?.street || '',
+        distance: order.distance || 0,
+        estimatedTime: order.estimatedTime || 15,
+        estimatedEarning: order.totalAmount || 0,
+        status: normalizeRiderStatus(order.status),
+        backendStatus: order.status,
+        customerPhone: order.customer?.phoneNumber || order.customer?.phone || order.phoneNumber || 'N/A',
+        pickupCoords: coords.pickup || undefined,
+        deliveryCoords: coords.delivery || undefined,
+        restaurantName: order.branch?.branchName || 'Unknown Restaurant',
+        deliveryAddressText: order.deliveryAddress?.street || 'N/A',
+        items: order.items?.map((item: any) => item.product?.name || 'Unknown Item') || [],
+        totalAmount: order.totalAmount || 0,
+        raw: order,
+      };
+    });
+  }, []);
+
+  const applyRiderDashboard = useCallback(
+    (payload: RiderDashboardPayload) => {
+      const statsData = payload.stats as Record<string, number> | undefined;
+      if (statsData) {
+        setStats((prev) => ({
+          activeDeliveries: (statsData as any).assignedDeliveries ?? prev.activeDeliveries,
+          todayEarnings: (statsData as any).todayEarnings ?? prev.todayEarnings,
+          weekEarnings: (statsData as any).thisWeekEarnings ?? prev.weekEarnings,
+          totalDeliveries: (statsData as any).completedDeliveries ?? prev.totalDeliveries,
+        }));
+      }
+
+      if (payload.earnings) {
+        setEarnings(payload.earnings);
+        setStats((prev) => ({
+          ...prev,
+          todayEarnings: (payload.earnings as any).totalEarnings ?? prev.todayEarnings,
+          weekEarnings: (payload.earnings as any).thisWeekEarnings ?? prev.weekEarnings,
+        }));
+      }
+
+      if (Array.isArray(payload.orders)) {
+        const formattedOrders = formatRiderOrders(payload.orders);
+        setOrders(formattedOrders);
+        const active = formattedOrders.find((o) => {
+          const s = String(o?.backendStatus || o?.status || '').toUpperCase();
+          return s === 'ASSIGNED' || s === 'PICKED_UP' || s === 'IN_DELIVERY';
+        });
+        setActiveOrder(active || null);
+      }
+
+      if (Array.isArray(payload.availableOrders) && payload.availableOrders.length > 0) {
+        const first = payload.availableOrders[0];
+        setNewOrderAlert((prev) => prev || first);
+      }
+
+      if (Array.isArray(payload.notifications)) {
+        setNotifications(payload.notifications);
+        const unread =
+          typeof payload.unreadCount === 'number'
+            ? payload.unreadCount
+            : payload.notifications.filter((n: any) => !n.read && !n.isRead).length;
+        setUnreadCount(unread);
+      }
+
+      if (typeof payload.onDuty === 'boolean') {
+        setRiderData((prev) => ({ ...prev, onDuty: payload.onDuty as boolean }));
+      }
+
+      setLoading(false);
+    },
+    [formatRiderOrders]
+  );
+
+  const { refresh: refreshRiderDashboard } = useRiderDashboardRealtime({
+    onData: applyRiderDashboard,
+  });
+
+  // Fetch dashboard stats (fallback for mutations)
   const fetchStats = useCallback(async () => {
     try {
       const response = await api.get('/dashboard/rider/stats');
@@ -486,71 +595,38 @@ export default function RiderDashboard() {
     }
   }, []);
 
-  // Update rider location
-  const updateRiderLocation = useCallback(async () => {
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        console.log('Location permission denied');
-        return;
-      }
+  const { refreshLocation, permission: locationPermission, error: locationError } =
+    useLocationTracking(riderData.onDuty);
+  const [proximityByOrder, setProximityByOrder] = useState<Record<string, OrderProximity>>({});
 
-      const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-
-      const { longitude, latitude } = location.coords;
-      await api.put('/users/rider/location', { longitude, latitude });
-      console.log('[RiderDashboard] Location updated:', { longitude, latitude });
-    } catch (error) {
-      console.error('Error updating location:', error);
-    }
+  const refreshProximity = useCallback(async (orderIds: string[]) => {
+    const next: Record<string, OrderProximity> = {};
+    await Promise.all(
+      orderIds.map(async (id) => {
+        try {
+          const res = await api.get<OrderProximity>(`/orders/${id}/proximity`);
+          if (res.success && res.data) next[id] = res.data as OrderProximity;
+        } catch {
+          /* ignore */
+        }
+      })
+    );
+    setProximityByOrder((prev) => ({ ...prev, ...next }));
   }, []);
 
-  // Initial load
   useEffect(() => {
-    const loadData = async () => {
-      setLoading(true);
-      await Promise.all([
-        loadRiderData(),
-        fetchRiderStatus(),
-        fetchStats(),
-        fetchActiveDelivery(),
-        fetchOrders(),
-        fetchEarnings(),
-        fetchNotifications(),
-      ]);
-      setLoading(false);
-    };
-    loadData();
-  }, [loadRiderData, fetchRiderStatus, fetchStats, fetchActiveDelivery, fetchOrders, fetchEarnings, fetchNotifications]);
+    setLoading(true);
+    void loadRiderData();
+    refreshRiderDashboard();
+  }, [loadRiderData, refreshRiderDashboard]);
 
-  // Update location periodically when on duty
   useEffect(() => {
-    if (!riderData.onDuty) return;
-
-    // Update immediately when going on duty
-    updateRiderLocation();
-
-    // Then update every 60 seconds
-    const interval = setInterval(() => {
-      updateRiderLocation();
-    }, 60000);
-
-    return () => clearInterval(interval);
-  }, [riderData.onDuty, updateRiderLocation]);
-
-  // Polling for updates
-  useEffect(() => {
-    const interval = setInterval(() => {
-      fetchStats();
-      fetchActiveDelivery();
-      checkNewOrders();
-      fetchOrders();
-    }, 30000);
-
-    return () => clearInterval(interval);
-  }, [fetchStats, fetchActiveDelivery, checkNewOrders, fetchOrders]);
+    const ids = homeOrders.map((o) => o._id).filter(Boolean);
+    if (!riderData.onDuty || ids.length === 0) return;
+    void refreshProximity(ids);
+    const t = setInterval(() => void refreshProximity(ids), 10_000);
+    return () => clearInterval(t);
+  }, [homeOrders, riderData.onDuty, refreshProximity]);
 
   // Accept order
   const handleAcceptOrder = async (orderId: string) => {
@@ -560,8 +636,7 @@ export default function RiderDashboard() {
       if (response.success) {
         setNewOrderAlert(null);
         setActiveOrder(response.data.order);
-        fetchStats();
-        fetchOrders();
+        refreshRiderDashboard();
       }
     } catch (error) {
       console.error('Error accepting order:', error);
@@ -583,8 +658,7 @@ export default function RiderDashboard() {
       });
       if (response.success) {
         setActiveOrder(null);
-        fetchStats();
-        fetchOrders();
+        refreshRiderDashboard();
         Alert.alert('Success', 'Order cancelled successfully. Manager will be notified to reassign.');
       } else {
         Alert.alert('Error', response.message || 'Failed to cancel order');
@@ -595,20 +669,50 @@ export default function RiderDashboard() {
     }
   };
 
-  // Mark delivered
+  const handlePickUp = async (orderId: string) => {
+    try {
+      const loc = await refreshLocation();
+      if (!loc) {
+        Alert.alert('GPS Required', locationError || 'Enable location to pick up orders.');
+        return;
+      }
+      const response = await api.put(`/orders/${orderId}/status`, {
+        status: 'PICKED_UP',
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+      });
+      if (response.success) {
+        refreshRiderDashboard();
+        Alert.alert('Success', 'Order picked up!');
+      } else {
+        Alert.alert('Cannot pick up', response.message || 'You must be at the branch.');
+      }
+    } catch (error: any) {
+      Alert.alert('Error', error?.message || 'Failed to pick up order');
+    }
+  };
+
   const handleMarkDelivered = async (orderId: string) => {
     try {
-      const response = await api.put(`/orders/${orderId}/deliver`, { status: 'DELIVERED' });
+      const loc = await refreshLocation();
+      if (!loc) {
+        Alert.alert('GPS Required', locationError || 'Enable location to complete delivery.');
+        return;
+      }
+      const response = await api.put(`/orders/${orderId}/deliver`, {
+        status: 'DELIVERED',
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+      });
       if (response.success) {
         setActiveOrder(null);
-        fetchStats();
-        fetchEarnings();
-        fetchOrders();
+        refreshRiderDashboard();
         Alert.alert('Success', 'Order marked as delivered!');
+      } else {
+        Alert.alert('Cannot deliver', response.message || 'You must be near the customer.');
       }
-    } catch (error) {
-      console.error('Error marking delivered:', error);
-      Alert.alert('Error', 'Failed to mark as delivered');
+    } catch (error: any) {
+      Alert.alert('Error', error?.message || 'Failed to mark as delivered');
     }
   };
 
@@ -616,8 +720,7 @@ export default function RiderDashboard() {
     try {
       const response = await api.put(`/orders/${orderId}/deliver`, { status: 'OUT_FOR_DELIVERY' });
       if (response.success) {
-        fetchStats();
-        fetchOrders();
+        refreshRiderDashboard();
         Alert.alert('Success', 'Ride started! Order is now out for delivery.');
       }
     } catch (error) {
@@ -639,8 +742,7 @@ export default function RiderDashboard() {
             try {
               const response = await api.put(`/orders/${orderId}/reject`, { reason: 'Rider rejected the order' });
               if (response.success) {
-                fetchStats();
-                fetchOrders();
+                refreshRiderDashboard();
                 Alert.alert('Success', 'Order rejected successfully. Manager will be notified to reassign.');
               } else {
                 Alert.alert('Error', response.message || 'Failed to reject order');
@@ -888,8 +990,7 @@ export default function RiderDashboard() {
         setRiderData(prev => ({ ...prev, onDuty: newDutyStatus }));
         
         if (newDutyStatus) {
-          // When going on duty, update location
-          await updateRiderLocation();
+          await refreshLocation();
           Alert.alert('On Duty', 'You are now on duty and will receive delivery assignments.');
         } else {
           Alert.alert('Off Duty', 'You are now off duty and will not receive new assignments.');
@@ -975,6 +1076,8 @@ export default function RiderDashboard() {
               }
             }}
             onRejectOrder={(deliveryId: string) => handleRejectOrder(deliveryId)}
+            onPickUp={(deliveryId: string) => handlePickUp(deliveryId)}
+            proximityByOrder={proximityByOrder}
             formatPrice={formatPrice}
           />
         )}

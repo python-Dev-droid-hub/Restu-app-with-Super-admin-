@@ -20,6 +20,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '../../components/api/client';
 import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import { useSettings } from '../../context/SettingsContext';
+import { useBranch } from '../../context/BranchContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../../constants/colors';
 import { getSpacing } from '../../utils/responsive';
@@ -28,24 +29,36 @@ import ProfileMenu from '../../components/common/ProfileMenu';
 import { useLocalization } from '../../context/LocalizationContext';
 import { getNotifications } from '../../services/notificationService';
 import { useUserData } from '../../hooks/useUserData';
-import { initializeSocket } from '../../services/realtimeService';
+import { useAdminDashboardRealtime, AdminDashboardPayload } from '../../hooks/useAdminDashboardRealtime';
+import { navigateToOrder } from '../../utils/navigateToOrder';
+import { enrichOrderParty } from '../../utils/orderParty';
 
 const { width } = Dimensions.get('window');
 const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 0;
-
-interface Branch {
-  _id: string;
-  name: string;
-}
 
 interface Order {
   _id: string;
   orderNumber?: string;
   status: string;
+  orderType?: string;
   customerName?: string;
   customerEmail?: string;
+  tableNumber?: string | null;
+  waiterName?: string | null;
+  partyName?: string;
   total: number;
   createdAt: string;
+}
+
+function orderCardSubtitle(order: Order): string | null {
+  const type = String(order.orderType || '').toUpperCase();
+  if (type === 'DINE_IN') {
+    const parts: string[] = [];
+    if (order.tableNumber) parts.push(`Table ${order.tableNumber}`);
+    if (order.waiterName) parts.push(`Waiter: ${order.waiterName}`);
+    return parts.length ? parts.join(' · ') : null;
+  }
+  return order.customerName || null;
 }
 
 interface Product {
@@ -78,7 +91,16 @@ interface CustomerStats {
 
 export default function AdminDashboard() {
   const navigation = useNavigation();
-  const { currencySymbol, formatPrice, refreshSettings } = useSettings();
+  const { currencySymbol, formatPrice } = useSettings();
+  const {
+    branches,
+    selectedBranchId: selectedBranch,
+    selectedBranchName,
+    canSelectBranch,
+    setSelectedBranch,
+    refreshBranches,
+    getApiBranchParam,
+  } = useBranch();
   const { t } = useLocalization();
   const insets = useSafeAreaInsets();
   const { profileImage: userProfileImage } = useUserData();
@@ -86,8 +108,6 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [isLive, setIsLive] = useState(true);
   const [activePeriod, setActivePeriod] = useState('day');
-  const [selectedBranch, setSelectedBranch] = useState('all');
-  const [branches, setBranches] = useState<Branch[]>([]);
   const [showBranchDropdown, setShowBranchDropdown] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -107,22 +127,9 @@ export default function AdminDashboard() {
   const [userData, setUserData] = useState<{name?: string; image?: string; email?: string}>({});
   const [userRole, setUserRole] = useState<string>('');
 
-  // Load user role on mount
   useEffect(() => {
     loadUserRole();
-    loadSavedBranch();
   }, []);
-
-  const loadSavedBranch = async () => {
-    try {
-      const savedBranchId = await AsyncStorage.getItem('selectedBranchId');
-      if (savedBranchId) {
-        setSelectedBranch(savedBranchId);
-      }
-    } catch (error) {
-      console.error('Error loading saved branch:', error);
-    }
-  };
 
   const loadUserRole = async () => {
     try {
@@ -137,12 +144,9 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
-    console.log(' [DASHBOARD] useEffect triggered');
-    loadDashboardData();
-    loadBranches();
-    loadUnreadCount();
     loadUserData();
-  }, [selectedBranch, activePeriod]);
+    if (canSelectBranch) refreshBranches();
+  }, [canSelectBranch, refreshBranches]);
 
   const loadUserData = async () => {
     try {
@@ -160,142 +164,69 @@ export default function AdminDashboard() {
     }
   };
 
-  const loadBranches = async () => {
-    try {
-      const response: any = await api.get('/branches');
-      if (response?.success) {
-        const rawList = response?.data?.branches || response?.data?.data?.branches || response?.data?.data?.restaurants || response?.data || [];
-        const normalized = (Array.isArray(rawList) ? rawList : []).map((b: any) => ({
-          _id: b?._id || b?.id,
-          name: b?.name || b?.branchName || b?.restaurantName,
-        })).filter((b: any) => !!b._id && !!b.name);
-        setBranches(normalized);
-      } else {
-        setBranches([]);
-      }
-    } catch (error) {
-      console.error('Error loading branches:', error);
-      setBranches([]);
+  const applyRealtimeDashboard = useCallback((payload: AdminDashboardPayload) => {
+    const statsData = payload.stats as Record<string, number> | null;
+    if (statsData) {
+      setStats((prev) => ({
+        ...prev,
+        totalOrders: statsData.totalOrders ?? 0,
+        totalRevenue: statsData.totalRevenue ?? 0,
+        totalUsers: statsData.totalUsers ?? 0,
+        totalProducts: statsData.totalProducts ?? prev.totalProducts,
+        favoriteItems: statsData.favoriteItems ?? 0,
+        totalSpent: statsData.totalSpent ?? 0,
+        activeOrders: statsData.activeOrders ?? 0,
+      }));
     }
-  };
-
-  const loadDashboardData = useCallback(async () => {
-    try {
-      setLoading(true);
-      const params = new URLSearchParams();
-      if (selectedBranch !== 'all') {
-        params.append('branchId', selectedBranch);
-      }
-      params.append('period', activePeriod);
-
-      const statsResponse = await api.get(`/dashboard/admin/stats?${params.toString()}`);
-      if (statsResponse.success && statsResponse.data) {
-        setStats({
-          totalOrders: statsResponse.data.totalOrders ?? 0,
-          totalRevenue: statsResponse.data.totalRevenue ?? 0,
-          totalUsers: statsResponse.data.totalUsers ?? 0,
-          totalProducts: statsResponse.data.totalProducts ?? 0,
-          favoriteItems: statsResponse.data.favoriteItems ?? 0,
-          totalSpent: statsResponse.data.totalSpent ?? 0,
-          activeOrders: statsResponse.data.activeOrders ?? 0,
-        });
-      }
-
-      const ordersResponse = await api.get(`/orders?limit=10&${params.toString()}`);
-      if (ordersResponse.success && ordersResponse.data) {
-        setRecentOrders(ordersResponse.data.orders || []);
-      }
-
-      // Load recent products
-      const productsParams = new URLSearchParams();
-      productsParams.append('limit', '5');
-      if (selectedBranch !== 'all') {
-        productsParams.append('branchId', selectedBranch);
-      }
-      const productsResponse = await api.get(`/menu/admin/products?${productsParams.toString()}`);
-      console.log(' [DASHBOARD] Products API Response:', productsResponse);
-      console.log(' [DASHBOARD] Products success:', productsResponse.success);
-      console.log(' [DASHBOARD] Products data:', productsResponse.data);
-      if (productsResponse.success && productsResponse.data) {
-        const products = productsResponse.data.products || [];
-        console.log(' [DASHBOARD] Products array:', products);
-        console.log(' [DASHBOARD] Products length:', products.length);
-        console.log(' [DASHBOARD] Setting recent products:', products.length);
-        setRecentProducts(products);
-        setStats(prev => ({ ...prev, totalProducts: productsResponse.data.pagination?.total || products.length }));
-      } else {
-        console.log(' [DASHBOARD] Products API call failed');
-        setRecentProducts([]);
-      }
-    } catch (error) {
-      console.error('Error loading dashboard data:', error);
-    } finally {
-      setLoading(false);
+    if (Array.isArray(payload.orders)) {
+      setRecentOrders(
+        payload.orders.map((o: any) => {
+          const e = enrichOrderParty(o || {});
+          return {
+            _id: String(e.id || e._id || o._id || o.id || ''),
+            orderNumber: e.orderNumber || o.orderNumber,
+            status: String(e.status || o.status || ''),
+            orderType: e.orderType,
+            customerName: e.customerName,
+            tableNumber: e.tableNumber,
+            waiterName: e.waiterName,
+            partyName: e.partyName,
+            total: Number(e.totalAmount ?? e.total ?? o.total ?? 0),
+            createdAt: String(e.createdAt || o.createdAt || ''),
+          } as Order;
+        })
+      );
     }
-  }, [activePeriod, selectedBranch]);
-
-  const onRefresh = () => {
-    loadDashboardData();
-    loadBranches();
-    loadUnreadCount();
-  };
-
-  const loadUnreadCount = useCallback(async () => {
-    try {
-      const response: any = await api.get('/notifications/unread-count');
-      if (response.success) {
-        setUnreadCount(response.unreadCount || 0);
-      }
-    } catch (error) {
-      console.error('Error loading unread count:', error);
+    if (typeof payload.unreadCount === 'number') {
+      setUnreadCount(payload.unreadCount);
     }
+    if (Array.isArray(payload.recentProducts)) {
+      setRecentProducts(payload.recentProducts as Product[]);
+    }
+    setLoading(false);
   }, []);
 
+  const { refresh: refreshDashboardRealtime } = useAdminDashboardRealtime({
+    period: activePeriod,
+    branchId: selectedBranch,
+    onData: applyRealtimeDashboard,
+  });
+
   useEffect(() => {
-    let mounted = true;
-    let socketCleanup: (() => void) | undefined;
+    setLoading(true);
+    refreshDashboardRealtime();
+  }, [selectedBranch, activePeriod, refreshDashboardRealtime]);
 
-    const setupRealtime = async () => {
-      try {
-        const stored = await AsyncStorage.getItem('userData');
-        const token = await AsyncStorage.getItem('authToken');
-        if (!mounted || !stored) return;
-
-        const user = JSON.parse(stored);
-        const userId = user?._id || user?.id;
-        const userRole = user?.role;
-        if (!userId || !userRole) return;
-
-        const socket = initializeSocket(String(userId), String(userRole), token || undefined);
-
-        const onNotification = (notification: any) => {
-          const type = String(notification?.type || '').toUpperCase();
-          if (type.includes('ORDER') || type.includes('PAYMENT') || type.includes('DEAL')) {
-            loadDashboardData();
-            loadUnreadCount();
-          }
-        };
-
-        socket.on('notification', onNotification);
-        socketCleanup = () => socket.off('notification', onNotification);
-      } catch (e) {
-        // ignore
-      }
-    };
-
-    setupRealtime();
-
-    return () => {
-      mounted = false;
-      socketCleanup?.();
-    };
-  }, [loadDashboardData, loadUnreadCount]);
+  const onRefresh = () => {
+    setLoading(true);
+    refreshDashboardRealtime();
+    if (canSelectBranch) refreshBranches();
+  };
 
   const loadNotifications = async () => {
     try {
       // Pass branchId for filtering if a specific branch is selected
-      const branchId = selectedBranch !== 'all' ? selectedBranch : undefined;
-      const res = await getNotifications(20, 0, undefined, branchId);
+      const res = await getNotifications(20, 0, undefined, getApiBranchParam());
       if (res.success) {
         const mapped = (res.notifications || []).map((n: any) => ({
           id: n._id || n.id,
@@ -342,12 +273,6 @@ export default function AdminDashboard() {
     }
   };
 
-  const getSelectedBranchName = () => {
-    if (selectedBranch === 'all') return 'All Branches';
-    const branch = branches.find(b => b._id === selectedBranch);
-    return branch?.name || 'Select Branch';
-  };
-
   return (
     <View style={[styles.rootContainer, { paddingBottom: insets.bottom }]}>
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
@@ -364,6 +289,69 @@ export default function AdminDashboard() {
         onProfilePress={() => setShowProfileMenu(true)}
       />
 
+      {canSelectBranch && (
+        <>
+          <View style={styles.branchSelectorContainer}>
+            <TouchableOpacity
+              style={styles.branchSelector}
+              activeOpacity={0.7}
+              onPress={() => setShowBranchDropdown(true)}
+            >
+              <Ionicons name="business-outline" size={18} color={COLORS.orange} />
+              <Text style={styles.branchText}>{selectedBranchName}</Text>
+              <Ionicons name="chevron-down" size={16} color="#666" />
+            </TouchableOpacity>
+          </View>
+
+          <Modal
+            visible={showBranchDropdown}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setShowBranchDropdown(false)}
+          >
+            <View style={styles.branchModalOverlay}>
+              <TouchableOpacity
+                style={StyleSheet.absoluteFillObject}
+                activeOpacity={1}
+                onPress={() => setShowBranchDropdown(false)}
+              />
+              <View style={styles.branchModalSheet}>
+                <Text style={styles.branchModalTitle}>Select branch</Text>
+                <ScrollView style={styles.branchModalList} keyboardShouldPersistTaps="handled">
+                  <TouchableOpacity
+                    style={[styles.dropdownItem, selectedBranch === 'all' && styles.dropdownItemActive]}
+                    onPress={async () => {
+                      await setSelectedBranch('all');
+                      setShowBranchDropdown(false);
+                      refreshDashboardRealtime();
+                    }}
+                  >
+                    <Text style={[styles.dropdownText, selectedBranch === 'all' && styles.dropdownTextActive]}>
+                      All Branches
+                    </Text>
+                  </TouchableOpacity>
+                  {branches.map((branch) => (
+                    <TouchableOpacity
+                      key={branch._id}
+                      style={[styles.dropdownItem, selectedBranch === branch._id && styles.dropdownItemActive]}
+                      onPress={async () => {
+                        await setSelectedBranch(branch._id);
+                        setShowBranchDropdown(false);
+                        refreshDashboardRealtime();
+                      }}
+                    >
+                      <Text style={[styles.dropdownText, selectedBranch === branch._id && styles.dropdownTextActive]}>
+                        {branch.name}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            </View>
+          </Modal>
+        </>
+      )}
+
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={[
@@ -374,53 +362,8 @@ export default function AdminDashboard() {
           <RefreshControl refreshing={loading} onRefresh={onRefresh} />
         }
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
-        {/* Branch Selector */}
-        <View style={styles.branchSelectorContainer}>
-          <TouchableOpacity 
-            style={styles.branchSelector}
-            onPress={() => setShowBranchDropdown(!showBranchDropdown)}
-          >
-            <Text style={styles.branchText}>{getSelectedBranchName()}</Text>
-            <Ionicons name={showBranchDropdown ? "chevron-up" : "chevron-down"} size={16} color="#666" />
-          </TouchableOpacity>
-        </View>
-
-        {/* Branch Dropdown */}
-        {showBranchDropdown && (
-          <View style={styles.dropdownContainer}>
-            <TouchableOpacity
-              style={[styles.dropdownItem, selectedBranch === 'all' && styles.dropdownItemActive]}
-              onPress={async () => {
-                setSelectedBranch('all');
-                setShowBranchDropdown(false);
-                await AsyncStorage.removeItem('selectedBranchId');
-                refreshSettings();
-              }}
-            >
-              <Text style={[styles.dropdownText, selectedBranch === 'all' && styles.dropdownTextActive]}>
-                All Branches
-              </Text>
-            </TouchableOpacity>
-            {branches.map((branch) => (
-              <TouchableOpacity
-                key={branch._id}
-                style={[styles.dropdownItem, selectedBranch === branch._id && styles.dropdownItemActive]}
-                onPress={async () => {
-                  setSelectedBranch(branch._id);
-                  setShowBranchDropdown(false);
-                  await AsyncStorage.setItem('selectedBranchId', branch._id);
-                  refreshSettings();
-                }}
-              >
-                <Text style={[styles.dropdownText, selectedBranch === branch._id && styles.dropdownTextActive]}>
-                  {branch.name}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-
         {/* Stats Cards */}
         <View style={styles.statsGrid}>
           <TouchableOpacity style={[styles.statCard, styles.revenueCard]}>
@@ -478,7 +421,19 @@ export default function AdminDashboard() {
 
           {recentOrders.length > 0 ? (
             recentOrders.map((order, index) => (
-              <View key={order._id || index} style={styles.orderItem}>
+              <TouchableOpacity
+                key={order._id || (order as { id?: string }).id || index}
+                style={styles.orderItem}
+                activeOpacity={0.75}
+                onPress={() =>
+                  navigateToOrder(navigation as never, order as {
+                    _id?: string;
+                    id?: string;
+                    orderNumber?: string;
+                    order_number?: string;
+                  })
+                }
+              >
                 <View style={styles.orderIconContainer}>
                   <Ionicons name="receipt-outline" size={20} color="#E87E35" />
                 </View>
@@ -487,14 +442,25 @@ export default function AdminDashboard() {
                     Order #{order.orderNumber || order._id?.slice(-6)}
                   </Text>
                   <Text style={styles.orderTime}>{formatTimeAgo(order.createdAt || new Date().toISOString())}</Text>
+                  {orderCardSubtitle(order) ? (
+                    <Text style={styles.orderMeta} numberOfLines={1}>
+                      {orderCardSubtitle(order)}
+                    </Text>
+                  ) : null}
                 </View>
-                <Text style={styles.orderAmount}>${(order.total || 0).toFixed(2)}</Text>
+                <Text style={styles.orderAmount}>
+                  {formatPrice(
+                    order.total ??
+                      (order as { totalAmount?: number }).totalAmount ??
+                      0
+                  )}
+                </Text>
                 <View style={[styles.statusBadge, { backgroundColor: getStatusColor(order.status) + '20' }]}>
                   <Text style={[styles.statusText, { color: getStatusColor(order.status) }]}>
                     {order.status}
                   </Text>
                 </View>
-              </View>
+              </TouchableOpacity>
             ))
           ) : (
             <View style={styles.emptyContainer}>
@@ -511,6 +477,7 @@ export default function AdminDashboard() {
       <ProfileMenu
         visible={showProfileMenu}
         onClose={() => setShowProfileMenu(false)}
+        navigation={navigation}
         onLogout={async () => {
           setShowProfileMenu(false);
           await AsyncStorage.multiRemove(['authToken', 'userRole', 'userData']);
@@ -521,11 +488,6 @@ export default function AdminDashboard() {
               routes: [{ name: 'Login' }],
             })
           );
-        }}
-        onChangePassword={() => {
-          setShowProfileMenu(false);
-          // @ts-ignore
-          navigation.navigate('AdminSettings');
         }}
       />
 
@@ -549,7 +511,8 @@ export default function AdminDashboard() {
                     setNotificationList(prev => prev.map(n => ({ ...n, is_read: true })));
                     setUnreadCount(0);
                     try {
-                      await api.put('/notifications/mark-all-read');
+                      const { markAllAdminNotificationsAsRead } = await import('../../services/notificationService');
+                      await markAllAdminNotificationsAsRead(getApiBranchParam());
                     } catch (e) {
                       console.error('Error marking all read:', e);
                     }
@@ -674,11 +637,14 @@ const styles = StyleSheet.create({
   branchSelector: {
     flexDirection: 'row',
     alignItems: 'center',
+    alignSelf: 'flex-start',
     backgroundColor: '#f5f5f5',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
     borderRadius: 20,
-    gap: 6,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
   },
   branchText: {
     fontSize: 13,
@@ -723,19 +689,27 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
   },
-  dropdownContainer: {
+  branchModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  branchModalSheet: {
     backgroundColor: '#fff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E87E35',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 8,
-    marginHorizontal: 20,
-    marginBottom: 12,
-    paddingVertical: 8,
+    borderRadius: 16,
+    maxHeight: '60%',
+    paddingVertical: 12,
+  },
+  branchModalTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1a1a2e',
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  branchModalList: {
+    maxHeight: 360,
   },
   dropdownItem: {
     paddingVertical: 14,
@@ -849,6 +823,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#888',
     marginTop: 2,
+  },
+  orderMeta: {
+    fontSize: 11,
+    color: '#555',
+    marginTop: 2,
+    fontWeight: '600',
   },
   orderAmount: {
     fontSize: 15,

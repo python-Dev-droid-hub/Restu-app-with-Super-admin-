@@ -4,6 +4,7 @@ import type { ReactElement } from 'react';
 import { SettingsProvider } from './context/SettingsContext';
 import Layout from './components/Layout';
 import { Login } from './pages/Login';
+import { hasAuthSession } from './utils/authStorage';
 
 // MUI Admin Panel Components
 import AdminLayout from './components/admin/AdminLayout';
@@ -75,17 +76,15 @@ function getStoredRole(): string {
 }
 
 function RequireAdminAuth({ children }: { children: ReactElement }) {
-  const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
-  if (!token) {
+  if (!hasAuthSession()) {
     return <Navigate to="/login" replace />;
   }
   return children;
 }
 
 function RequireManagerAuth({ children }: { children: ReactElement }) {
-  const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
   const role = getStoredRole();
-  if (!token) {
+  if (!hasAuthSession()) {
     return <Navigate to="/login" replace />;
   }
   if (role !== 'BRANCH_MANAGER') {
@@ -107,9 +106,8 @@ function RequireChefAuth({ children }: { children: ReactElement }) {
 }
 
 function RequireWaiterAuth({ children }: { children: ReactElement }) {
-  const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
   const role = getStoredRole();
-  if (!token) {
+  if (!hasAuthSession()) {
     return <Navigate to="/login" replace />;
   }
   if (role !== 'WAITER' && role !== 'ADMIN' && role !== 'SUPER_ADMIN' && role !== 'BRANCH_MANAGER') {
@@ -119,9 +117,8 @@ function RequireWaiterAuth({ children }: { children: ReactElement }) {
 }
 
 function RequireRiderAuth({ children }: { children: ReactElement }) {
-  const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
   const role = getStoredRole();
-  if (!token) {
+  if (!hasAuthSession()) {
     return <Navigate to="/login" replace />;
   }
   if (role !== 'RIDER' && role !== 'SUPER_ADMIN') {
@@ -131,10 +128,9 @@ function RequireRiderAuth({ children }: { children: ReactElement }) {
 }
 
 function RootRedirect() {
-  const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
   const role = getStoredRole();
 
-  if (!token) {
+  if (!hasAuthSession()) {
     return <Navigate to="/login" replace />;
   }
 

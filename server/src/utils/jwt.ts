@@ -3,7 +3,7 @@ import { IJWTPayload } from '@/types';
 
 export const generateAccessToken = (payload: IJWTPayload): string => {
   const options: SignOptions = {
-    expiresIn: (process.env.JWT_EXPIRE || '7d') as any,
+    expiresIn: (process.env.JWT_EXPIRE || '30m') as any,
   };
   return jwt.sign(payload, process.env.JWT_SECRET!, options);
 };
@@ -30,6 +30,6 @@ export const generateTokenPair = (payload: IJWTPayload) => {
   return {
     accessToken,
     refreshToken,
-    expiresIn: process.env.JWT_EXPIRE || '7d',
+    expiresIn: process.env.JWT_EXPIRE || '30m',
   };
 };

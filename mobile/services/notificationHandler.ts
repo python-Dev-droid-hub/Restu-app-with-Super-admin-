@@ -1,4 +1,3 @@
-import { Alert } from 'react-native';
 import Toast from 'react-native-toast-message';
 
 interface NotificationData {
@@ -9,7 +8,7 @@ interface NotificationData {
 }
 
 export const handleNotificationByType = (notification: NotificationData) => {
-  const { type, title, message, data } = notification;
+  const { type, title, message } = notification;
 
   console.log('[NotificationHandler] Processing notification:', type);
 

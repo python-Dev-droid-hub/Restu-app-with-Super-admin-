@@ -79,8 +79,113 @@ export class NotificationController {
     const limit = parseInt(req.query.limit as string) || 20;
     const branchId = req.query.branchId as string;
 
-    const result = await this.notificationService.getAdminNotifications(page, limit, branchId);
+    const userId = this.toIdString(req.user!._id);
+    const result = await this.notificationService.getAdminNotifications(
+      page,
+      limit,
+      branchId,
+      userId
+    );
     sendSuccess(res, result, 'Notifications retrieved successfully');
+  });
+
+  markAllAdminAsRead = asyncHandler(async (req: IAuthRequest, res: Response) => {
+    const userId = this.toIdString(req.user!._id);
+    const branchId = (req.query.branchId || req.body?.branchId) as string | undefined;
+    const count = await this.notificationService.markAllAdminAsRead(branchId, userId);
+    sendSuccess(res, { modifiedCount: count }, 'All notifications marked as read');
+  });
+
+  clearAllAdminNotifications = asyncHandler(async (req: IAuthRequest, res: Response) => {
+    const userId = this.toIdString(req.user!._id);
+    const branchId = (req.query.branchId || req.body?.branchId) as string | undefined;
+    const count = await this.notificationService.clearAllAdminNotifications(branchId, userId);
+    sendSuccess(res, { deletedCount: count }, 'All notifications cleared successfully');
+  });
+
+  markAdminNotificationAsRead = asyncHandler(async (req: IAuthRequest, res: Response) => {
+    const userId = this.toIdString(req.user!._id);
+    const branchId = (req.query.branchId || req.body?.branchId) as string | undefined;
+    const notification = await this.notificationService.markAdminNotificationAsRead(
+      req.params.id,
+      branchId,
+      userId
+    );
+    if (!notification) {
+      throw createError('Notification not found', 404);
+    }
+    sendSuccess(res, notification, 'Notification marked as read');
+  });
+
+  registerDevice = asyncHandler(async (req: IAuthRequest, res: Response) => {
+    const userId = this.toIdString(req.user!._id);
+    const { fcmToken, token } = req.body as { fcmToken?: string; token?: string };
+    const resolved = String(fcmToken || token || '').trim();
+    if (!resolved) {
+      throw createError('FCM token is required', 400);
+    }
+
+    const { registerFcmToken } = await import('@/services/notificationDispatchService');
+    const ok = await registerFcmToken(userId, resolved);
+    if (!ok) {
+      throw createError('Failed to register device', 500);
+    }
+    sendSuccess(res, { registered: true }, 'Device registered for push notifications');
+  });
+
+  sendNotification = asyncHandler(async (req: IAuthRequest, res: Response) => {
+    const actorRole = String(req.user?.role || '').toUpperCase();
+    if (!['ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER'].includes(actorRole)) {
+      throw createError('Insufficient permissions', 403);
+    }
+
+    const { recipient, userId, title, body, message, type, data, relatedOrder, priority } = req.body as {
+      recipient?: string;
+      userId?: string;
+      title?: string;
+      body?: string;
+      message?: string;
+      type?: string;
+      data?: Record<string, unknown>;
+      relatedOrder?: string;
+      priority?: string;
+    };
+
+    const targetUserId = String(recipient || userId || '').trim();
+    if (!targetUserId || !title) {
+      throw createError('recipient (or userId) and title are required', 400);
+    }
+
+    const { dispatchNotification } = await import('@/services/notificationDispatchService');
+    const notification = await dispatchNotification({
+      recipient: targetUserId,
+      type: type || 'SYSTEM',
+      title,
+      message: message || body || title,
+      data,
+      relatedOrder,
+      priority,
+    });
+
+    if (!notification) {
+      throw createError('Failed to send notification', 500);
+    }
+
+    sendSuccess(res, { notification }, 'Notification sent');
+  });
+
+  deleteAdminNotification = asyncHandler(async (req: IAuthRequest, res: Response) => {
+    const userId = this.toIdString(req.user!._id);
+    const branchId = (req.query.branchId || req.body?.branchId) as string | undefined;
+    const deleted = await this.notificationService.deleteAdminNotification(
+      req.params.id,
+      branchId,
+      userId
+    );
+    if (!deleted) {
+      throw createError('Notification not found or already deleted', 404);
+    }
+    sendSuccess(res, { success: true }, 'Notification deleted successfully');
   });
 
   // Get admin unread count

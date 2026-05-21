@@ -15,6 +15,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS } from '../../constants/colors';
 import { getSpacing } from '../../utils/responsive';
 import { useLocalization } from '../../context/LocalizationContext';
+import { isAdminRole, getDashboardRouteForRole } from '../../utils/permissionHelpers';
 
 const { width } = Dimensions.get('window');
 
@@ -52,8 +53,7 @@ export default function AdminBottomNavigation({ onMorePress, currentRoute: propR
     { name: t('notifications.title'), icon: 'notifications-outline', screen: 'AdminNotifications' },
     { name: 'Tables', icon: 'restaurant-outline', screen: 'TableAssignment' },
     { name: 'Riders', icon: 'bicycle-outline', screen: 'RidersManagement' },
-    // Only SUPER_ADMIN can access Branches management
-    ...(userRole === 'SUPER_ADMIN' ? [{ name: t('nav.branches'), icon: 'business-outline', screen: 'AdminBranches' }] : []),
+    ...(isAdminRole(userRole) ? [{ name: t('nav.branches'), icon: 'business-outline', screen: 'AdminBranches' }] : []),
     { name: t('nav.categories'), icon: 'grid-outline', screen: 'AdminCategories' },
     { name: t('products.title'), icon: 'restaurant-outline', screen: 'AdminProducts' },
     { name: 'Banner Management', icon: 'image-outline', screen: 'BannerManagement' },
@@ -61,15 +61,17 @@ export default function AdminBottomNavigation({ onMorePress, currentRoute: propR
     { name: 'Deals', icon: 'pricetag-outline', screen: 'AdminDeals' },
     { name: 'Product Size', icon: 'resize-outline', screen: 'AdminProductSizes' },
     { name: t('nav.reports'), icon: 'bar-chart-outline', screen: 'AdminReports' },
-    { name: t('nav.settings'), icon: 'settings-outline', screen: 'AdminSettings' },
+    ...(isAdminRole(userRole)
+      ? [{ name: t('nav.settings'), icon: 'settings-outline', screen: 'AdminSettings' }]
+      : []),
   ];
   
   // Role-specific navigation items
   const managerNavItems = [
     { name: 'ManagerDashboard', label: t('nav.home'), icon: 'home-outline', activeIcon: 'home' },
     { name: 'AdminOrders', label: t('nav.orders'), icon: 'document-text-outline', activeIcon: 'document-text' },
+    { name: 'AdminProducts', label: t('products.title'), icon: 'restaurant-outline', activeIcon: 'restaurant' },
     { name: 'AdminUsers', label: t('nav.users'), icon: 'people-outline', activeIcon: 'people' },
-    { name: 'ManagerMenu', label: 'Menu', icon: 'restaurant-outline', activeIcon: 'restaurant' },
     { name: 'More', label: t('nav.more'), icon: 'ellipsis-horizontal', activeIcon: 'ellipsis-horizontal' },
   ];
 
@@ -84,7 +86,18 @@ export default function AdminBottomNavigation({ onMorePress, currentRoute: propR
   // Use role-specific nav items
   const navItems = userRole === 'BRANCH_MANAGER' ? managerNavItems : adminNavItems;
 
-  const tabRouteNames = new Set(['Home', 'ManagerDashboard', 'AdminOrders', 'AdminUsers', 'ManagerMenu', 'AdminBranches', 'AdminReports', 'AdminSettings']);
+  const tabRouteNames = new Set([
+    'Home',
+    'ManagerDashboard',
+    'AdminOrders',
+    'AdminProducts',
+    'AdminUsers',
+    'ManagerMenu',
+    'AdminBranches',
+    'AdminReports',
+    'AdminSettings',
+    'BannerManagement',
+  ]);
 
   const getParentNavigator = () => {
     // If rendered inside a tab navigator, the stack navigator is usually the parent.
@@ -94,77 +107,62 @@ export default function AdminBottomNavigation({ onMorePress, currentRoute: propR
   
   // Check if current route matches any home dashboard
   const isHomeActive = currentRoute === 'Home' || currentRoute === 'ManagerDashboard';
-  
-  const getDashboardRouteName = async (): Promise<string> => {
-    try {
-      const role = await AsyncStorage.getItem('userRole');
-      if (role === 'BRANCH_MANAGER') return 'ManagerTabs';
-      if (role === 'SUPER_ADMIN') return 'SuperAdminDashboard';
-      if (role === 'ADMIN') return 'AdminDashboard';
-      return 'AdminDashboard';
-    } catch {
-      return 'AdminDashboard';
-    }
-  };
 
+  const getHomeTabName = () =>
+    userRole === 'BRANCH_MANAGER' ? 'ManagerDashboard' : 'Home';
+
+  const isTabActive = (itemName: string): boolean => {
+    if (itemName === 'More') return false;
+    if (itemName === 'Home' || itemName === 'ManagerDashboard') {
+      return isHomeActive;
+    }
+    return currentRoute === itemName;
+  };
+  
   const resetToRoleTabs = async (targetTabScreen?: string) => {
     const role = await AsyncStorage.getItem('userRole');
-    if (role === 'BRANCH_MANAGER') {
-      nav.dispatch(
-        CommonActions.reset({
-          index: 0,
-          routes: [{ name: 'ManagerTabs', params: targetTabScreen ? { screen: targetTabScreen } : undefined } as any],
-        })
-      );
-      return;
-    }
-    if (role === 'SUPER_ADMIN') {
-      nav.dispatch(
-        CommonActions.reset({
-          index: 0,
-          routes: [{ name: 'SuperAdminDashboard', params: targetTabScreen ? { screen: targetTabScreen } : { screen: 'Home' } } as any],
-        })
-      );
-      return;
-    }
+    const dashboardRoute = getDashboardRouteForRole(role || 'ADMIN');
+    const params =
+      dashboardRoute === 'AdminDashboard' || dashboardRoute === 'ManagerTabs'
+        ? targetTabScreen
+          ? { screen: targetTabScreen }
+          : dashboardRoute === 'AdminDashboard'
+            ? { screen: 'Home' }
+            : undefined
+        : undefined;
 
     nav.dispatch(
       CommonActions.reset({
         index: 0,
-        routes: [{ name: 'AdminDashboard', params: targetTabScreen ? { screen: targetTabScreen } : { screen: 'Home' } } as any],
+        routes: [{ name: dashboardRoute, params } as any],
       })
     );
   };
 
   const handleNavPress = async (itemName: string) => {
-    console.log('[AdminBottomNav] handleNavPress:', itemName, 'tabNavigation exists:', !!tabNavigation);
-    
     if (itemName === 'More') {
       setShowMoreMenu(true);
       return;
     }
 
-    // Check if we're already inside a tab navigator (tabNavigation provided)
-    const isInsideTabNavigator = !!tabNavigation;
-    console.log('[AdminBottomNav] isInsideTabNavigator:', isInsideTabNavigator);
+    // Already on this tab — do nothing (standard tab bar behavior)
+    if (isTabActive(itemName)) {
+      return;
+    }
 
-    // Handle home navigation based on role
+    const isInsideTabNavigator = !!tabNavigation;
+
     if (itemName === 'Home' || itemName === 'ManagerDashboard') {
-      console.log('[AdminBottomNav] Home/ManagerDashboard pressed');
+      const target = getHomeTabName();
       if (isInsideTabNavigator && tabNavigation) {
-        console.log('[AdminBottomNav] Navigating to Home via tabNavigation');
-        // When rendered inside ManagerTabsNavigator, there is no 'Home' tab.
-        // Route to the correct dashboard tab name.
-        const target = userRole === 'BRANCH_MANAGER' ? 'ManagerDashboard' : 'Home';
         tabNavigation.navigate(target);
       } else {
-        console.log('[AdminBottomNav] Resetting to role tabs');
         await resetToRoleTabs();
       }
       return;
     }
 
-    // Handle ManagerMenu navigation
+    // Handle ManagerMenu navigation (More menu only)
     if (itemName === 'ManagerMenu') {
       if (isInsideTabNavigator) {
         // @ts-ignore
@@ -176,6 +174,18 @@ export default function AdminBottomNavigation({ onMorePress, currentRoute: propR
       return;
     }
 
+    if (itemName === 'AdminProducts' && isInsideTabNavigator) {
+      // @ts-ignore
+      nav.navigate('AdminProducts');
+      return;
+    }
+
+    if (itemName === 'AdminReports' && isInsideTabNavigator) {
+      // @ts-ignore
+      nav.navigate('AdminReports');
+      return;
+    }
+
     // If we're outside a tab navigator (stack screens like Deals/Coupons/etc),
     // make bottom-nav items route back into the role's tab navigator to avoid
     // showing an old/previous homepage.
@@ -184,15 +194,8 @@ export default function AdminBottomNavigation({ onMorePress, currentRoute: propR
       return;
     }
 
-    if (currentRoute !== itemName) {
-      // If trying to go to Home/ManagerDashboard from outside tabs, reset instead of navigate
-      if ((itemName === 'Home' || itemName === 'ManagerDashboard') && !isInsideTabNavigator) {
-        void resetToRoleTabs();
-        return;
-      }
-      // @ts-ignore
-      nav.navigate(itemName);
-    }
+    // @ts-ignore
+    nav.navigate(itemName);
   };
   
   return (
@@ -261,9 +264,21 @@ export default function AdminBottomNavigation({ onMorePress, currentRoute: propR
                     setShowMoreMenu(false);
                     const parentNav = getParentNavigator();
                     const isInsideTabNavigator = !!tabNavigation;
+
+                    const homeTarget = getHomeTabName();
+                    if (
+                      item.screen === 'AdminDashboard' ||
+                      item.screen === 'ManagerDashboard' ||
+                      item.screen === 'Home' ||
+                      item.screen === homeTarget
+                    ) {
+                      if (isTabActive(homeTarget)) return;
+                    } else if (tabRouteNames.has(item.screen) && isTabActive(item.screen)) {
+                      return;
+                    }
                     
                     // Handle Home navigation with reset
-                    if (item.screen === 'AdminDashboard' || item.screen === 'ManagerDashboard' || item.screen === 'SuperAdminDashboard') {
+                    if (item.screen === 'AdminDashboard' || item.screen === 'ManagerDashboard') {
                       if (!isInsideTabNavigator) {
                         void resetToRoleTabs();
                       } else if (tabNavigation) {

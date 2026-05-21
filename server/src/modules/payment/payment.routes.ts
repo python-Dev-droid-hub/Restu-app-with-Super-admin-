@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import Stripe from 'stripe';
+import { getStripeClient } from '@/config/stripe';
 import { Payment } from '../../models/Payment';
 import { Order } from '../../models/Order';
 import { User } from '../../models/User';
@@ -7,10 +7,6 @@ import { authenticate, authorize } from '../../middleware/auth';
 import { IAuthRequest } from '../../types';
 
 const router: Router = Router();
-
-// Initialize Stripe
-// NOTE: Stripe's type definitions constrain apiVersion; we omit it and let the library default.
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_your_key_here');
 
 // ============================================
 // CUSTOMER PAYMENT PROCESSING
@@ -44,7 +40,7 @@ router.post('/create-payment-intent', authenticate, async (req: IAuthRequest, re
     }
     
     // Create payment intent
-    const paymentIntent = await stripe.paymentIntents.create({
+    const paymentIntent = await getStripeClient().paymentIntents.create({
       amount: Math.round(amount * 100), // Convert to cents
       currency: currency,
       metadata: {
@@ -82,7 +78,7 @@ router.post('/confirm-payment', authenticate, async (req: IAuthRequest, res: Res
     console.log('[Payment] Confirming payment:', paymentIntentId);
     
     // Get payment intent from Stripe
-    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+    const paymentIntent = await getStripeClient().paymentIntents.retrieve(paymentIntentId);
     
     if (paymentIntent.status !== 'succeeded') {
       return res.status(400).json({
@@ -142,64 +138,7 @@ router.post('/confirm-payment', authenticate, async (req: IAuthRequest, res: Res
   }
 });
 
-/**
- * Handle payment webhook from Stripe
- */
-router.post('/webhook', async (req: Request, res: Response) => {
-  const sig = req.headers['stripe-signature'] as string;
-  
-  try {
-    const event = stripe.webhooks.constructEvent(
-      req.body,
-      sig,
-      process.env.STRIPE_WEBHOOK_SECRET || ''
-    );
-    
-    console.log('[Webhook] Event received:', event.type);
-    
-    switch(event.type) {
-      case 'payment_intent.succeeded':
-        const paymentIntent = event.data.object as Stripe.PaymentIntent;
-        console.log('[Webhook] Payment succeeded:', paymentIntent.id);
-        
-        // Update payment status
-        await Payment.findOneAndUpdate(
-          { stripePaymentIntentId: paymentIntent.id },
-          { status: 'SUCCESS', completedAt: new Date() }
-        );
-        
-        // Update order status
-        await Order.findOneAndUpdate(
-          { stripePaymentIntentId: paymentIntent.id },
-          { paymentStatus: 'paid', status: 'CONFIRMED' }
-        );
-        break;
-        
-      case 'payment_intent.payment_failed':
-        const failedIntent = event.data.object as Stripe.PaymentIntent;
-        console.log('[Webhook] Payment failed:', failedIntent.id);
-        
-        // Update payment status
-        await Payment.findOneAndUpdate(
-          { stripePaymentIntentId: failedIntent.id },
-          { status: 'FAILED', failureReason: 'Payment failed' }
-        );
-        
-        // Update order status
-        await Order.findOneAndUpdate(
-          { stripePaymentIntentId: failedIntent.id },
-          { paymentStatus: 'failed' }
-        );
-        break;
-    }
-    
-    res.json({ received: true });
-    
-  } catch (error: any) {
-    console.error('[Webhook] Error:', error);
-    res.status(400).send(`Webhook Error: ${error.message}`);
-  }
-});
+// Stripe webhook is registered in index.ts with raw body parser (security requirement).
 
 // ============================================
 // CASH ON DELIVERY
@@ -621,7 +560,7 @@ router.post('/refund/:paymentId', authenticate, authorize('ADMIN', 'SUPER_ADMIN'
     
     // Process Stripe refund if card payment
     if (payment.stripePaymentIntentId) {
-      const refund = await stripe.refunds.create({
+      const refund = await getStripeClient().refunds.create({
         payment_intent: payment.stripePaymentIntentId,
         amount: amount ? Math.round(amount * 100) : undefined
       });

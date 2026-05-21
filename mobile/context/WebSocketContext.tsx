@@ -6,6 +6,7 @@ import {
   subscribeToNotifications,
   unsubscribeFromNotifications,
   isSocketConnected,
+  getSocket,
 } from '../services/realtimeService';
 import { handleNotificationByType } from '../services/notificationHandler';
 
@@ -47,21 +48,20 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [isConnected, setIsConnected] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
-  // Check connection status periodically
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setIsConnected(isSocketConnected());
-    }, 1000);
-    return () => clearInterval(interval);
-  }, []);
-
   const initializeWebSocket = useCallback(async (userId: string, userRole: string) => {
     try {
       console.log('[WebSocketContext] Initializing socket for user:', userId, 'role:', userRole);
-      const token = await AsyncStorage.getItem('authToken');
+      const { getAccessToken } = await import('../utils/secureAuthStorage');
+      const token = await getAccessToken();
       
       // Initialize socket connection
-      initializeSocket(userId, userRole, token || undefined);
+      const socket = initializeSocket(userId, userRole, token || undefined);
+      setIsConnected(!!socket?.connected);
+
+      const onConnect = () => setIsConnected(true);
+      const onDisconnect = () => setIsConnected(false);
+      socket?.on('connect', onConnect);
+      socket?.on('disconnect', onDisconnect);
 
       // Subscribe to notifications
       subscribeToNotifications((notification: any) => {

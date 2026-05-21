@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { api } from '../services/api';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { io, Socket } from 'socket.io-client';
 import { useLanguage } from '../context/LanguageContext';
 import './Dashboard.css';
+import { resolveSocketUrl } from '../utils/resolveSocketUrl';
 
 interface DashboardStats {
   totalOrdersToday: number;
@@ -26,6 +27,7 @@ interface RecentOrder {
 
 const Dashboard: React.FC = () => {
   const { t } = useLanguage();
+  const socketRef = useRef<Socket | null>(null);
   const [stats, setStats] = useState<DashboardStats>({
     totalOrdersToday: 0,
     totalRevenue: 0,
@@ -41,85 +43,84 @@ const Dashboard: React.FC = () => {
   const [userRole, setUserRole] = useState<string>('');
 
   useEffect(() => {
-    // Get user role from localStorage with proper validation
     const storedRole = localStorage.getItem('userRole');
     const validRoles = ['ADMIN', 'SUPER_ADMIN', 'CHEF', 'WAITER', 'RIDER', 'CUSTOMER'];
-    const role = (storedRole && validRoles.includes(storedRole)) ? storedRole : 'CUSTOMER';
+    const role = storedRole && validRoles.includes(storedRole) ? storedRole : 'CUSTOMER';
     setUserRole(role);
-    
-    loadDashboardData();
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(loadDashboardData, 30000);
-    return () => clearInterval(interval);
   }, []);
 
-  const loadDashboardData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      console.log('🖥️ [DASHBOARD] Loading dashboard data for role:', userRole);
-            // Load admin-specific data for ADMIN and SUPER_ADMIN users
-      if (userRole === 'ADMIN' || userRole === 'SUPER_ADMIN') {
-        console.log('🖥️ [DASHBOARD] Loading admin/super-admin dashboard data');
-        
-        // Use different API methods based on user role
-        const statsApi = userRole === 'SUPER_ADMIN' ? api.getSuperAdminStats() : api.getDashboardStats();
-        
-        const [statsResponse, ordersResponse, usersResponse] = await Promise.all([
-          statsApi,
-          api.getAllOrders(),
-          api.getAllUsers(),
-        ]);
+  const applyDashboardPayload = useCallback((payload: any) => {
+    const d = payload?.stats || {};
+    setStats({
+      totalOrdersToday: d.totalOrders ?? 0,
+      totalRevenue: d.totalRevenue ?? 0,
+      activeRiders: d.activeRiders ?? d.totalRiders ?? 0,
+      activeTables: d.activeTables ?? 0,
+      totalTables: d.totalTables ?? 24,
+      revenueChange: d.revenueChange ?? 0,
+      ordersChange: d.ordersChange ?? 0,
+      branchUsers: d.totalUsers ?? 0,
+    });
 
-        console.log('🖥️ [DASHBOARD] Stats response:', statsResponse);
-        console.log('🖥️ [DASHBOARD] Orders response:', ordersResponse);
-        console.log('🖥️ [DASHBOARD] Users response:', usersResponse);
+    const rawOrders = Array.isArray(payload?.orders) ? payload.orders : [];
+    const sorted = rawOrders
+      .map((o: any) => ({
+        _id: o._id || o.id,
+        orderNumber: o.orderNumber || '',
+        customerName: o.customerName || o.customer?.displayName || 'Guest',
+        totalAmount: o.totalAmount || o.total || 0,
+        status: o.status || '',
+        itemCount: Array.isArray(o.items) ? o.items.length : 0,
+        createdAt: o.createdAt || new Date().toISOString(),
+      }))
+      .sort((a: RecentOrder, b: RecentOrder) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 5);
+    setRecentOrders(sorted);
+    setLoading(false);
+    setError(null);
+  }, []);
 
-        if (statsResponse.success && statsResponse.data) {
-          const statsData = statsResponse.data as DashboardStats;
-          // Add branch users count from users API
-          if (usersResponse.success && usersResponse.data) {
-            const usersData = usersResponse.data as { users: any[]; total: number };
-            statsData.branchUsers = usersData.total || usersData.users?.length || 0;
-          }
-          setStats(statsData);
-          console.log('🖥️ [DASHBOARD] Stats loaded successfully:', statsData);
-        } else {
-          console.error('🖥️ [DASHBOARD] Failed to load stats:', statsResponse);
-        }
+  const requestDashboard = useCallback(() => {
+    setLoading(true);
+    socketRef.current?.emit('admin_dashboard:get', { period: 'day', limit: 50 });
+  }, []);
 
-        if (ordersResponse.success && ordersResponse.data) {
-          // Get recent orders (last 5)
-          const ordersData = ordersResponse.data as { orders: RecentOrder[] };
-          const sorted = (ordersData.orders || [])
-            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-            .slice(0, 5);
-          setRecentOrders(sorted);
-          console.log('🖥️ [DASHBOARD] Recent orders loaded:', sorted.length, 'orders');
-        } else {
-          console.error('🖥️ [DASHBOARD] Failed to load orders:', ordersResponse);
-        }
-      } else {
-        // For non-admin users, set default/empty data
-        console.log('🖥️ [DASHBOARD] Non-admin user - setting default data');
-        setStats({
-          totalOrdersToday: 0,
-          totalRevenue: 0,
-          activeRiders: 0,
-          activeTables: 0,
-          totalTables: 24,
-          revenueChange: 0,
-          ordersChange: 0,
-        });
-        setRecentOrders([]);
-      }
-    } catch (err) {
-      console.error('🖥️ [DASHBOARD] Error loading dashboard:', err);
-      setError('Failed to load dashboard data. Please check your connection.');
-    } finally {
+  useEffect(() => {
+    if (userRole !== 'ADMIN' && userRole !== 'SUPER_ADMIN') {
       setLoading(false);
+      return;
     }
-  };
+
+    const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken') || '';
+    const socket = io(resolveSocketUrl(), {
+      path: '/socket.io',
+      transports: ['websocket'],
+      auth: token ? { token } : undefined,
+    });
+    socketRef.current = socket;
+
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const debouncedRequest = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(requestDashboard, 1500);
+    };
+
+    socket.on('connect', requestDashboard);
+    socket.on('admin_dashboard:data', applyDashboardPayload);
+    socket.on('admin_dashboard:error', () => {
+      setError('Failed to load dashboard data. Please check your connection.');
+      setLoading(false);
+    });
+    socket.on('notification', debouncedRequest);
+
+    if (socket.connected) requestDashboard();
+
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, [userRole, applyDashboardPayload, requestDashboard]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-PK', {
@@ -196,7 +197,7 @@ const Dashboard: React.FC = () => {
               <strong>⚠️ {t('error')}:</strong> {error}
             </div>
             <button 
-              onClick={loadDashboardData} 
+              onClick={requestDashboard} 
               className="btn btn-primary"
               style={{ marginLeft: '15px', whiteSpace: 'nowrap' }}
             >

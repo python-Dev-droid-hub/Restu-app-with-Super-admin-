@@ -38,6 +38,8 @@ import { useTheme } from '@mui/material/styles';
 
 import { useSettings } from '../../context/SettingsContext';
 import { io, type Socket } from 'socket.io-client';
+import { resolveSocketUrl } from '../../utils/resolveSocketUrl';
+import { enrichOrderParty } from '../../utils/orderParty';
 
 // ==================== TYPES ====================
 interface UserData {
@@ -77,6 +79,11 @@ interface Order {
   branchId?: string;
   eta?: string;
   rider?: { name: string; avatar?: string };
+  orderType?: string;
+  partyLabel?: string;
+  partyName?: string;
+  waiterName?: string | null;
+  tableNumber?: string | null;
 }
 
 interface DashboardStats {
@@ -201,23 +208,7 @@ const AdminDashboard: React.FC = () => {
     branchesRef.current = branches;
   }, [branches]);
 
-  const getServerHost = (): string => {
-    const rawApiUrl = (import.meta as any)?.env?.VITE_API_URL as string | undefined;
-    const rawProxyTarget = (import.meta as any)?.env?.VITE_PROXY_TARGET as string | undefined;
-
-    const normalizeHost = (value?: string): string => {
-      const v = (value || '').trim();
-      if (!v) return '';
-      return v.replace(/\/?api\/?$/, '').replace(/\/$/, '');
-    };
-
-    const fromEnv = normalizeHost(rawProxyTarget) || normalizeHost(rawApiUrl);
-    if (fromEnv) return fromEnv;
-
-    const protocol = window.location.protocol || 'http:';
-    const hostname = window.location.hostname || 'localhost';
-    return `${protocol}//${hostname}:3101`;
-  };
+  const getServerHost = (): string => resolveSocketUrl();
 
   // Load user data including profile image
   const loadUserData = () => {
@@ -270,11 +261,17 @@ const AdminDashboard: React.FC = () => {
         avatar: riderData.avatar || riderData.image || riderData.profileImage || riderData.photo
       } : undefined;
 
+      const enriched = enrichOrderParty(o || {});
       return {
         _id: o?._id || o?.id,
         orderNumber: o?.orderNumber || o?.orderNo || o?.number,
         status: o?.status || 'PENDING',
-        customerName: o?.customerName || o?.customer?.name,
+        orderType: enriched.orderType,
+        customerName: enriched.partyName,
+        partyLabel: enriched.partyLabel,
+        partyName: enriched.partyName,
+        waiterName: enriched.waiterName,
+        tableNumber: enriched.tableNumber,
         customerEmail: o?.customerEmail || o?.customer?.email,
         total: Number(o?.total ?? o?.totalAmount ?? o?.amount ?? 0),
         totalAmount: o?.totalAmount,
@@ -330,20 +327,11 @@ const AdminDashboard: React.FC = () => {
     if (socketRef.current) return;
 
     const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken') || '';
-    const rawApiUrl = (import.meta as any)?.env?.VITE_API_URL as string | undefined;
-    const rawProxyTarget = (import.meta as any)?.env?.VITE_PROXY_TARGET as string | undefined;
 
-    const normalizeHost = (value?: string): string => {
-      const v = (value || '').trim();
-      if (!v) return '';
-      return v.replace(/\/?api\/?$/, '').replace(/\/$/, '');
-    };
-
-    const socketUrl = normalizeHost(rawProxyTarget) || normalizeHost(rawApiUrl) || 'http://localhost:3101';
-
-    const socket = io(socketUrl, {
+    const socket = io(resolveSocketUrl(), {
       path: '/socket.io',
       transports: ['websocket', 'polling'],
+      withCredentials: true,
       auth: token ? { token } : undefined,
     });
 
@@ -414,10 +402,17 @@ const AdminDashboard: React.FC = () => {
       setLoading(false);
     });
 
-    socket.on('notification', () => {
+    const refreshDashboard = () => {
       const { period, branchId } = filtersRef.current;
+      setLoading(true);
       socket.emit('admin_dashboard:get', { period, branchId, limit: 50 });
-    });
+    };
+
+    socket.on('notification', refreshDashboard);
+    socket.on('admin_dashboard:invalidate', refreshDashboard);
+    socket.on('order:created', refreshDashboard);
+    socket.on('order:updated', refreshDashboard);
+    socket.on('order:status_updated', refreshDashboard);
 
     socket.on('admin_dashboard:error', () => {
       setLoading(false);
@@ -876,6 +871,8 @@ const AdminDashboard: React.FC = () => {
                     <TableHead>
                       <TableRow sx={{ bgcolor: '#fafafa' }}>
                         <TableCell sx={{ fontWeight: 600, color: '#666', fontSize: 13 }}>Order ID</TableCell>
+                        <TableCell sx={{ fontWeight: 600, color: '#666', fontSize: 13 }}>Table</TableCell>
+                        <TableCell sx={{ fontWeight: 600, color: '#666', fontSize: 13 }}>Waiter</TableCell>
                         <TableCell sx={{ fontWeight: 600, color: '#666', fontSize: 13 }}>Branch</TableCell>
                         <TableCell sx={{ fontWeight: 600, color: '#666', fontSize: 13 }}>ETA</TableCell>
                         <TableCell sx={{ fontWeight: 600, color: '#666', fontSize: 13 }}>Order Status</TableCell>
@@ -891,6 +888,22 @@ const AdminDashboard: React.FC = () => {
                             <TableRow key={order._id} sx={{ '&:hover': { bgcolor: '#fafafa' } }}>
                               <TableCell sx={{ fontWeight: 600, color: '#1a1a2e' }}>
                                 #{order.orderNumber}
+                              </TableCell>
+                              <TableCell>
+                                <Typography sx={{ fontWeight: 700, color: '#1565C0' }}>
+                                  {order.tableNumber
+                                    ? `Table ${order.tableNumber}`
+                                    : order.orderType === 'DINE_IN'
+                                    ? '—'
+                                    : 'N/A'}
+                                </Typography>
+                              </TableCell>
+                              <TableCell>
+                                <Typography sx={{ fontWeight: 600, color: '#1a1a2e' }}>
+                                  {order.orderType === 'DINE_IN'
+                                    ? order.waiterName || order.partyName || '—'
+                                    : order.partyName || order.customerName || '—'}
+                                </Typography>
                               </TableCell>
                               <TableCell>
                                 <Box sx={{ display: 'flex', flexDirection: 'column' }}>
@@ -962,7 +975,7 @@ const AdminDashboard: React.FC = () => {
                         })
                       ) : (
                         <TableRow>
-                          <TableCell colSpan={6} sx={{ py: 3, color: '#666', textAlign: 'center' }}>
+                          <TableCell colSpan={7} sx={{ py: 3, color: '#666', textAlign: 'center' }}>
                             {globalQuery ? 'No matching orders.' : 'No orders.'}
                           </TableCell>
                         </TableRow>

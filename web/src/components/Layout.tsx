@@ -4,6 +4,7 @@ import { useLanguage } from '../context/LanguageContext';
 import NotificationDropdown from './NotificationDropdown';
 import './Layout.css';
 import { io, type Socket } from 'socket.io-client';
+import { resolveSocketUrl } from '../utils/resolveSocketUrl';
 
 const sanitizeWebImageSrc = (src: unknown): string => {
   if (!src || typeof src !== 'string') return '';
@@ -103,18 +104,8 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     if (socketRef.current) return;
 
     const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken') || '';
-    const rawApiUrl = (import.meta as any)?.env?.VITE_API_URL as string | undefined;
-    const rawProxyTarget = (import.meta as any)?.env?.VITE_PROXY_TARGET as string | undefined;
 
-    const normalizeHost = (value?: string): string => {
-      const v = (value || '').trim();
-      if (!v) return '';
-      return v.replace(/\/?api\/?$/, '').replace(/\/$/, '');
-    };
-
-    const socketUrl = normalizeHost(rawProxyTarget) || normalizeHost(rawApiUrl) || 'http://localhost:3101';
-
-    const socket = io(socketUrl, {
+    const socket = io(resolveSocketUrl(), {
       path: '/socket.io',
       transports: ['websocket', 'polling'],
       auth: token ? { token } : undefined,

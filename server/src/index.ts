@@ -36,11 +36,16 @@ import tableRoutes from '@/modules/table/table.routes';
 import inventoryRoutes from './modules/inventory/inventory.routes';
 import paymentRoutes from './modules/payment/payment.routes';
 import bannerRoutes from './modules/banner/banner.routes';
+import printerRoutes from './modules/printer/printer.routes';
 import customerRoutes from './routes/customer.routes';
 import { initWebSocket } from '@/config/websocket';
+import { validateProductionEnv } from '@/config/validateEnv';
+import { buildCorsOptions } from '@/config/cors';
+import { handleStripeWebhook } from '@/modules/payment/stripeWebhook.handler';
 
 // Load environment variables
 dotenv.config();
+validateProductionEnv();
 
 const app: Express = express();
 const PORT = parseInt(process.env.PORT || '3101', 10);
@@ -70,84 +75,76 @@ const generalLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => process.env.NODE_ENV === 'development', // Skip rate limiting in dev
+  skip: (req) =>
+    req.method === 'OPTIONS' ||
+    process.env.NODE_ENV === 'development' ||
+    process.env.RATE_LIMIT_DISABLED === 'true',
 });
 
-// Stricter rate limiting for authentication routes
+// Stricter rate limiting for login/register only (not GET /auth/me)
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 20, // Limit each IP to 20 login/register requests per window
+  windowMs: 15 * 60 * 1000,
+  max: parseInt(process.env.AUTH_RATE_LIMIT_MAX || '60', 10),
   message: {
     success: false,
-    message: 'Too many authentication attempts, please try again after 15 minutes.'
+    message: 'Too many authentication attempts, please try again after 15 minutes.',
   },
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => process.env.NODE_ENV === 'development',
+  skip: (req) =>
+    req.method === 'OPTIONS' ||
+    req.method === 'GET' ||
+    process.env.NODE_ENV === 'development' ||
+    process.env.RATE_LIMIT_DISABLED === 'true',
 });
 
+const isProduction = process.env.NODE_ENV === 'production';
+
+if (isProduction) {
+  app.set('trust proxy', 1);
+}
+
 // Middleware
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: 'cross-origin' },
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-      imgSrc: ["'self'", "data:", "blob:", "*"], // Allow images from any source for now due to dynamic uploads
-      fontSrc: ["'self'", "https://fonts.gstatic.com"],
-      connectSrc: ["'self'", "ws:", "wss:", "*"], // Allow WS connections
-      objectSrc: ["'none'"],
-      upgradeInsecureRequests: [],
-    },
-  },
-}));
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    hsts: isProduction ? { maxAge: 31536000, includeSubDomains: true } : false,
+    contentSecurityPolicy: isProduction
+      ? {
+          directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'"],
+            styleSrc: ["'self'", "https://fonts.googleapis.com"],
+            imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
+            fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+            connectSrc: ["'self'", 'wss:'],
+            objectSrc: ["'none'"],
+            upgradeInsecureRequests: [],
+          },
+        }
+      : false,
+  })
+);
 app.use(compression());
 app.use(xss()); // Prevent XSS attacks
 app.use(mongoSanitize()); // Prevent NoSQL injection
 app.use(hpp()); // Prevent HTTP Parameter Pollution
-app.use('/api/', generalLimiter); // Apply general limiter to all API routes
-app.use('/api/auth/', authLimiter); // Apply stricter limiter to auth routes
 
-const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:5174',
-  'http://localhost:5175',
-  'http://localhost:5176',
-  'http://localhost:5177',
-  'http://localhost:5178',
-  'http://localhost:5179',
-  'http://127.0.0.1:5173',
-  'http://127.0.0.1:5174',
-  'http://127.0.0.1:5175',
-  'http://127.0.0.1:5176',
-  'http://127.0.0.1:5177',
-  'http://127.0.0.1:5178',
-  'http://127.0.0.1:5179',
-  'http://localhost:3000',
-  'http://localhost:3001',
-];
-
-if (process.env.CORS_ORIGIN) {
-  allowedOrigins.push(...process.env.CORS_ORIGIN.split(',').map(o => o.trim()));
-}
-
-app.use(cors({
-  origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV === 'development') {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-}));
+// CORS before rate limiters so preflight/429 responses still include ACAO headers
+app.use(cors(buildCorsOptions(isProduction)));
+app.options('*', cors(buildCorsOptions(isProduction)));
 app.use(cookieParser());
+
+app.use('/api/', generalLimiter);
+app.use('/api/auth/', authLimiter);
+
+// Stripe webhook must receive raw body (register before JSON parser)
+app.post(
+  '/api/payments/webhook',
+  express.raw({ type: 'application/json', limit: '1mb' }),
+  handleStripeWebhook
+);
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -155,20 +152,21 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // In dev mode with ts-node, __dirname is the src folder
 app.use('/uploads', (req, res, next) => {
   // Set CORS headers for images
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  if (!isProduction) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   next();
 }, express.static(uploadsPathPrimary), express.static(uploadsPathFallback));
 logger.info(`Serving uploads from: ${uploadsPathPrimary}${uploadsPathFallback !== uploadsPathPrimary ? ` (fallback: ${uploadsPathFallback})` : ''}`);
 
-// Health check endpoint
+// Health check endpoint (minimal info in production)
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'OK',
     timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    environment: process.env.NODE_ENV,
+    ...(isProduction ? {} : { uptime: process.uptime(), environment: process.env.NODE_ENV }),
   });
 });
 
@@ -192,6 +190,7 @@ app.use('/api/inventory', inventoryRoutes); // Inventory management routes
 app.use('/api/payments', paymentRoutes); // Payment processing routes
 app.use('/api/customer', customerRoutes); // Customer app routes
 app.use('/api/banners', bannerRoutes); // Banner management routes
+app.use('/api/printers', printerRoutes);
 app.use('/api', uploadRoutes); // Upload routes at /api/upload
 
 // Error handling middleware (must be last)

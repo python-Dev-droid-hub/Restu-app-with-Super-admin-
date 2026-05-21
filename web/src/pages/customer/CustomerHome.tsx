@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Button, Card, CardActionArea, CardContent, CardMedia, Grid, IconButton, Paper, Stack, TextField, Typography, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
 import { Add as AddIcon, Remove as RemoveIcon, Close as CloseIcon } from '@mui/icons-material';
 import SearchIcon from '@mui/icons-material/Search';
 import { api } from '../../services/api';
+import { useRealtimeRefresh } from '../../hooks/useRealtimeRefresh';
 
 type HomeBanner = {
   id: string;
@@ -202,13 +203,9 @@ export default function CustomerHome() {
     };
   }, []);
 
-  // Load menu + deals via REST API — reliable in all environments.
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadData = async () => {
-      setLoading(true);
-      try {
+  const loadHomeData = useCallback(async () => {
+    setLoading(true);
+    try {
         const hasBranch = selectedBranchId && selectedBranchId !== 'all';
         const branchParam = hasBranch ? `?branchId=${encodeURIComponent(selectedBranchId)}` : '';
         const dealsBranchParam = hasBranch ? `?branch=${encodeURIComponent(selectedBranchId)}` : '';
@@ -218,8 +215,6 @@ export default function CustomerHome() {
           api.get<any>(`/deals/campaigns/active${dealsBranchParam}`),
           api.get<any>('/banners/active'),
         ]);
-
-        if (cancelled) return;
 
         // ── Menu / products ──────────────────────────────────────────────
         const menuData = menuRes.status === 'fulfilled' && menuRes.value?.success ? menuRes.value : null;
@@ -315,16 +310,20 @@ export default function CustomerHome() {
           });
         }
         setDealCampaigns(normalizedCampaigns);
-      } catch {
-        // silently fail — empty state is already set
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-
-    loadData();
-    return () => { cancelled = true; };
+    } catch {
+      // silently fail — empty state is already set
+    } finally {
+      setLoading(false);
+    }
   }, [selectedBranchId]);
+
+  useEffect(() => {
+    void loadHomeData();
+  }, [loadHomeData]);
+
+  useRealtimeRefresh(() => {
+    void loadHomeData();
+  }, { matchTypes: ['DEAL', 'PROMOTION', 'MENU', 'ORDER', 'NOTIFICATION'] });
 
   const bannerItems = home.banners;
   const filteredCategorySections = useMemo(() => {

@@ -8,6 +8,8 @@ import { useLocalization } from '../context/LocalizationContext';
 import ManagerDashboard from '../screens/dashboards/ManagerDashboard';
 import AdminOrdersScreen from '../screens/admin/AdminOrdersScreen';
 import ManagerMenuScreen from '../screens/admin/ManagerMenuScreen';
+import AdminProductsScreen from '../screens/admin/AdminProductsScreen';
+import AdminReportsScreen from '../screens/admin/AdminReportsScreen';
 import AdminUsersScreen from '../screens/admin/AdminUsersScreen';
 import AdminBottomNavigation from '../components/navigation/AdminBottomNavigation';
 import BannerManagementScreen from '../screens/admin/BannerManagementScreen';
@@ -36,7 +38,6 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
     { name: 'Deals', icon: 'pricetag-outline', screen: 'AdminDeals' },
     { name: 'Product Size', icon: 'resize-outline', screen: 'AdminProductSizes' },
     { name: t('nav.reports'), icon: 'bar-chart-outline', screen: 'AdminReports' },
-    { name: t('nav.settings'), icon: 'settings-outline', screen: 'AdminSettings' },
   ];
 
   return (
@@ -67,10 +68,9 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
                 style={styles.menuItem}
                 onPress={() => {
                   setShowMoreMenu(false);
-                  // If screen belongs to tab navigator, navigate in tabs.
-                  // Otherwise, navigate via parent (stack) navigator.
                   const parentNav = navigation.getParent?.();
                   if (tabRouteNames.has(item.screen)) {
+                    if (currentRoute === item.screen) return;
                     // @ts-ignore
                     navigation.navigate(item.screen);
                   } else if (parentNav) {
@@ -105,6 +105,8 @@ export default function ManagerTabsNavigator() {
     >
       <Tab.Screen name="ManagerDashboard" component={ManagerDashboard} />
       <Tab.Screen name="AdminOrders" component={AdminOrdersScreen} />
+      <Tab.Screen name="AdminProducts" component={AdminProductsScreen} />
+      <Tab.Screen name="AdminReports" component={AdminReportsScreen} />
       <Tab.Screen name="AdminUsers" component={AdminUsersScreen} />
       <Tab.Screen name="ManagerMenu" component={ManagerMenuScreen} />
       <Tab.Screen name="BannerManagement" component={BannerManagementScreen} options={{ headerShown: false }} />

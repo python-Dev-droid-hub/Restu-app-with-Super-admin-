@@ -11,7 +11,20 @@ import { asyncHandler, sendSuccess } from '@/utils/response';
 import { createError } from '@/utils/errorHandler';
 import { IAuthRequest } from '@/types';
 import OrderNotificationService from '@/services/orderNotificationService';
+import { getInitialStatusForOrder, isValidStatusTransition } from '@/utils/orderStatusTransitions';
+import {
+  emitOrderCreated,
+  emitOrderStatusUpdated,
+  emitOrderCancelled,
+  emitOrderAssigned,
+} from '@/utils/orderRealtime';
+import { validateRiderStatusChange, getOrderProximityForRider } from '@/services/locationService';
+import { queueBillPrint, orderToBillOrder } from '@/services/printerService';
+import { formatBillText } from '@/services/billFormatter';
 import { Types } from 'mongoose';
+import { RestaurantTable } from '@/models/RestaurantTable';
+import { User } from '@/models/User';
+import { normalizeOrderPayload } from '@/utils/normalizeOrderPayload';
 
 export class OrderController {
   private orderRepository: OrderRepository;
@@ -114,9 +127,9 @@ export class OrderController {
     const restaurant = await this.restaurantRepository.findById(restaurantId);
     console.log('[ORDER DEBUG] Restaurant found:', !!restaurant);
     
-    if (!restaurant || !restaurant.isActive) {
+    if (!restaurant || restaurant.isActive === false) {
       console.log('[ORDER DEBUG] Restaurant validation FAILED:', { exists: !!restaurant, isActive: restaurant?.isActive });
-      throw createError('Restaurant not available', 404);
+      throw createError('Branch not available', 404);
     }
     console.log('[ORDER DEBUG] Restaurant validated OK');
 
@@ -171,7 +184,7 @@ export class OrderController {
             if (!menuItem) {
               throw createError(`Deal item product ${productId} not found`, 400);
             }
-            if (!menuItem.isAvailable) {
+            if (menuItem.isAvailable === false || menuItem.isActive === false) {
               throw createError(`Deal item product ${menuItem.name} is not available`, 400);
             }
 
@@ -221,26 +234,28 @@ export class OrderController {
         throw createError(`Menu item ${item.menuItemId} not found`, 400);
       }
       
-      if (!menuItem.isAvailable) {
+      if (menuItem.isAvailable === false || menuItem.isActive === false) {
         console.log(`[ORDER DEBUG] Item NOT AVAILABLE: ${item.menuItemId}`);
-        throw createError(`Menu item ${item.menuItemId} is not available`, 400);
+        throw createError(`"${menuItem.name}" is not available`, 400);
       }
 
       console.log(`[ORDER DEBUG] Item ${item.menuItemId} validated OK, price=${menuItem.price}, hasSizes=${menuItem.hasSizes}`);
       
       // Calculate effective price - use effectivePrice virtual or calculate from productSizes
-      let unitPrice = menuItem.price;
+      let unitPrice = Number(menuItem.effectivePrice ?? menuItem.price ?? 0);
       
       if (menuItem.hasSizes && menuItem.productSizes && menuItem.productSizes.length > 0) {
-        // For sized products, use effectivePrice virtual or get lowest size price
-        if (menuItem.effectivePrice !== undefined) {
-          unitPrice = menuItem.effectivePrice;
-        } else {
-          // Get the lowest size price as default
-          const sizePrices = menuItem.productSizes.map((ps: any) => ps.price);
+        const sizePrices = menuItem.productSizes
+          .map((ps: any) => Number(ps?.price))
+          .filter((p: number) => Number.isFinite(p) && p > 0);
+        if (sizePrices.length > 0) {
           unitPrice = Math.min(...sizePrices);
         }
         console.log(`[ORDER DEBUG] Sized product - using price: ${unitPrice} (base price was: ${menuItem.price})`);
+      }
+
+      if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
+        throw createError(`"${menuItem.name}" has no valid price configured`, 400);
       }
       
       // Handle customizations (size selection) - find matching size price
@@ -273,11 +288,15 @@ export class OrderController {
     
     console.log('[ORDER DEBUG] All items validated, totalAmount:', totalAmount);
 
-    // Check minimum order amount
-    console.log('[ORDER DEBUG] Checking minimum order amount:', { totalAmount, minOrderAmount: restaurant.minOrderAmount });
-    if (totalAmount < restaurant.minOrderAmount) {
+    // Check minimum order amount (branch field optional; system settings fallback)
+    const settingsForMin = await SystemSettings.findOne().lean();
+    const minOrderAmount = Number(
+      restaurant.minOrderAmount ?? settingsForMin?.deliverySettings?.minimumOrder ?? 0
+    );
+    console.log('[ORDER DEBUG] Checking minimum order amount:', { totalAmount, minOrderAmount });
+    if (minOrderAmount > 0 && totalAmount < minOrderAmount) {
       console.log('[ORDER DEBUG] Minimum order amount FAILED');
-      throw createError(`Minimum order amount is $${restaurant.minOrderAmount}`, 400);
+      throw createError(`Minimum order amount is ${minOrderAmount}`, 400);
     }
     console.log('[ORDER DEBUG] Minimum order amount OK');
 
@@ -287,10 +306,11 @@ export class OrderController {
       orderType === 'pickup' || orderType === 'DINE_IN' || orderType === 'dine_in'
         ? 'DINE_IN'
         : orderType;
-    const deliveryFee = normalizedOrderTypeForFees === 'DELIVERY' ? restaurant.deliveryFee : 0;
+    const deliveryFee =
+      normalizedOrderTypeForFees === 'DELIVERY' ? Number(restaurant.deliveryFee ?? 0) : 0;
     
     // Fetch tax rate from settings (default to 0 if not set)
-    const settings = await SystemSettings.findOne();
+    const settings = settingsForMin || (await SystemSettings.findOne());
     const taxRate = (settings?.taxRate ?? 0) / 100; // Convert percentage to decimal
     console.log('[ORDER DEBUG] Tax rate from settings:', settings?.taxRate ?? 0, '% =', taxRate);
     
@@ -300,7 +320,10 @@ export class OrderController {
 
     // Calculate estimated delivery time
     const estimatedDeliveryTime = new Date();
-    estimatedDeliveryTime.setMinutes(estimatedDeliveryTime.getMinutes() + restaurant.deliveryTime);
+    const deliveryMinutes = Number(
+      restaurant.deliveryTime ?? settings?.deliverySettings?.estimatedDeliveryTime ?? 30
+    );
+    estimatedDeliveryTime.setMinutes(estimatedDeliveryTime.getMinutes() + deliveryMinutes);
 
     // Generate order number manually (pre-save hook should do this, but let's be safe)
     const date = new Date();
@@ -316,7 +339,11 @@ export class OrderController {
         : orderType;
 
     const resolvedTableId = tableId || table || selectedTable;
-    const resolvedTableNumber = tableNumber || table_number;
+    let resolvedTableNumber = tableNumber ?? table_number;
+    if (normalizedOrderType === 'DINE_IN' && resolvedTableId && !resolvedTableNumber) {
+      const tableDoc = await RestaurantTable.findById(resolvedTableId).select('tableNumber').lean();
+      if (tableDoc?.tableNumber) resolvedTableNumber = String(tableDoc.tableNumber);
+    }
 
     const orderData: any = {
       customer: userId, // The waiter is both customer and waiter for dine-in orders
@@ -339,9 +366,18 @@ export class OrderController {
       paymentMethod,
       phoneNumber,
       alternatePhoneNumber,
-      status: 'PENDING',
+      status: getInitialStatusForOrder(normalizedOrderType, userRole),
       paymentStatus: 'PENDING',
     };
+
+    if (normalizedOrderType === 'DINE_IN' && userRole === 'WAITER') {
+      orderData.kitchenAcceptedAt = new Date();
+      orderData.items = validatedItems.map((item: any) => ({
+        ...item,
+        status: 'PREPARING',
+        preparingAt: new Date(),
+      }));
+    }
 
     if (normalizedOrderType === 'DELIVERY') {
       const coords = deliveryAddress?.coordinates;
@@ -358,7 +394,14 @@ export class OrderController {
     if (normalizedOrderType === 'DINE_IN') {
       orderData.waiter = userId;
       if (resolvedTableId) orderData.table = resolvedTableId;
-      if (resolvedTableNumber) orderData.tableNumber = resolvedTableNumber;
+      if (resolvedTableNumber) orderData.tableNumber = String(resolvedTableNumber);
+
+      const waiterProfile = await User.findById(userId).select('displayName email').lean();
+      const waiterLabel =
+        (waiterProfile?.displayName && String(waiterProfile.displayName).trim()) ||
+        (waiterProfile?.email ? String(waiterProfile.email).split('@')[0] : '') ||
+        (userRole === 'WAITER' ? 'Waiter' : '');
+      if (waiterLabel) orderData.waiterName = waiterLabel;
     }
     
     console.log('[ORDER DEBUG] Order data prepared:', JSON.stringify(orderData, null, 2));
@@ -373,7 +416,11 @@ export class OrderController {
 
     // Real-time notification (DB + WebSocket if connected users)
     try {
-      await OrderNotificationService.notifyOrderPlaced(order._id.toString());
+      if (normalizedOrderType === 'DINE_IN' && userRole === 'WAITER') {
+        await OrderNotificationService.notifyOrderPreparing(order._id.toString());
+      } else {
+        await OrderNotificationService.notifyOrderPlaced(order._id.toString());
+      }
       
       // Send role-based notifications to Chef, Manager, and Admin for ALL order types
       const branchId = restaurantId;
@@ -393,6 +440,18 @@ export class OrderController {
       console.error('[Order Event] notifyOrderPlaced failed:', notifError);
     }
     
+    const waiterId =
+      populatedOrder?.waiter?._id?.toString?.() ||
+      (userRole === 'WAITER' ? userId.toString() : undefined);
+    emitOrderCreated({
+      orderId: order._id.toString(),
+      status: orderData.status,
+      branchId: restaurantId,
+      orderType: normalizedOrderType,
+      order: populatedOrder,
+      waiterId,
+    });
+
     console.log('[ORDER DEBUG] ====== ORDER CREATION SUCCESS ======');
 
     sendSuccess(res, populatedOrder, 'Order created successfully', 201);
@@ -468,7 +527,7 @@ export class OrderController {
       const newItems = [];
       for (const item of addItems) {
         const menuItem = await this.menuRepository.findMenuItemById(item.menuItemId);
-        if (!menuItem || !menuItem.isAvailable) {
+        if (!menuItem || menuItem.isAvailable === false || menuItem.isActive === false) {
           throw createError(`Menu item ${item.menuItemId} not found or unavailable`, 400);
         }
         
@@ -606,9 +665,14 @@ export class OrderController {
       throw createError('Only waiters can return items', 403);
     }
 
-    // Cannot return items after payment is completed
-    if (status === 'RETURNED' && (order.paymentStatus === 'SUCCESS' || order.paymentStatus === 'PAID' || order.status === 'COMPLETED')) {
-      throw createError('Cannot return items after payment is completed', 400);
+    if (status === 'RETURNED') {
+      const orderStatus = String(order.status || '').toUpperCase();
+      if (!['SERVED', 'COMPLETED'].includes(orderStatus)) {
+        throw createError('Items can only be returned after the order is served or completed', 400);
+      }
+      if (order.paymentStatus === 'SUCCESS' || order.paymentStatus === 'PAID') {
+        throw createError('Cannot return items after payment is completed', 400);
+      }
     }
 
     // Find and update the item
@@ -806,12 +870,12 @@ export class OrderController {
       throw createError('Not authorized to view this order', 403);
     }
 
-    sendSuccess(res, order, 'Order retrieved successfully');
+    sendSuccess(res, normalizeOrderPayload(order), 'Order retrieved successfully');
   });
 
   updateOrderStatus = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
     const { id } = req.params;
-    const { status, paymentMethod, paymentStatus } = req.body;
+    const { status, paymentMethod, paymentStatus, latitude, longitude } = req.body;
     const userId = req.user!._id;
     const userRole = req.user!.role;
     const role = String(userRole);
@@ -819,6 +883,35 @@ export class OrderController {
     const order = await this.orderRepository.findById(id);
     if (!order) {
       throw createError('Order not found', 404);
+    }
+
+    const normalizedStatus = String(status || '').toUpperCase();
+    const orderType = String(order.orderType || 'DELIVERY');
+
+    if (
+      !isValidStatusTransition(String(order.status), normalizedStatus, orderType, role)
+    ) {
+      throw createError(
+        `Invalid status transition from ${order.status} to ${normalizedStatus} for ${orderType}`,
+        400
+      );
+    }
+
+    const isDriverCheck = order.rider && order.rider._id.toString() === userId.toString();
+    if (isDriverCheck && ['PICKED_UP', 'DELIVERED'].includes(normalizedStatus)) {
+      const locCheck = validateRiderStatusChange({
+        riderId: userId.toString(),
+        order,
+        newStatus: normalizedStatus,
+        requestCoords:
+          typeof latitude === 'number' && typeof longitude === 'number'
+            ? { latitude, longitude }
+            : null,
+        skipValidation: userRole === 'SUPER_ADMIN',
+      });
+      if (!locCheck.ok) {
+        throw createError(locCheck.message, 400);
+      }
     }
 
     // Check authorization based on status update
@@ -844,26 +937,32 @@ export class OrderController {
     const allowedTransitions = {
       restaurant_owner: ['PENDING', 'KITCHEN_ACCEPTED', 'PREPARING', 'READY', 'CANCELLED'],
       chef: ['KITCHEN_ACCEPTED', 'PREPARING', 'READY'],
-      driver: ['OUT_FOR_DELIVERY', 'DELIVERED'],
+      driver: ['PICKED_UP', 'OUT_FOR_DELIVERY', 'DELIVERED'],
       admin: ['PENDING', 'KITCHEN_ACCEPTED', 'PREPARING', 'READY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED', 'PICKED_UP', 'COMPLETED', 'SERVED'],
-      waiter: ['PICKED_UP', 'SERVED', 'COMPLETED'],
+      waiter: ['READY', 'SERVED', 'COMPLETED', 'PICKED_UP'],
       branch_manager: ['PENDING', 'KITCHEN_ACCEPTED', 'PREPARING', 'READY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED', 'PICKED_UP', 'COMPLETED', 'SERVED'],
     };
 
     let canUpdate = false;
-    if (isRestaurantOwner && allowedTransitions.restaurant_owner.includes(status)) {
+    if (isRestaurantOwner && allowedTransitions.restaurant_owner.includes(normalizedStatus)) {
       canUpdate = true;
-    } else if (isChef && allowedTransitions.chef.includes(status)) {
+    } else if (isChef && allowedTransitions.chef.includes(normalizedStatus)) {
       canUpdate = true;
-    } else if (isDriver && allowedTransitions.driver.includes(status)) {
+    } else if (isDriver && allowedTransitions.driver.includes(normalizedStatus)) {
       canUpdate = true;
-    } else if (isAdmin && allowedTransitions.admin.includes(status)) {
+    } else if (isAdmin && allowedTransitions.admin.includes(normalizedStatus)) {
       canUpdate = true;
-    } else if (isBranchManagerForOrder && allowedTransitions.branch_manager.includes(status)) {
+    } else if (isBranchManagerForOrder && allowedTransitions.branch_manager.includes(normalizedStatus)) {
       canUpdate = true;
-    } else if (isWaiter && allowedTransitions.waiter.includes(status)) {
+    } else if (isWaiter && allowedTransitions.waiter.includes(normalizedStatus)) {
+      if (
+        orderType === 'DINE_IN' &&
+        normalizedStatus === 'PICKED_UP'
+      ) {
+        throw createError('PICKED_UP is not used for dine-in orders. Use SERVED instead.', 400);
+      }
       // Waiter can only mark as COMPLETED if payment is done
-      if (status === 'COMPLETED') {
+      if (normalizedStatus === 'COMPLETED') {
         // Check if payment info is being sent with this request
         if (paymentStatus === 'SUCCESS' || paymentStatus === 'PAID') {
           // Payment is being confirmed now, allow it
@@ -883,10 +982,29 @@ export class OrderController {
     }
 
     // Prepare all updates in a single object to avoid parallel save errors
-    const updateData: any = { status };
+    const updateData: any = { status: normalizedStatus };
+
+    // Waiter marking dine-in READY → mark items ready; SERVED → mark items served
+    if (isWaiter && orderType === 'DINE_IN' && normalizedStatus === 'READY') {
+      order.items.forEach((item: any, index: number) => {
+        if (item.status !== 'SERVED' && item.status !== 'RETURNED') {
+          updateData[`items.${index}.status`] = 'READY';
+          updateData[`items.${index}.readyAt`] = new Date();
+        }
+      });
+    }
+    if (isWaiter && orderType === 'DINE_IN' && normalizedStatus === 'SERVED') {
+      order.items.forEach((item: any, index: number) => {
+        if (item.status === 'READY') {
+          updateData[`items.${index}.status`] = 'SERVED';
+          updateData[`items.${index}.servedAt`] = new Date();
+        }
+      });
+      updateData.servedAt = new Date();
+    }
     
     // When chef marks order as PREPARING, mark all PENDING items as PREPARING
-    if (status === 'PREPARING' && isChef) {
+    if (normalizedStatus === 'PREPARING' && isChef) {
       const itemUpdates: any = {};
       order.items.forEach((item: any, index: number) => {
         if (item.status === 'PENDING' || !item.status) {
@@ -898,7 +1016,7 @@ export class OrderController {
     }
     
     // When chef marks order as READY, mark all non-SERVED items as READY
-    if (status === 'READY' && isChef) {
+    if (normalizedStatus === 'READY' && isChef) {
       const itemUpdates: any = {};
       order.items.forEach((item: any, index: number) => {
         if (item.status !== 'SERVED') {
@@ -979,7 +1097,7 @@ export class OrderController {
     }
     
     // Generate invoice when order is picked up
-    if (status === 'PICKED_UP') {
+    if (normalizedStatus === 'PICKED_UP') {
       const date = new Date();
       const dateStr = date.toISOString().slice(0, 10).replace(/-/g, '');
       const random = Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -998,7 +1116,7 @@ export class OrderController {
     }
 
     // Mark completed time when order is completed
-    if (status === 'COMPLETED') {
+    if (normalizedStatus === 'COMPLETED') {
       updateData.completedAt = new Date();
       // Add payment info if provided
       if (paymentMethod) {
@@ -1019,7 +1137,7 @@ export class OrderController {
     // Real-time customer/rider/kitchen notifications (DB + WebSocket)
     try {
       const orderId = order._id.toString();
-      switch (status) {
+      switch (normalizedStatus) {
         case 'KITCHEN_ACCEPTED':
         case 'CONFIRMED':
           // no dedicated helper in service; treat as preparing for now
@@ -1066,6 +1184,18 @@ export class OrderController {
         case 'DELIVERED':
           await OrderNotificationService.notifyOrderDelivered(orderId);
           break;
+        case 'SERVED':
+          if (order.waiter) {
+            await this.notificationService.createOrderStatusNotification(
+              order.waiter._id.toString(),
+              orderId,
+              order.orderNumber || `ORD-${orderId.slice(-6).toUpperCase()}`,
+              'SERVED',
+              'Order Served',
+              `Order #${order.orderNumber} has been served.`
+            );
+          }
+          break;
         case 'CANCELLED':
           await OrderNotificationService.notifyOrderCancelled(orderId);
           // Notify waiter if order was cancelled
@@ -1088,7 +1218,7 @@ export class OrderController {
     }
 
     // Send notification to waiter when order is READY (for DINE_IN orders)
-    if (status === 'READY' && order.orderType === 'DINE_IN' && order.waiter) {
+    if (normalizedStatus === 'READY' && order.orderType === 'DINE_IN' && order.waiter) {
       try {
         await this.notificationService.createKitchenReadyNotification(
           order.waiter._id.toString(),
@@ -1102,7 +1232,138 @@ export class OrderController {
       }
     }
 
+    const branchId =
+      order.branch?._id?.toString?.() || (order.branch ? String(order.branch) : undefined);
+    const waiterId =
+      order.waiter?._id?.toString?.() || (order.waiter ? String(order.waiter) : undefined);
+    const riderId =
+      updatedOrder?.rider?._id?.toString?.() ||
+      order.rider?._id?.toString?.() ||
+      undefined;
+
+    if (normalizedStatus === 'RIDER_ASSIGNED' && riderId) {
+      emitOrderAssigned({
+        orderId: order._id.toString(),
+        status: normalizedStatus,
+        branchId,
+        orderType,
+        order: populatedOrder,
+        waiterId,
+        riderId,
+      });
+    } else if (normalizedStatus === 'CANCELLED') {
+      emitOrderCancelled({
+        orderId: order._id.toString(),
+        status: normalizedStatus,
+        branchId,
+        orderType,
+        order: populatedOrder,
+        waiterId,
+        riderId,
+      });
+    } else {
+      emitOrderStatusUpdated({
+        orderId: order._id.toString(),
+        status: normalizedStatus,
+        branchId,
+        orderType,
+        order: populatedOrder,
+        waiterId,
+        riderId,
+      });
+    }
+
     sendSuccess(res, populatedOrder, 'Order status updated successfully');
+  });
+
+  returnOrderItem = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
+    req.params.orderId = req.params.orderId || req.params.id;
+    const { orderId, itemId } = req.params;
+    const { reason } = req.body as { reason?: string };
+    const userRole = req.user!.role;
+
+    if (userRole !== 'WAITER' && userRole !== 'BRANCH_MANAGER' && userRole !== 'ADMIN' && userRole !== 'SUPER_ADMIN') {
+      throw createError('Only waiters can return items', 403);
+    }
+
+    const order = await this.orderRepository.findById(orderId);
+    if (!order) {
+      throw createError('Order not found', 404);
+    }
+
+    const orderStatus = String(order.status || '').toUpperCase();
+    if (!['SERVED', 'COMPLETED'].includes(orderStatus)) {
+      throw createError('Items can only be returned after the order is served or completed', 400);
+    }
+
+    const itemIndex = order.items.findIndex(
+      (item: any) => item._id?.toString() === itemId || item.id?.toString() === itemId
+    );
+    if (itemIndex === -1) {
+      throw createError('Item not found in order', 404);
+    }
+
+    const item = order.items[itemIndex] as any;
+    if (item.status === 'RETURNED' || item.isReturned) {
+      throw createError('Item is already returned', 400);
+    }
+
+    if (order.paymentStatus === 'SUCCESS' || order.paymentStatus === 'PAID') {
+      throw createError('Cannot return items after payment is completed', 400);
+    }
+
+    const updateData: Record<string, unknown> = {
+      [`items.${itemIndex}.status`]: 'RETURNED',
+      [`items.${itemIndex}.isReturned`]: true,
+      [`items.${itemIndex}.returnedAt`]: new Date(),
+      [`items.${itemIndex}.returnReason`]: reason || 'Returned by waiter',
+    };
+
+    await this.orderRepository.updateById(orderId, updateData);
+
+    const reloadedOrder = await this.orderRepository.findById(orderId);
+    const newSubtotal = (reloadedOrder?.items || []).reduce((sum: number, row: any) => {
+      if (row.status === 'RETURNED' || row.isReturned) return sum;
+      return sum + (row.totalPrice || row.unitPrice * row.quantity || 0);
+    }, 0);
+    const taxAmount = reloadedOrder?.taxAmount || 0;
+    const deliveryFee = reloadedOrder?.deliveryFee || 0;
+    const newFinal = newSubtotal + taxAmount + deliveryFee;
+
+    await this.orderRepository.updateById(orderId, {
+      subtotal: newSubtotal,
+      totalAmount: newSubtotal,
+      finalAmount: newFinal,
+    });
+
+    const populatedOrder = await this.orderRepository.findById(orderId);
+
+    if (populatedOrder?.branch) {
+      try {
+        await this.notifyByRole(
+          'BRANCH_MANAGER',
+          populatedOrder.branch._id.toString(),
+          'ITEM_RETURNED',
+          'Item Returned',
+          `Order #${populatedOrder.orderNumber}: ${item.productName || 'item'} returned${reason ? ` (${reason})` : ''}`,
+          { orderId, itemId, reason },
+          'HIGH'
+        );
+        await this.notifyByRole(
+          'ADMIN',
+          populatedOrder.branch._id.toString(),
+          'ITEM_RETURNED',
+          'Item Returned',
+          `Order #${populatedOrder.orderNumber}: item returned`,
+          { orderId, itemId },
+          'NORMAL'
+        );
+      } catch (notifError) {
+        console.error('[returnOrderItem] notify failed', notifError);
+      }
+    }
+
+    sendSuccess(res, populatedOrder, 'Item returned successfully');
   });
 
   cancelOrder = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
@@ -1156,7 +1417,7 @@ export class OrderController {
     const totalPages = Math.ceil(total / limit);
 
     sendSuccess(res, {
-      orders,
+      orders: (orders || []).map((o: any) => normalizeOrderPayload(o)),
       pagination: {
         page,
         limit,
@@ -1414,32 +1675,7 @@ export class OrderController {
     const orders = await this.orderRepository.findAllOrders(filter, pageNum, limitNum);
     console.log('[getAllOrders] Orders found:', orders?.length || 0);
     
-    const normalizedOrders = (orders || []).map((o: any) => {
-      const orderObj = o.toObject ? o.toObject() : o;
-      const tableNumber = orderObj?.table?.tableNumber || orderObj?.tableNumber;
-      const items = Array.isArray(orderObj?.items)
-        ? orderObj.items.map((it: any) => ({
-            ...it,
-            image: it?.image || it?.product?.imageUrl || it?.product?.image,
-          }))
-        : [];
-      return {
-        ...orderObj,
-        id: orderObj._id.toString(),
-        tableNumber,
-        items,
-        // Ensure these fields are properly mapped for frontend
-        finalAmount: orderObj.totalAmount,
-        total: orderObj.totalAmount,
-        // Include waiter name for payment history
-        waiterName: orderObj?.waiter?.displayName || orderObj?.waiterName || null,
-        // Explicitly map payment fields
-        paymentStatus: orderObj.paymentStatus,
-        paymentMethod: orderObj.paymentMethod,
-        completedAt: orderObj.completedAt,
-        invoiceNumber: orderObj.invoiceNumber,
-      };
-    });
+    const normalizedOrders = (orders || []).map((o: any) => normalizeOrderPayload(o));
     
     console.log('[getAllOrders] Sample order payment fields:', normalizedOrders[0] ? {
       orderNumber: normalizedOrders[0].orderNumber,
@@ -1500,101 +1736,72 @@ export class OrderController {
     sendSuccess(res, { order: populatedOrder, status: 'KITCHEN_ACCEPTED' }, 'Order submitted to kitchen successfully');
   });
 
-  patchOrderStatus = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
-    const { orderId } = req.params;
-    const { status, picked_up_at, ready_at } = req.body;
+  generateBill = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
+    const { id } = req.params;
     const userId = req.user!._id;
     const userRole = req.user!.role;
-    const role = String(userRole);
 
-    const order = await this.orderRepository.findById(orderId);
-    if (!order) {
-      throw createError('Order not found', 404);
-    }
+    const order = await this.orderRepository.findById(id);
+    if (!order) throw createError('Order not found', 404);
 
-    // Authorization checks
-    const isWaiter = order.waiter && order.waiter._id.toString() === userId.toString();
-    const isChef = userRole === 'CHEF';
-    const isAdmin = userRole === 'ADMIN' || userRole === 'SUPER_ADMIN';
-    const isBranchManager = order.branch?.branchManager && order.branch.branchManager.toString() === userId.toString();
-    const isManager = role === 'BRANCH_MANAGER' || role === 'MANAGER';
+    const branchId = order.branch?._id?.toString() || String(order.branch);
+    const isStaff = ['WAITER', 'BRANCH_MANAGER', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(userRole);
+    if (!isStaff) throw createError('Not authorized', 403);
 
-    // Waiter can only mark as PICKED_UP
-    if (isWaiter && status === 'PICKED_UP') {
-      const updateData: any = { status };
-      if (picked_up_at) {
-        updateData.pickedUpAt = new Date(picked_up_at);
-      }
-      
-      // Mark all READY items as SERVED when waiter picks up
-      const itemUpdates: any = {};
-      order.items.forEach((item: any, index: number) => {
-        if (item.status === 'READY') {
-          itemUpdates[`items.${index}.status`] = 'SERVED';
-          itemUpdates[`items.${index}.servedAt`] = new Date();
-        }
+    const settings = await SystemSettings.findOne().lean();
+    const restaurantName = (settings as any)?.restaurantName || (settings as any)?.appName || 'Restaurant';
+    const branchName = order.branch?.branchName || 'Branch';
+    const billText = formatBillText(orderToBillOrder(order), { restaurantName, branchName });
+
+    let printJob = null;
+    let printError: string | null = null;
+    try {
+      printJob = await queueBillPrint({
+        order,
+        branchId,
+        requestedBy: userId.toString(),
+        restaurantName,
+        branchName,
       });
-      Object.assign(updateData, itemUpdates);
-      
-      const updatedOrder = await this.orderRepository.updateById(orderId, updateData);
-      const populatedOrder = await this.orderRepository.findById(orderId);
-      sendSuccess(res, populatedOrder, 'Order marked as picked up');
-      return;
+    } catch (e: any) {
+      printError = e?.message || 'Print queue failed';
     }
 
-    // Chef can update to PREPARING, READY, or DELIVERED (case-insensitive)
-    const statusUpper = status?.toUpperCase();
-    if (isChef && ['PREPARING', 'READY', 'DELIVERED'].includes(statusUpper)) {
-      const updateData: any = { status: statusUpper };
-      if (statusUpper === 'READY' && ready_at) {
-        updateData.readyAt = new Date(ready_at);
-      } else if (statusUpper === 'READY') {
-        updateData.readyAt = new Date();
-      }
-      
-      // When chef marks order as PREPARING, mark all PENDING items as PREPARING
-      if (statusUpper === 'PREPARING') {
-        const itemUpdates: any = {};
-        order.items.forEach((item: any, index: number) => {
-          if (item.status === 'PENDING' || !item.status) {
-            itemUpdates[`items.${index}.status`] = 'PREPARING';
-            itemUpdates[`items.${index}.preparingAt`] = new Date();
-          }
-        });
-        Object.assign(updateData, itemUpdates);
-      }
-      
-      // When chef marks order as READY, mark all non-SERVED items as READY
-      if (statusUpper === 'READY') {
-        const itemUpdates: any = {};
-        order.items.forEach((item: any, index: number) => {
-          if (item.status !== 'SERVED') {
-            itemUpdates[`items.${index}.status`] = 'READY';
-            itemUpdates[`items.${index}.readyAt`] = new Date();
-          }
-        });
-        Object.assign(updateData, itemUpdates);
-      }
-      
-      const updatedOrder = await this.orderRepository.updateById(orderId, updateData);
-      const populatedOrder = await this.orderRepository.findById(orderId);
-      sendSuccess(res, populatedOrder, `Order status updated to ${statusUpper}`);
-      return;
-    }
+    sendSuccess(
+      res,
+      {
+        order,
+        billText,
+        printJob,
+        printQueued: !!printJob,
+        printError,
+      },
+      printJob ? 'Bill generated and sent to printer' : 'Bill generated (print unavailable)'
+    );
+  });
 
-    // Admin/BranchManager/Manager/SuperAdmin can update to any valid status
-    if (isAdmin || isBranchManager || isManager) {
-      const updateData: any = { status };
-      if (picked_up_at) updateData.pickedUpAt = new Date(picked_up_at);
-      if (ready_at) updateData.readyAt = new Date(ready_at);
-      
-      const updatedOrder = await this.orderRepository.updateById(orderId, updateData);
-      const populatedOrder = await this.orderRepository.findById(orderId);
-      sendSuccess(res, populatedOrder, 'Order status updated');
-      return;
-    }
+  getOrderProximity = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
+    const { id } = req.params;
+    const userId = req.user!._id;
+    const userRole = req.user!.role;
 
-    throw createError('Not authorized to update this order', 403);
+    const order = await this.orderRepository.findById(id);
+    if (!order) throw createError('Order not found', 404);
+
+    const isRider =
+      userRole === 'RIDER' &&
+      order.rider &&
+      String(order.rider._id || order.rider) === String(userId);
+    const isAdmin = ['ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER'].includes(userRole);
+    if (!isRider && !isAdmin) throw createError('Not authorized', 403);
+
+    const proximity = getOrderProximityForRider(userId.toString(), order);
+    sendSuccess(res, proximity, 'Proximity data retrieved');
+  });
+
+  patchOrderStatus = asyncHandler(async (req: IAuthRequest, res: Response, next: NextFunction): Promise<void> => {
+    req.params.id = req.params.orderId || req.params.id;
+    return this.updateOrderStatus(req, res, next);
   });
 
   getBranchOrders = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
@@ -1645,21 +1852,7 @@ export class OrderController {
       this.orderRepository.countOrders(filter),
     ]);
 
-    const normalizedOrders = (orders || []).map((o: any) => {
-      const tableNumber = o?.table?.tableNumber || o?.tableNumber;
-      const items = Array.isArray(o?.items)
-        ? o.items.map((it: any) => ({
-            ...it,
-            image: it?.image || it?.product?.imageUrl || it?.product?.image,
-          }))
-        : [];
-      return {
-        ...o,
-        id: o._id.toString(),
-        tableNumber,
-        items,
-      };
-    });
+    const normalizedOrders = (orders || []).map((o: any) => normalizeOrderPayload(o));
 
     const response = {
       orders: normalizedOrders,
@@ -1701,21 +1894,7 @@ export class OrderController {
       this.orderRepository.countOrders(filter),
     ]);
 
-    const normalizedOrders = (orders || []).map((o: any) => {
-      const tableNumber = o?.table?.tableNumber || o?.tableNumber;
-      const items = Array.isArray(o?.items)
-        ? o.items.map((it: any) => ({
-            ...it,
-            image: it?.image || it?.product?.imageUrl || it?.product?.image,
-          }))
-        : [];
-      return {
-        ...o,
-        id: o._id.toString(),
-        tableNumber,
-        items,
-      };
-    });
+    const normalizedOrders = (orders || []).map((o: any) => normalizeOrderPayload(o));
 
     const response = {
       orders: normalizedOrders,

@@ -56,6 +56,7 @@ import {
 import { useTheme } from '@mui/material/styles';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
+import { resolveSocketUrl } from '../../utils/resolveSocketUrl';
 import { api } from '../../services/api';
 import { useSettings } from '../../context/SettingsContext';
 import './WaiterDashboard.css';
@@ -88,6 +89,7 @@ interface Order {
   created_at: string;
   customer_name?: string;
   customer_phone?: string;
+  waiter_name?: string | null;
 }
 
 interface Table {
@@ -279,6 +281,12 @@ export default function WaiterDashboard() {
       created_at: String(raw?.created_at || raw?.createdAt || new Date().toISOString()),
       customer_name: raw?.customer_name ?? raw?.customerName ?? raw?.customer?.name,
       customer_phone: raw?.customer_phone ?? raw?.customerPhone ?? raw?.customer?.phoneNumber,
+      waiter_name:
+        raw?.waiter_name ??
+        raw?.waiterName ??
+        raw?.waiter?.displayName ??
+        raw?.waiter?.name ??
+        null,
     };
   };
 
@@ -408,6 +416,10 @@ export default function WaiterDashboard() {
     if (location.pathname !== path) navigate(path);
   };
 
+  useEffect(() => {
+    void syncWaiterBranchFromProfile();
+  }, []);
+
   // Initialize socket connection
   useEffect(() => {
     const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
@@ -427,22 +439,7 @@ export default function WaiterDashboard() {
       return;
     }
 
-    const rawApiUrl = (import.meta as any)?.env?.VITE_API_URL as string | undefined;
-    const rawProxyTarget = (import.meta as any)?.env?.VITE_PROXY_TARGET as string | undefined;
-
-    const normalizeHost = (value?: string): string => {
-      const v = (value || '').trim();
-      if (!v) return '';
-      if (!/^https?:\/\//i.test(v)) return '';
-      return v.replace(/\/?api\/?$/, '').replace(/\/$/, '');
-    };
-
-    const fromEnv = normalizeHost(rawProxyTarget) || normalizeHost(rawApiUrl);
-    const protocol = window.location.protocol || 'http:';
-    const hostname = window.location.hostname || 'localhost';
-    const baseUrl = fromEnv || `${protocol}//${hostname}:3101`;
-
-    const socket = io(baseUrl, {
+    const socket = io(resolveSocketUrl(), {
       auth: userId ? { token, userId, role: 'WAITER' } : { token, role: 'WAITER' },
       transports: ['websocket', 'polling'],
     });
@@ -593,11 +590,33 @@ export default function WaiterDashboard() {
         parsed?.restaurant ||
         parsed?.assigned_branch ||
         null;
-      fromUserData = String(branch?._id || parsed?.assigned_branch_id || parsed?.branchId || parsed?.restaurantId || '').trim();
+      if (typeof branch === 'string') {
+        fromUserData = branch.trim();
+      } else if (branch && typeof branch === 'object') {
+        fromUserData = String(branch._id || branch.id || '').trim();
+      }
+      if (!fromUserData) {
+        fromUserData = String(
+          parsed?.assigned_branch_id || parsed?.branchId || parsed?.restaurantId || ''
+        ).trim();
+      }
     } catch {
       fromUserData = '';
     }
     return fromUserData || fromSelected;
+  };
+
+  const syncWaiterBranchFromProfile = async () => {
+    try {
+      const meRes: any = await api.get('/auth/me');
+      const user = meRes?.data?.user ?? meRes?.data;
+      if (!user || typeof user !== 'object') return;
+      localStorage.setItem('userData', JSON.stringify(user));
+      const branchId = getRestaurantId();
+      if (branchId) localStorage.setItem('selectedBranchId', branchId);
+    } catch {
+      /* non-fatal */
+    }
   };
 
   const loadMenuProducts = async () => {
@@ -691,22 +710,30 @@ export default function WaiterDashboard() {
       return;
     }
     const selectedTable = tables.find((t) => String(t.id) === String(createTableId));
+    const tableLabel = String(selectedTable?.table_number || '').trim() || '1';
+    const customerLabel = createCustomerName.trim() || 'Walk-in Customer';
     setCreatingOrder(true);
     try {
       const payload = {
         restaurantId,
         orderType: 'DINE_IN',
         paymentMethod: 'cash',
-        customerName: createCustomerName.trim(),
-        phoneNumber: createPhoneNumber.trim(),
-        deliveryAddress: { street: '', city: '', state: '', zipCode: '' },
+        customerName: customerLabel,
+        phoneNumber: createPhoneNumber.trim() || undefined,
+        // Legacy API requires non-empty address fields; omit tableNumber (unknown on old servers)
+        deliveryAddress: {
+          street: `Table ${tableLabel}`,
+          city: 'Restaurant',
+          state: 'Local',
+          zipCode: '00000',
+        },
         tableId: String(selectedTable?.id || createTableId),
-        tableNumber: String(selectedTable?.table_number || ''),
         items: cartItems.map((i) => ({
-          menuItemId: i.productId,
+          menuItemId: String(i.productId),
           quantity: Math.max(1, Math.trunc(Number(i.quantity || 1))),
           customizations: [],
         })),
+        deliveryInstructions: createSpecialInstructions.trim() || `Table order - Table #${tableLabel}`,
         ...(createSpecialInstructions.trim() ? { specialInstructions: createSpecialInstructions.trim() } : {}),
       };
 
@@ -719,7 +746,18 @@ export default function WaiterDashboard() {
       socketRef.current?.emit('waiter_dashboard:get');
       navigateToTab(0);
     } catch (e: any) {
-      setSnackbar({ open: true, message: String(e?.message || 'Failed to create order'), severity: 'error' });
+      const data = e?.response?.data;
+      const msg =
+        data?.message ||
+        data?.error ||
+        (Array.isArray(data?.errors) ? data.errors.join(', ') : null) ||
+        e?.message ||
+        'Failed to create order';
+      setSnackbar({
+        open: true,
+        message: data?.statusCode ? `${msg} (${data.statusCode})` : String(msg),
+        severity: 'error',
+      });
     } finally {
       setCreatingOrder(false);
     }
@@ -1029,6 +1067,7 @@ export default function WaiterDashboard() {
                   <Typography variant="caption" color="text.secondary">
                     {order.order_type}
                     {order.table_number ? ` • Table ${order.table_number}` : ''}
+                    {order.waiter_name ? ` • Waiter ${order.waiter_name}` : ''}
                   </Typography>
                 </Box>
                 <Chip

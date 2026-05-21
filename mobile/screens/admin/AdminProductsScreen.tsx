@@ -22,6 +22,8 @@ import { useLocalization } from '../../context/LocalizationContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useUserData } from '../../hooks/useUserData';
+import { useBranch } from '../../context/BranchContext';
+import GlobalBranchBar from '../../components/admin/GlobalBranchBar';
 
 // Components
 import ResponsiveHeader from '../../components/layout/ResponsiveHeader';
@@ -31,6 +33,7 @@ import AdminBottomNavigation from '../../components/navigation/AdminBottomNaviga
 // Utils & Constants
 import { getSpacing } from '../../utils/responsive';
 import { COLORS } from '../../constants/colors';
+import { isAdminRole } from '../../utils/permissionHelpers';
 
 interface MenuItem {
   _id: string;
@@ -86,6 +89,7 @@ export default function AdminProductsScreen() {
   const { t } = useLocalization();
   const insets = useSafeAreaInsets();
   const { userRole, profileImage } = useUserData();
+  const { appendBranchQuery, branchRevision, isReady } = useBranch();
   const [loading, setLoading] = useState(true);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [categoryOptions, setCategoryOptions] = useState<ProductCategory[]>([]);
@@ -119,13 +123,15 @@ export default function AdminProductsScreen() {
     { name: 'Notifications', icon: 'notifications-outline', screen: 'AdminNotifications' },
     { name: 'Table Assignment', icon: 'grid-outline', screen: 'TableAssignment' },
     // Only show Branches for SUPER_ADMIN
-    ...(userRole === 'SUPER_ADMIN' ? [{ name: 'Branches', icon: 'business-outline', screen: 'AdminBranches' }] : []),
+    ...(isAdminRole(userRole) ? [{ name: 'Branches', icon: 'business-outline', screen: 'AdminBranches' }] : []),
     { name: 'Deals', icon: 'pricetag-outline', screen: 'AdminDeals' },
     { name: 'Coupons', icon: 'ticket-outline', screen: 'AdminCoupons' },
     { name: 'Product Size', icon: 'resize-outline', screen: 'AdminProductSizes' },
     { name: 'Categories', icon: 'grid-outline', screen: 'AdminCategories' },
     { name: 'Reports', icon: 'bar-chart-outline', screen: 'AdminReports' },
-    { name: 'Settings', icon: 'settings-outline', screen: 'AdminSettings' },
+    ...(isAdminRole(userRole)
+      ? [{ name: 'Settings', icon: 'settings-outline', screen: 'AdminSettings' }]
+      : []),
   ];
 
   const loadCategories = useCallback(async () => {
@@ -164,7 +170,9 @@ export default function AdminProductsScreen() {
     try {
       setLoading(true);
       console.log('🔍 [ADMIN PRODUCTS] Loading products...');
-      const response = await api.get('/menu/admin/products');
+      const response = await api.get(
+        appendBranchQuery('/menu/admin/products?limit=1000&page=1')
+      );
       console.log('🔍 [ADMIN PRODUCTS] API Response:', response);
       console.log('🔍 [ADMIN PRODUCTS] Response success:', response.success);
       
@@ -194,7 +202,7 @@ export default function AdminProductsScreen() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [appendBranchQuery]);
 
   const refreshData = useCallback(async () => {
     await Promise.all([loadMenuItems(), loadCategories()]);
@@ -202,9 +210,15 @@ export default function AdminProductsScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      if (!isReady) return;
       refreshData();
-    }, [refreshData])
+    }, [refreshData, isReady])
   );
+
+  useEffect(() => {
+    if (!isReady) return;
+    refreshData();
+  }, [branchRevision, isReady, refreshData]);
 
   const toggleItemAvailability = async (itemId: string, currentStatus: boolean) => {
     try {
@@ -284,9 +298,11 @@ export default function AdminProductsScreen() {
 
   const getCategoryId = (category: string | { _id: string; name: string } | undefined) => {
     if (!category) return 'uncategorized';
-    if (typeof category === 'string') return category;
-    return category?._id || 'uncategorized';
+    if (typeof category === 'string') return String(category).trim();
+    return String(category?._id || 'uncategorized').trim();
   };
+
+  const normalizeCategoryId = (id: string) => String(id || '').trim();
 
   useEffect(() => {
     if (activeCategoryId !== 'all' && !categoryOptions.some((category) => category._id === activeCategoryId)) {
@@ -296,13 +312,17 @@ export default function AdminProductsScreen() {
 
   const getFilteredItems = () => {
     if (activeCategoryId === 'all') return menuItems;
-    return menuItems.filter((item) => getCategoryId(item.category) === activeCategoryId);
+    const targetId = normalizeCategoryId(activeCategoryId);
+    return menuItems.filter(
+      (item) => normalizeCategoryId(getCategoryId(item.category)) === targetId
+    );
   };
 
   const renderTab = (categoryId: string, label: string) => {
     const isActive = activeCategoryId === categoryId;
     return (
       <TouchableOpacity
+        key={categoryId}
         style={[
           styles.tab, 
           isActive ? styles.tabActive : styles.tabInactive
@@ -359,6 +379,7 @@ export default function AdminProductsScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
+        <GlobalBranchBar />
         {/* Category Tabs */}
         <ScrollView
           horizontal
@@ -500,10 +521,7 @@ export default function AdminProductsScreen() {
           // @ts-ignore
           navigation.navigate('Welcome');
         }}
-        onChangePassword={() => {
-          // @ts-ignore
-          navigation.navigate('ChangePassword');
-        }}
+        navigation={navigation}
       />
 
       {/* Bottom Navigation */}

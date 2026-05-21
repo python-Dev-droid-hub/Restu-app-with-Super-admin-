@@ -166,8 +166,7 @@ userSchema.methods.getPublicProfile = function() {
   };
 };
 
-// Indexes for better performance
-userSchema.index({ email: 1 });
+// Indexes for better performance (email already indexed via unique: true)
 userSchema.index({ role: 1 });
 userSchema.index({ isActive: 1, deletedAt: 1 });
 userSchema.index({ assignedBranch: 1 });
