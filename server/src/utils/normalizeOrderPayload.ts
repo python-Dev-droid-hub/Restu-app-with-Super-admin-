@@ -88,6 +88,7 @@ export function normalizeOrderPayload(o: any) {
     ...orderObj,
     id: (orderObj?._id as any)?.toString?.() || orderObj?.id,
     orderNumber: orderObj?.orderNumber,
+    status: orderObj?.status,
     orderType: orderType || (isDineIn ? 'DINE_IN' : orderType),
     createdAt: orderObj?.createdAt,
     tableNumber: tableNumber || null,
