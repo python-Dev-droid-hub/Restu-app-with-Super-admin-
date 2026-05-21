@@ -11,7 +11,6 @@ import {
   TableHead,
   TableRow,
   Chip,
-  Avatar,
   FormControl,
   Select,
   MenuItem,

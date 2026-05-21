@@ -144,7 +144,8 @@ const AdminTopBar: React.FC<{
       try {
         const res = await api.getNotificationUnreadCount();
         if (res?.success) {
-          setNotificationCount(Number(res?.data?.unreadCount ?? 0));
+          const data = res.data as { unreadCount?: number } | undefined;
+          setNotificationCount(Number(data?.unreadCount ?? 0));
         }
       } catch {
         /* non-fatal */
@@ -200,7 +201,7 @@ const AdminTopBar: React.FC<{
             : mode === 'waiter'
             ? '/notifications/waiter/unread-count'
             : '/notifications/rider/unread-count';
-        const res = await api.get<any>(url);
+        const res = await api.get<{ unreadCount?: number }>(url);
         if (cancelled) return;
         if (res?.success) {
           setNotificationCount(Number(res?.data?.unreadCount ?? 0));
