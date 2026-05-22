@@ -1,7 +1,7 @@
 import { Types } from 'mongoose';
 import { Notification } from '@/models/Notification';
 import { User } from '@/models/User';
-import { sendFcmToToken } from './fcmService';
+import { sendPushToDevice } from './fcmService';
 import { logger } from '@/utils/logger';
 
 export interface DispatchNotificationInput {
@@ -108,7 +108,7 @@ export async function dispatchNotification(input: DispatchNotificationInput) {
       const orderNumber = input.data?.orderNumber ?? input.data?.order_number;
       if (orderNumber != null && orderNumber !== '') fcmData.orderNumber = String(orderNumber);
 
-      const sent = await sendFcmToToken(user.fcmToken, {
+      const sent = await sendPushToDevice(user.fcmToken, {
         title: input.title,
         body: input.message,
         data: fcmData,

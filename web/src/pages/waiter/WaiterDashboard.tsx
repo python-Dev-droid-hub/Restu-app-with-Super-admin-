@@ -58,6 +58,10 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import { getSocketIoOptions, getSocketIoUrl } from '../../utils/socketOptions';
 import { fetchWaiterDashboardHttp } from '../../utils/dashboardHttp';
+import {
+  fetchUserUnreadNotificationCount,
+  publishNotificationUnreadCount,
+} from '../../utils/notificationCountSync';
 import { api } from '../../services/api';
 import { useSettings } from '../../context/SettingsContext';
 import './WaiterDashboard.css';
@@ -479,7 +483,11 @@ export default function WaiterDashboard() {
 
     socket.on('notification', (notification: Notification) => {
       setNotifications((prev) => [notification, ...prev]);
-      setUnreadCount((prev) => prev + 1);
+      setUnreadCount((prev) => {
+        const next = prev + 1;
+        publishNotificationUnreadCount(next);
+        return next;
+      });
       
       // Show snackbar for important notifications
       if (notification.type === 'ORDER_READY') {
@@ -533,12 +541,21 @@ export default function WaiterDashboard() {
     }
   };
 
+  const applyUnreadCount = (count: number) => {
+    const n = Math.max(0, count);
+    setUnreadCount(n);
+    publishNotificationUnreadCount(n);
+  };
+
   const loadNotifications = async () => {
     try {
-      const response: any = await api.get('/notifications?limit=20');
+      const [response, apiUnread] = await Promise.all([
+        api.get<any>('/notifications?limit=20'),
+        fetchUserUnreadNotificationCount((path) => api.get(path)),
+      ]);
       if (!response?.success) return;
 
-      const root = response?.data ?? response ?? {};
+      const root: any = response?.data ?? response ?? {};
       const rawList =
         root?.notifications ||
         root?.data?.notifications ||
@@ -572,9 +589,11 @@ export default function WaiterDashboard() {
         .filter(Boolean) as Notification[];
 
       setNotifications(normalized);
-      const unreadFromApi = typeof rawUnread === 'number' ? rawUnread : Number(rawUnread);
+      const unreadFromList = typeof rawUnread === 'number' ? rawUnread : Number(rawUnread);
       const computedUnread = normalized.reduce((sum, n) => sum + (n.read ? 0 : 1), 0);
-      setUnreadCount(Number.isFinite(unreadFromApi) ? unreadFromApi : computedUnread);
+      const unread =
+        Number.isFinite(unreadFromList) && unreadFromList >= 0 ? unreadFromList : apiUnread ?? computedUnread;
+      applyUnreadCount(unread);
     } catch (error) {
       console.error('Failed to load notifications:', error);
     }
@@ -931,7 +950,11 @@ export default function WaiterDashboard() {
           throw new Error(String(resPut?.message || resPut?.error || 'Failed to mark as read'));
         }
       }
-      setUnreadCount((prev) => Math.max(0, prev - 1));
+      setUnreadCount((prev) => {
+        const next = Math.max(0, prev - 1);
+        publishNotificationUnreadCount(next);
+        return next;
+      });
     } catch (error) {
       console.error('Failed to mark notification as read:', error);
       setSnackbar({ open: true, message: 'Failed to mark notification as read', severity: 'error' });
@@ -943,7 +966,7 @@ export default function WaiterDashboard() {
     if (unreadCount === 0) return;
     const prevList = notifications;
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-    setUnreadCount(0);
+    applyUnreadCount(0);
     try {
       const resPut: any = await api.put('/notifications/mark-all-read').catch(() => null);
       if (!resPut?.success) {
@@ -969,19 +992,24 @@ export default function WaiterDashboard() {
     const prevList = notifications;
     const prevUnread = unreadCount;
     setNotifications([]);
-    setUnreadCount(0);
+    applyUnreadCount(0);
     try {
-      const res: any = await api.delete('/notifications').catch(() => null);
+      const res: any = await api.clearAllUserNotifications();
       if (!res?.success) {
-        throw new Error(String(res?.message || res?.error || 'Failed to clear notifications'));
+        throw new Error(String(res?.error || res?.message || 'Failed to clear notifications'));
       }
       setSnackbar({ open: true, message: 'All notifications cleared', severity: 'success' });
-      await loadNotifications();
+      void loadNotifications();
     } catch (error) {
       console.error('Failed to clear notifications:', error);
-      setSnackbar({ open: true, message: 'Failed to clear notifications', severity: 'error' });
+      setSnackbar({
+        open: true,
+        message: error instanceof Error ? error.message : 'Failed to clear notifications',
+        severity: 'error',
+      });
       setNotifications(prevList);
       setUnreadCount(prevUnread);
+      await loadNotifications();
     }
   };
 

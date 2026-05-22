@@ -20,6 +20,7 @@ import { api } from '../../components/api/client';
 import { Ionicons } from '@expo/vector-icons';
 import { initializeSocket, subscribeToNotifications } from '../../services/realtimeService';
 import { handleNotificationByType } from '../../services/notificationHandler';
+import { initializePushNotifications } from '../../services/pushNotificationService';
 import { getDashboardRouteForRole } from '../../utils/permissionHelpers';
 import Toast from 'react-native-toast-message';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -63,15 +64,9 @@ export default function LoginScreen() {
           console.log('[LoginScreen] Initializing WebSocket for user:', userId, 'role:', userRole);
           initializeSocket(userId.toString(), userRole, response.data.tokens.accessToken);
           subscribeToNotifications((notification) => {
-            handleNotificationByType(notification);
+            handleNotificationByType(notification as any);
           });
-
-          Toast.show({
-            type: 'success',
-            text1: 'Welcome back!',
-            text2: 'Real-time notifications enabled',
-            visibilityTime: 2000,
-          });
+          void initializePushNotifications();
         }
 
         const dashboardName = getDashboardRouteForRole(response.data.user.role);

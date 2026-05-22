@@ -3,6 +3,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { migrateLegacyAuthTokens, getAccessToken } from './utils/secureAuthStorage';
 import { initializeSocket, subscribeToNotifications } from './services/realtimeService';
 import { handleNotificationByType } from './services/notificationHandler';
+import {
+  addNotificationResponseListener,
+  initializePushNotifications,
+} from './services/pushNotificationService';
+import { handleNotificationNavigation } from './utils/notificationNavigation';
 import { NavigationContainer } from '@react-navigation/native';
 import { navigationRef } from './utils/notificationNavigation';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -92,13 +97,37 @@ export default function App() {
         const token = await getAccessToken();
         initializeSocket(String(userId), String(userRole), token || undefined);
         subscribeToNotifications((notification) => {
-          handleNotificationByType(notification);
+          handleNotificationByType(notification as any);
         });
+        void initializePushNotifications();
       } catch {
         // ignore bootstrap errors
       }
     };
     void bootstrap();
+
+    const sub = addNotificationResponseListener((response) => {
+      const content = response.notification.request.content;
+      const data = (content.data || {}) as Record<string, unknown>;
+      void (async () => {
+        try {
+          const raw = await AsyncStorage.getItem('userData');
+          const user = raw ? JSON.parse(raw) : null;
+          handleNotificationNavigation(
+            {
+              type: String(data.type || ''),
+              data,
+              orderId: String(data.orderId || data.order_id || ''),
+            },
+            user?.role
+          );
+        } catch {
+          /* ignore */
+        }
+      })();
+    });
+
+    return () => sub.remove();
   }, []);
 
   return (

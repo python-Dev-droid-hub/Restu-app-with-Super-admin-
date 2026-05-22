@@ -596,6 +596,12 @@ class ApiClient {
     return this.request('DELETE', `/notifications/${id}`);
   }
 
+  async clearAllUserNotifications() {
+    const res = await this.request('DELETE', '/notifications/clear-all');
+    if (res?.success) return res;
+    return this.request('DELETE', '/notifications/waiter/clear-all');
+  }
+
   // Reset settings
   async resetSettings() {
     return this.request('POST', '/settings/reset');

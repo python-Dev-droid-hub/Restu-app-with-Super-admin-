@@ -917,7 +917,8 @@ export class OrderController {
     // Check authorization based on status update
     const isRestaurantOwner = order.branch?.branchManager && order.branch.branchManager.toString() === userId.toString();
     const isDriver = order.rider && order.rider._id.toString() === userId.toString();
-    const isChef = userRole === 'CHEF';
+    const kitchenRoles = new Set(['CHEF', 'KITCHEN', 'COOK', 'HEAD_CHEF', 'SOUS_CHEF', 'KITCHEN_MANAGER']);
+    const isChef = kitchenRoles.has(role);
     const isAdmin = userRole === 'ADMIN' || userRole === 'SUPER_ADMIN';
     // Allow any waiter from the branch to pick up orders (not just assigned waiter)
     const userBranch = (req.user as any).assignedBranch;

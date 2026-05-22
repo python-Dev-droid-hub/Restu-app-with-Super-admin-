@@ -91,8 +91,8 @@ export default function KitchenDisplay() {
       };
     });
 
-    const kitchenOrders = formattedOrders.filter(
-      (o) => o.status === 'KITCHEN_ACCEPTED' || o.status === 'PREPARING'
+    const kitchenOrders = formattedOrders.filter((o) =>
+      ['PENDING', 'KITCHEN_ACCEPTED', 'PREPARING'].includes(o.status)
     );
     kitchenOrders.sort((a, b) => {
       const aTime = new Date(a.kitchen_accepted_at || a.created_at).getTime();
@@ -285,26 +285,14 @@ export default function KitchenDisplay() {
 
         {/* Action Buttons */}
         <View style={styles.actionRow}>
-          {order.status === 'KITCHEN_ACCEPTED' && (
-            <TouchableOpacity
-              style={styles.startBtn}
-              onPress={() => startPreparing(order.id)}
-            >
-              <Ionicons name="flame" size={18} color="#6C63FF" />
-              <Text style={styles.startBtnText}>Start Preparing</Text>
+          {(order.status === 'PENDING' ||
+            order.status === 'KITCHEN_ACCEPTED' ||
+            order.status === 'PREPARING') && (
+            <TouchableOpacity style={styles.readyBtn} onPress={() => markAsReady(order.id)}>
+              <Ionicons name="checkmark-circle" size={18} color="#fff" />
+              <Text style={styles.readyBtnText}>Mark Ready</Text>
             </TouchableOpacity>
           )}
-          
-          <TouchableOpacity
-            style={[
-              styles.readyBtn,
-              order.status === 'KITCHEN_ACCEPTED' && styles.readyBtnSecondary
-            ]}
-            onPress={() => markAsReady(order.id)}
-          >
-            <Ionicons name="checkmark-circle" size={18} color="#fff" />
-            <Text style={styles.readyBtnText}>Mark Ready</Text>
-          </TouchableOpacity>
         </View>
       </View>
     );

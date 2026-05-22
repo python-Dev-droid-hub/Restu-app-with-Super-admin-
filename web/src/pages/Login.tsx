@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { setAuthSession } from '../utils/authStorage';
+import { requestBrowserNotificationPermission } from '../services/browserNotifications';
 import './Login.css';
 
 export function Login() {
@@ -52,6 +53,7 @@ export function Login() {
       }
 
       setAuthSession(accessToken, tokens?.refreshToken);
+      void requestBrowserNotificationPermission();
 
       const user = result?.data?.user || result?.user;
       if (user && typeof user === 'object') {

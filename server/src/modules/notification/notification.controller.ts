@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { Types } from 'mongoose';
 import { NotificationService } from './notification.service';
 import { sendSuccess } from '@/utils/response';
 import { asyncHandler, IAuthRequest } from '@/utils';
@@ -65,8 +66,11 @@ export class NotificationController {
   // Clear all notifications for user
   clearAllNotifications = asyncHandler(async (req: IAuthRequest, res: Response) => {
     const userId = this.toIdString(req.user!._id);
+    if (!userId || !Types.ObjectId.isValid(userId)) {
+      throw createError('Invalid user id', 400);
+    }
     const count = await this.notificationService.clearAllNotifications(userId);
-    sendSuccess(res, { deletedCount: count }, 'All notifications cleared successfully');
+    sendSuccess(res, { deletedCount: count, success: true }, 'All notifications cleared successfully');
   });
 
   // ============================================

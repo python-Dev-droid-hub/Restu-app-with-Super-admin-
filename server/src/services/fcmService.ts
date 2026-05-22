@@ -80,3 +80,45 @@ export async function sendFcmToToken(
 
   return false;
 }
+
+/** Expo push token from `getExpoPushTokenAsync` (works without Firebase in the APK). */
+export async function sendExpoPushToToken(token: string, payload: FcmPayload): Promise<boolean> {
+  if (!token?.startsWith('ExponentPushToken[')) return false;
+
+  try {
+    const res = await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        to: token,
+        title: payload.title,
+        body: payload.body,
+        data: payload.data || {},
+        sound: 'default',
+        priority: 'high',
+        channelId: 'orders',
+      }),
+    });
+
+    const json = (await res.json()) as { data?: { status?: string }[] };
+    const status = json?.data?.[0]?.status;
+    if (status === 'ok') return true;
+    logger.warn('[ExpoPush] send failed', json);
+    return false;
+  } catch (error) {
+    logger.warn('[ExpoPush] request failed', error);
+    return false;
+  }
+}
+
+/** FCM native token or Expo push token. */
+export async function sendPushToDevice(token: string, payload: FcmPayload): Promise<boolean> {
+  if (!token?.trim()) return false;
+  if (token.startsWith('ExponentPushToken[')) {
+    return sendExpoPushToToken(token, payload);
+  }
+  return sendFcmToToken(token, payload);
+}

@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { lazy, Suspense } from 'react';
 import type { ReactElement } from 'react';
 import { SettingsProvider } from './context/SettingsContext';
+import BrowserNotificationListener from './components/BrowserNotificationListener';
 import Layout from './components/Layout';
 import { Login } from './pages/Login';
 import { hasAuthSession } from './utils/authStorage';
@@ -164,6 +165,7 @@ function RootRedirect() {
 function App() {
   return (
     <SettingsProvider>
+      <BrowserNotificationListener />
       <Router>
         <Suspense fallback={<div style={{ padding: 24 }}>Loading...</div>}>
           <Routes>

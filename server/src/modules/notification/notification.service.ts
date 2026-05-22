@@ -55,10 +55,14 @@ export class NotificationService {
   }
 
   async clearAllNotifications(userId: string) {
+    if (!userId || !Types.ObjectId.isValid(userId)) {
+      return 0;
+    }
+    const recipientId = new Types.ObjectId(userId);
     const result = await Notification.deleteMany({
-      recipient: new Types.ObjectId(userId)
+      $or: [{ recipient: recipientId }, { recipient: userId }],
     });
-    return result.deletedCount;
+    return result.deletedCount ?? 0;
   }
 
   async markAsReadForUser(notificationId: string, userId: string) {

@@ -105,22 +105,33 @@ const formatMinutesAgo = (iso?: string): string => {
 const normalizeOrderId = (o: KitchenOrder): string => String(o?._id || o?.id || '');
 const normalizeItemId = (i: OrderItem): string => String(i?._id || i?.id || '');
 
+const statusDisplayLabel = (status: string): string => {
+  const value = (status || '').toUpperCase();
+  if (value === 'PENDING' || value === 'KITCHEN_ACCEPTED') return 'New order';
+  if (value === 'PREPARING') return 'In kitchen';
+  if (value === 'READY') return 'Ready';
+  if (value === 'CANCELLED') return 'Cancelled';
+  if (['COMPLETED', 'SERVED', 'DELIVERED'].includes(value)) return 'Completed';
+  return value || 'Unknown';
+};
+
 const StatusChip = ({ status }: { status: string }) => {
   const value = (status || '').toUpperCase();
   const color: 'default' | 'warning' | 'success' | 'error' | 'info' =
     value === 'PENDING' || value === 'KITCHEN_ACCEPTED'
       ? 'warning'
-      : value === 'PREPARING'
-        ? 'info'
-        : value === 'READY'
-          ? 'success'
-          : value === 'CANCELLED'
-            ? 'error'
-            : ['COMPLETED', 'SERVED', 'DELIVERED'].includes(value)
-              ? 'success'
-              : 'default';
-  return <Chip size="small" label={value || 'UNKNOWN'} color={color} sx={{ fontWeight: 800 }} />;
+      : value === 'READY'
+        ? 'success'
+        : value === 'CANCELLED'
+          ? 'error'
+          : ['COMPLETED', 'SERVED', 'DELIVERED', 'PREPARING'].includes(value)
+            ? 'info'
+            : 'default';
+  return <Chip size="small" label={statusDisplayLabel(value)} color={color} sx={{ fontWeight: 800 }} />;
 };
+
+const CHEF_ACTIVE_STATUSES = ['PENDING', 'KITCHEN_ACCEPTED', 'PREPARING'];
+const CHEF_CAN_MARK_READY = ['PENDING', 'KITCHEN_ACCEPTED', 'PREPARING'];
 
 const StatCard = ({
   icon,
@@ -360,6 +371,13 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
     requestChefDashboard({ forNotifications: true });
   }, [mainTab, requestChefDashboard]);
 
+  const applyOrderStatusLocally = useCallback((orderId: string, status: string) => {
+    const patch = (list: KitchenOrder[]) =>
+      list.map((o) => (normalizeOrderId(o) === orderId ? { ...o, status } : o));
+    setOrders((prev) => patch(prev));
+    setCookingOrders((prev) => patch(prev));
+  }, []);
+
   const updateOrderStatus = useCallback(
     async (orderId: string, nextStatusUpper: string) => {
       const id = String(orderId || '');
@@ -367,40 +385,26 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
       if (!id || !status) return;
       const key = `order:${id}:${status}`;
       setUpdatingKey(key);
+      setError('');
       try {
-        const res: any = await api.patch(`/orders/${id}/status`, { status });
+        const body: Record<string, string> = { status };
+        if (status === 'READY') {
+          body.ready_at = new Date().toISOString();
+        }
+        const res: any = await api.put(`/orders/${id}/status`, body);
         if (!res?.success) {
           setError(String(res?.error || res?.message || 'Failed to update order'));
           return;
         }
-        requestChefDashboard();
+        applyOrderStatusLocally(id, status);
+        const socket = socketRef.current;
+        if (socket?.connected) socket.emit('chef_dashboard:get');
+        else void loadChefDashboardHttp();
       } finally {
         setUpdatingKey('');
       }
     },
-    [requestChefDashboard]
-  );
-
-  const updateItemStatus = useCallback(
-    async (orderId: string, itemId: string, nextStatusUpper: string) => {
-      const id = String(orderId || '');
-      const it = String(itemId || '');
-      const status = String(nextStatusUpper || '').toUpperCase();
-      if (!id || !it || !status) return;
-      const key = `item:${id}:${it}:${status}`;
-      setUpdatingKey(key);
-      try {
-        const res: any = await api.patch(`/orders/${id}/items/${it}/status`, { status });
-        if (!res?.success) {
-          setError(String(res?.error || res?.message || 'Failed to update item'));
-          return;
-        }
-        requestChefDashboard();
-      } finally {
-        setUpdatingKey('');
-      }
-    },
-    [requestChefDashboard]
+    [applyOrderStatusLocally, loadChefDashboardHttp]
   );
 
   const markNotificationAsRead = useCallback(
@@ -472,10 +476,13 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
   }, []);
 
   const homeStats = useMemo(() => {
-    const activeStatuses = ['PENDING', 'PREPARING', 'KITCHEN_ACCEPTED'];
-    const newOrdersCount = homeOrders.filter(o => String(o?.status || '').toUpperCase() === 'PENDING').length;
+    const activeStatuses = CHEF_ACTIVE_STATUSES;
+    const newOrdersCount = homeOrders.filter(o => {
+      const s = String(o?.status || '').toUpperCase();
+      return s === 'PENDING' || s === 'KITCHEN_ACCEPTED';
+    }).length;
     const activeOrdersCount = homeOrders.filter(o => activeStatuses.includes(String(o?.status || '').toUpperCase())).length;
-    const cookingOrdersCount = homeOrders.filter(o => ['KITCHEN_ACCEPTED', 'PREPARING'].includes(String(o?.status || '').toUpperCase())).length;
+    const cookingOrdersCount = newOrdersCount;
     const delayedOrdersCount = homeOrders.filter(o => {
       const mins = minutesSince(o?.createdAt || o?.orderTime);
       return mins > 20 && activeStatuses.includes(String(o?.status || '').toUpperCase());
@@ -491,7 +498,7 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
     const countBy = (statuses: string[]) =>
       homeOrders.filter(o => statuses.includes(String(o?.status || '').toUpperCase())).length;
     return {
-      Active: countBy(['PENDING', 'PREPARING', 'KITCHEN_ACCEPTED']),
+      Active: countBy(CHEF_ACTIVE_STATUSES),
       Ready: countBy(['READY']),
       Completed: countBy(['COMPLETED', 'DELIVERED', 'SERVED']),
       Cancelled: countBy(['CANCELLED']),
@@ -502,7 +509,7 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
     return (homeOrders || [])
       .filter(o => {
         const s = String(o?.status || '').toUpperCase();
-        if (homeTab === 'Active') return ['PENDING', 'PREPARING', 'KITCHEN_ACCEPTED'].includes(s);
+        if (homeTab === 'Active') return CHEF_ACTIVE_STATUSES.includes(s);
         if (homeTab === 'Ready') return s === 'READY';
         if (homeTab === 'Completed') return ['COMPLETED', 'DELIVERED', 'SERVED'].includes(s);
         if (homeTab === 'Cancelled') return s === 'CANCELLED';
@@ -522,7 +529,7 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
     return byType
       .filter(o => {
         const s = String(o?.status || '').toUpperCase();
-        if (cookingFilterTab === 'ACTIVE') return ['PENDING', 'PREPARING', 'KITCHEN_ACCEPTED'].includes(s);
+        if (cookingFilterTab === 'ACTIVE') return CHEF_ACTIVE_STATUSES.includes(s);
         if (cookingFilterTab === 'READY') return s === 'READY';
         if (cookingFilterTab === 'COMPLETED') return ['COMPLETED', 'DELIVERED', 'SERVED'].includes(s);
         return true;
@@ -545,8 +552,7 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
     const items = Array.isArray(o?.items) ? o.items : [];
     const visibleItems = items.filter(it => String(it?.status || '').toUpperCase() !== 'SERVED');
 
-    const canStartPreparing = ['PENDING', 'KITCHEN_ACCEPTED'].includes(statusUpper);
-    const canMarkReady = ['PREPARING', 'KITCHEN_ACCEPTED'].includes(statusUpper);
+    const canMarkReady = CHEF_CAN_MARK_READY.includes(statusUpper);
     return (
       <Card key={id} sx={{ borderRadius: 4, boxShadow: '0 4px 16px rgba(0,0,0,0.08)', mb: 2 }}>
         <CardContent sx={{ p: 2.5 }}>
@@ -567,16 +573,6 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
             </Box>
 
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-              {canStartPreparing ? (
-                <Button
-                  variant="contained"
-                  disabled={updatingKey === `order:${id}:PREPARING` || loading}
-                  onClick={() => void updateOrderStatus(id, 'PREPARING')}
-                  sx={{ bgcolor: '#FFB020', '&:hover': { bgcolor: '#E59A1B' }, textTransform: 'none', fontWeight: 900 }}
-                >
-                  {updatingKey === `order:${id}:PREPARING` ? 'Updating...' : 'Start Preparing'}
-                </Button>
-              ) : null}
               {canMarkReady ? (
                 <Button
                   variant="contained"
@@ -615,50 +611,16 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
                 const itemStatusUpper = String(it?.status || 'PENDING').toUpperCase();
                 const itemName = String(it?.productName || it?.name || it?.product?.name || 'Item');
                 const qty = Number(it?.quantity || 1);
-                const itemKey = (next: string) => `item:${id}:${itemId}:${next}`;
                 return (
                   <Box key={`${id}:${itemId}`} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
-                    <Box sx={{ minWidth: 0 }}>
+                    <Box sx={{ minWidth: 0, flex: 1 }}>
                       <Typography sx={{ fontSize: 14, color: '#111', fontWeight: 700 }}>
                         {qty}x {itemName}
                       </Typography>
-                      <Typography sx={{ fontSize: 12, color: '#666', mt: 0.25 }}>
-                        {itemStatusUpper}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                      {itemStatusUpper === 'PENDING' ? (
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          disabled={updatingKey === itemKey('PREPARING') || loading}
-                          onClick={() => void updateItemStatus(id, itemId, 'PREPARING')}
-                          sx={{ textTransform: 'none', fontWeight: 800 }}
-                        >
-                          {updatingKey === itemKey('PREPARING') ? 'Updating...' : 'Preparing'}
-                        </Button>
-                      ) : null}
-                      {itemStatusUpper === 'PREPARING' ? (
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          disabled={updatingKey === itemKey('READY') || loading}
-                          onClick={() => void updateItemStatus(id, itemId, 'READY')}
-                          sx={{ textTransform: 'none', fontWeight: 800 }}
-                        >
-                          {updatingKey === itemKey('READY') ? 'Updating...' : 'Ready'}
-                        </Button>
-                      ) : null}
                       {itemStatusUpper === 'READY' ? (
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          disabled={updatingKey === itemKey('SERVED') || loading}
-                          onClick={() => void updateItemStatus(id, itemId, 'SERVED')}
-                          sx={{ textTransform: 'none', fontWeight: 800 }}
-                        >
-                          {updatingKey === itemKey('SERVED') ? 'Updating...' : 'Served'}
-                        </Button>
+                        <Typography sx={{ fontSize: 12, color: '#2BC48A', mt: 0.25, fontWeight: 700 }}>
+                          Ready
+                        </Typography>
                       ) : null}
                     </Box>
                   </Box>

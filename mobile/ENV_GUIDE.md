@@ -93,3 +93,19 @@ VITE_PROXY_TARGET=http://31.97.189.252:3101
 ```
 
 Restart `pnpm dev`.
+
+## Push notifications (mobile + web)
+
+**Web:** After login, click **Enable** on the snackbar (or allow when the browser asks). New socket notifications show as OS/browser popups.
+
+**Mobile (in-app + tray while app runs):** Uses `expo-notifications` — shows system banners when socket delivers events (even if app is in background).
+
+**Mobile (app fully closed):** Server sends FCM/Expo push if `User.fcmToken` is set via `POST /notifications/register-device`. Configure on the server:
+
+```env
+FIREBASE_PROJECT_ID=
+FIREBASE_CLIENT_EMAIL=
+FIREBASE_PRIVATE_KEY=
+```
+
+Rebuild the APK after adding `expo-notifications` (`npx expo prebuild` / `pnpm run build:apk`).

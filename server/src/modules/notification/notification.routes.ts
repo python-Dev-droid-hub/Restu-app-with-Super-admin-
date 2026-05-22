@@ -39,6 +39,7 @@ router.get('/chef/unread-count', authenticate, authorize('CHEF'), notificationCo
 router.get('/waiter', authenticate, authorize('WAITER'), notificationController.getWaiterNotifications);
 router.get('/waiter/unread-count', authenticate, authorize('WAITER'), notificationController.getWaiterUnreadCount);
 router.put('/waiter/read-all', authenticate, authorize('WAITER'), notificationController.markAllAsReadForWaiter);
+router.delete('/waiter/clear-all', authenticate, authorize('WAITER'), notificationController.clearAllNotifications);
 
 // ============================================
 // USER NOTIFICATIONS (parameterized routes last)
@@ -47,6 +48,7 @@ router.get('/', authenticate, notificationController.getUserNotifications);
 router.get('/unread-count', authenticate, notificationController.getUserUnreadCount);
 router.put('/mark-all-read', authenticate, notificationController.markAllAsReadForUser);
 router.patch('/mark-all-read', authenticate, notificationController.markAllAsReadForUser);
+router.delete('/clear-all', authenticate, notificationController.clearAllNotifications);
 router.delete('/', authenticate, notificationController.clearAllNotifications);
 router.patch('/:id/read', authenticate, notificationController.markAsRead);
 router.put('/:id/read', authenticate, notificationController.markAsRead);

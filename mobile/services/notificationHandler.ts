@@ -1,14 +1,24 @@
 import Toast from 'react-native-toast-message';
+import { presentSystemNotification } from './pushNotificationService';
 
 interface NotificationData {
   type: string;
   title: string;
   message: string;
+  body?: string;
   data?: any;
 }
 
 export const handleNotificationByType = (notification: NotificationData) => {
   const { type, title, message } = notification;
+
+  void presentSystemNotification({
+    type,
+    title,
+    message,
+    body: notification.body || message,
+    data: notification.data,
+  });
 
   console.log('[NotificationHandler] Processing notification:', type);
 

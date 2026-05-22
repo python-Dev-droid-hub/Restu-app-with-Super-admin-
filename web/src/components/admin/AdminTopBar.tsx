@@ -24,6 +24,11 @@ import {
 import { useLocation, useNavigate } from 'react-router-dom';
 import { io, type Socket } from 'socket.io-client';
 import { getSocketIoOptions, getSocketIoUrl } from '../../utils/socketOptions';
+import {
+  NOTIFICATIONS_UPDATED_EVENT,
+  type NotificationsUpdatedDetail,
+  fetchUserUnreadNotificationCount,
+} from '../../utils/notificationCountSync';
 import { api } from '../../services/api';
 
 const SIDEBAR_WIDTH = 260;
@@ -189,12 +194,14 @@ const AdminTopBar: React.FC<{
 
       let cancelled = false;
       const fetchUnread = async () => {
+        if (cancelled) return;
+        if (mode === 'waiter') {
+          const count = await fetchUserUnreadNotificationCount((path) => api.get(path));
+          if (!cancelled) setNotificationCount(count);
+          return;
+        }
         const url =
-          mode === 'chef'
-            ? '/notifications/chef/unread-count'
-            : mode === 'waiter'
-            ? '/notifications/waiter/unread-count'
-            : '/notifications/rider/unread-count';
+          mode === 'chef' ? '/notifications/chef/unread-count' : '/notifications/rider/unread-count';
         const res = await api.get<{ unreadCount?: number }>(url);
         if (cancelled) return;
         if (res?.success) {
@@ -205,6 +212,17 @@ const AdminTopBar: React.FC<{
       };
 
       void fetchUnread();
+
+      const onNotificationsUpdated = (event: Event) => {
+        if (mode !== 'waiter') return;
+        const detail = (event as CustomEvent<NotificationsUpdatedDetail>).detail;
+        if (typeof detail?.unreadCount === 'number') {
+          setNotificationCount(Math.max(0, detail.unreadCount));
+          return;
+        }
+        void fetchUnread();
+      };
+      window.addEventListener(NOTIFICATIONS_UPDATED_EVENT, onNotificationsUpdated);
 
       const socket = io(getSocketIoUrl(), getSocketIoOptions());
 
@@ -217,6 +235,7 @@ const AdminTopBar: React.FC<{
 
       return () => {
         cancelled = true;
+        window.removeEventListener(NOTIFICATIONS_UPDATED_EVENT, onNotificationsUpdated);
         socket.off('notification', onRealtime);
         socket.off('connect', onRealtime);
         socket.disconnect();
