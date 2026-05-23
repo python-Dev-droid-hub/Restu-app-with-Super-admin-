@@ -16,6 +16,7 @@ const uploadsDirPrimary = path.isAbsolute(uploadPathEnv)
 const uploadsDirFallback = path.isAbsolute(uploadPathEnv)
   ? uploadPathEnv
   : path.join(repoRoot, uploadPathEnv);
+const uploadsDirLegacy = path.join(serverRoot, 'src', 'uploads');
 
 const MAX_BYTES = parseInt(process.env.MAX_FILE_SIZE || '5242880', 10); // 5MB default
 const ALLOWED_MIME = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif']);
@@ -115,6 +116,11 @@ router.post(
   }
 );
 
-router.use('/uploads', express.static(uploadsDirPrimary), express.static(uploadsDirFallback));
+router.use(
+  '/uploads',
+  express.static(uploadsDirPrimary),
+  express.static(uploadsDirFallback),
+  express.static(uploadsDirLegacy)
+);
 
 export default router;

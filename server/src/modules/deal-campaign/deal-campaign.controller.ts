@@ -140,7 +140,12 @@ export class DealCampaignController {
         if (!userBranchId) {
           return res.status(400).json({ success: false, message: 'Branch manager branch is missing' });
         }
-        filter.branch = { $in: [new mongoose.Types.ObjectId(String(userBranchId))] };
+        const branchKey = String(userBranchId);
+        const branchCandidates: (mongoose.Types.ObjectId | string)[] = [branchKey];
+        if (mongoose.Types.ObjectId.isValid(branchKey)) {
+          branchCandidates.unshift(new mongoose.Types.ObjectId(branchKey));
+        }
+        filter.branch = { $in: branchCandidates };
       } else if (queryBranchId) {
         if (queryBranchId === 'global') {
           filter.branch = { $size: 0 };

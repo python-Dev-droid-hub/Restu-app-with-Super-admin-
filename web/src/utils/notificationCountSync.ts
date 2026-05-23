@@ -4,6 +4,23 @@ export type NotificationsUpdatedDetail = {
   unreadCount?: number;
 };
 
+/** Branch id for staff dashboards (manager/admin/chef). */
+export function resolveStaffBranchId(): string {
+  const fromStorage = localStorage.getItem('selectedBranchId');
+  if (fromStorage?.trim()) return fromStorage.trim();
+  try {
+    const raw = localStorage.getItem('userData');
+    if (!raw) return '';
+    const parsed = JSON.parse(raw);
+    const ab = parsed?.assignedBranch;
+    if (!ab) return '';
+    if (typeof ab === 'string') return ab;
+    return String(ab._id || ab.id || '');
+  } catch {
+    return '';
+  }
+}
+
 export function publishNotificationUnreadCount(unreadCount: number) {
   window.dispatchEvent(
     new CustomEvent<NotificationsUpdatedDetail>(NOTIFICATIONS_UPDATED_EVENT, {

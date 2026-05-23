@@ -36,6 +36,7 @@ import {
   Cancel,
 } from '@mui/icons-material';
 import { api } from '../../services/api';
+import { useManagerBranchScope } from '../../utils/managerBranchScope';
 import { useSettings } from '../../context/SettingsContext';
 import { io, type Socket } from 'socket.io-client';
 import { resolveSocketUrl } from '../../utils/resolveSocketUrl';
@@ -107,6 +108,7 @@ type OrderDetails = {
 
 const AdminOrders: React.FC = () => {
   const { formatPrice } = useSettings();
+  const { isBranchManager, assignedBranchId, hideBranchFilter } = useManagerBranchScope();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [loading, setLoading] = useState(true);
@@ -157,6 +159,12 @@ const AdminOrders: React.FC = () => {
     { label: 'Delivered', value: 'delivered' },
     { label: 'Cancelled', value: 'cancelled' },
   ];
+
+  useEffect(() => {
+    if (isBranchManager && assignedBranchId) {
+      setBranchFilter(assignedBranchId);
+    }
+  }, [isBranchManager, assignedBranchId]);
 
   useEffect(() => {
     const init = async () => {
@@ -664,32 +672,34 @@ const AdminOrders: React.FC = () => {
       </Box>
 
       <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap', alignItems: 'center' }}>
-        <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 150 } }}>
-          <Select
-            value={branchFilter}
-            onChange={(e) => setBranchFilter(e.target.value)}
-            displayEmpty
-            sx={{
-              bgcolor: 'white',
-              borderRadius: 2,
-              '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
-              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-            }}
-          >
-            <MenuItem value="all">
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <FilterList sx={{ fontSize: 16, color: '#999' }} />
-                Branch
-              </Box>
-            </MenuItem>
-            <MenuItem value="all">All Branches</MenuItem>
-            {branches.map((b) => (
-              <MenuItem key={b._id || b.id} value={b._id || b.id}>
-                {b.branchName || b.name}
+        {!hideBranchFilter ? (
+          <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 150 } }}>
+            <Select
+              value={branchFilter}
+              onChange={(e) => setBranchFilter(e.target.value)}
+              displayEmpty
+              sx={{
+                bgcolor: 'white',
+                borderRadius: 2,
+                '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
+                boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+              }}
+            >
+              <MenuItem value="all">
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <FilterList sx={{ fontSize: 16, color: '#999' }} />
+                  Branch
+                </Box>
               </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+              <MenuItem value="all">All Branches</MenuItem>
+              {branches.map((b) => (
+                <MenuItem key={b._id || b.id} value={b._id || b.id}>
+                  {b.branchName || b.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        ) : null}
 
         <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 150 } }}>
           <Select

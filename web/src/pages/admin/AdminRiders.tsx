@@ -48,6 +48,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 
 import { api } from '../../services/api';
+import { useManagerBranchScope } from '../../utils/managerBranchScope';
 import { useSettings } from '../../context/SettingsContext';
 import { io, type Socket } from 'socket.io-client';
 import { resolveSocketUrl } from '../../utils/resolveSocketUrl';
@@ -97,6 +98,7 @@ interface Order {
 const AdminRiders: React.FC = () => {
   const navigate = useNavigate();
   const { formatPrice } = useSettings();
+  const { isBranchManager, assignedBranchId, hideBranchFilter } = useManagerBranchScope();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const socketRef = useRef<Socket | null>(null);
@@ -118,6 +120,13 @@ const AdminRiders: React.FC = () => {
   useEffect(() => {
     selectedBranchRef.current = selectedBranch;
   }, [selectedBranch]);
+
+  useEffect(() => {
+    if (isBranchManager && assignedBranchId) {
+      setSelectedBranch(assignedBranchId);
+      selectedBranchRef.current = assignedBranchId;
+    }
+  }, [isBranchManager, assignedBranchId]);
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken');
@@ -323,28 +332,29 @@ const AdminRiders: React.FC = () => {
         </Typography>
       </Box>
 
-      {/* Branch Filter */}
-      <Card sx={{ borderRadius: 3, mb: 3, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
-        <CardContent sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-            Branch:
-          </Typography>
-          <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 250 } }}>
-            <Select
-              value={selectedBranch}
-              onChange={handleBranchChange}
-              sx={{ borderRadius: 2 }}
-            >
-              <MenuItem value="all">All Branches</MenuItem>
-              {branches.map((branch) => (
-                <MenuItem key={branch._id} value={branch._id}>
-                  {branch.name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        </CardContent>
-      </Card>
+      {!hideBranchFilter ? (
+        <Card sx={{ borderRadius: 3, mb: 3, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
+          <CardContent sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+              Branch:
+            </Typography>
+            <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 250 } }}>
+              <Select
+                value={selectedBranch}
+                onChange={handleBranchChange}
+                sx={{ borderRadius: 2 }}
+              >
+                <MenuItem value="all">All Branches</MenuItem>
+                {branches.map((branch) => (
+                  <MenuItem key={branch._id} value={branch._id}>
+                    {branch.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* Tabs */}
       <Card sx={{ borderRadius: 3, boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}>

@@ -33,6 +33,7 @@ import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import dayjs from 'dayjs';
 import { useLocation } from 'react-router-dom';
 import { api } from '../../services/api';
+import { resolveStaffBranchId } from '../../utils/notificationCountSync';
 import { useSettings } from '../../context/SettingsContext';
 import { ReportExportPanel } from '../../components/reports/ReportExportPanel';
 import { mapApiToAnalyticsReport, getPeriodLabel } from '../../utils/mapAnalyticsToReport';
@@ -241,8 +242,17 @@ const AdminReports: React.FC = () => {
   }, [reportData, appName, periodLabelForExport, branchLabelForExport]);
 
   useEffect(() => {
-    loadBranches();
-  }, [loadBranches]);
+    if (asManager) {
+      const id = resolveStaffBranchId();
+      if (id) setBranchId(id);
+    }
+  }, [asManager]);
+
+  useEffect(() => {
+    if (!asManager) {
+      loadBranches();
+    }
+  }, [loadBranches, asManager]);
 
   useEffect(() => {
     if (dateRange === 'custom') return;

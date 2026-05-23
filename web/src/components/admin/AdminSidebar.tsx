@@ -90,7 +90,6 @@ const AdminSidebar: React.FC<{
           { label: 'Deals', icon: <Sell sx={{ fontSize: 20 }} />, path: `${basePath}/deals`, key: 'deals' },
           { label: 'Product Size', icon: <Fastfood sx={{ fontSize: 20 }} />, path: `${basePath}/product-size`, key: 'product-size' },
           { label: 'Reports', icon: <BarChart sx={{ fontSize: 20 }} />, path: `${basePath}/reports`, key: 'reports' },
-          { label: 'Settings', icon: <Settings sx={{ fontSize: 20 }} />, path: `${basePath}/settings`, key: 'settings' },
         ]
       : [
           { label: 'Dashboard', icon: <Dashboard sx={{ fontSize: 20 }} />, path: `${basePath}/dashboard`, key: 'dashboard' },

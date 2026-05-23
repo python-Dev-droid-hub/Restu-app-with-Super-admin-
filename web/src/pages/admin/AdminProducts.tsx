@@ -35,6 +35,7 @@ import {
 } from '@mui/icons-material';
 import { api } from '../../services/api';
 import { useSettings } from '../../context/SettingsContext';
+import { useManagerBranchScope } from '../../utils/managerBranchScope';
 
 interface Product {
   _id: string;
@@ -65,6 +66,7 @@ interface AdminProductsProps {
 
 const AdminProducts: React.FC<AdminProductsProps> = ({ pageTitle = 'Products' }) => {
   const { currencySymbol, formatPrice } = useSettings();
+  const { isBranchManager, assignedBranchId, hideBranchFilter } = useManagerBranchScope();
   const isMenuPage = pageTitle === 'Menu';
   const [loading, setLoading] = useState(true);
   const [products, setProducts] = useState<Product[]>([]);
@@ -94,10 +96,18 @@ const AdminProducts: React.FC<AdminProductsProps> = ({ pageTitle = 'Products' })
   const itemsPerPage = 20;
 
   useEffect(() => {
+    if (isBranchManager && assignedBranchId) {
+      setSelectedBranchId(assignedBranchId);
+    }
+  }, [isBranchManager, assignedBranchId]);
+
+  useEffect(() => {
     loadProducts();
     loadCategories();
-    loadBranches();
-  }, [selectedBranchId, isMenuPage]);
+    if (!hideBranchFilter) {
+      loadBranches();
+    }
+  }, [selectedBranchId, isMenuPage, hideBranchFilter]);
 
   const loadBranches = async () => {
     try {
@@ -437,34 +447,36 @@ const AdminProducts: React.FC<AdminProductsProps> = ({ pageTitle = 'Products' })
             ))}
           </Select>
         </FormControl>
-        <FormControl
-          size="small"
-          sx={{
-            minWidth: 220,
-            bgcolor: 'white',
-            borderRadius: 2,
-            '& .MuiOutlinedInput-root': {
+        {!hideBranchFilter ? (
+          <FormControl
+            size="small"
+            sx={{
+              minWidth: 220,
+              bgcolor: 'white',
               borderRadius: 2,
-              '& fieldset': { border: 'none' },
-              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-            },
-          }}
-        >
-          <InputLabel id="product-branch-filter-label">Branch</InputLabel>
-          <Select
-            labelId="product-branch-filter-label"
-            value={selectedBranchId}
-            label="Branch"
-            onChange={(e) => setSelectedBranchId(e.target.value)}
+              '& .MuiOutlinedInput-root': {
+                borderRadius: 2,
+                '& fieldset': { border: 'none' },
+                boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+              },
+            }}
           >
-            <MenuItem value="all">{isMenuPage ? 'Select Branch' : 'All Branches'}</MenuItem>
-            {branches.map((branch) => (
-              <MenuItem key={branch._id} value={branch._id}>
-                {branch.branchName}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+            <InputLabel id="product-branch-filter-label">Branch</InputLabel>
+            <Select
+              labelId="product-branch-filter-label"
+              value={selectedBranchId}
+              label="Branch"
+              onChange={(e) => setSelectedBranchId(e.target.value)}
+            >
+              <MenuItem value="all">{isMenuPage ? 'Select Branch' : 'All Branches'}</MenuItem>
+              {branches.map((branch) => (
+                <MenuItem key={branch._id} value={branch._id}>
+                  {branch.branchName}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        ) : null}
       </Box>
 
       {loading ? (
@@ -649,7 +661,9 @@ const AdminProducts: React.FC<AdminProductsProps> = ({ pageTitle = 'Products' })
         <Box sx={{ textAlign: 'center', py: 8 }}>
           <Typography color="#999" sx={{ fontSize: 16 }}>
             {isMenuPage && selectedBranchId === 'all'
-              ? 'Select a branch to view its menu products'
+              ? isBranchManager && !assignedBranchId
+                ? 'No branch assigned to your account. Ask an admin to assign a branch.'
+                : 'Select a branch to view its menu products'
               : isMenuPage
                 ? 'No menu products found for the selected branch'
                 : 'No products found'}

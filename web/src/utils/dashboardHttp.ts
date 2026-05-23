@@ -22,12 +22,18 @@ export async function fetchAdminDashboardHttp(params: {
   return unwrap(res);
 }
 
-export async function fetchChefDashboardHttp() {
-  const res = await api.getChefDashboardOverview();
+export async function fetchChefDashboardHttp(branchId?: string) {
+  const q = branchId ? `?branchId=${encodeURIComponent(branchId)}` : '';
+  const res = await api.get(`/dashboard/chef/overview${q}`);
   return unwrap(res);
 }
 
 export async function fetchWaiterDashboardHttp() {
   const res = await api.getWaiterDashboardOverview();
+  return unwrap(res);
+}
+
+export async function fetchRiderDashboardHttp() {
+  const res = await api.get('/dashboard/rider/overview');
   return unwrap(res);
 }

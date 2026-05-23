@@ -86,6 +86,47 @@ const parseStoredUser = (): any => {
   }
 };
 
+const resolveChefBranchId = (): string => {
+  try {
+    const raw = localStorage.getItem('userData');
+    const parsed = raw ? JSON.parse(raw) : null;
+    const fromUser = parsed?.assignedBranch?._id || parsed?.assignedBranch;
+    if (fromUser) return String(fromUser);
+  } catch {
+    // ignore
+  }
+  return String(localStorage.getItem('selectedBranchId') || '').trim();
+};
+
+const mergeChefUserFromApi = (data: any) => {
+  const current = parseStoredUser() || {};
+  const ab = data?.assignedBranch;
+  const branchId = ab?._id || ab?.id || (typeof ab === 'string' ? ab : '');
+  const next = {
+    ...current,
+    ...data,
+    role: String(data?.role || current?.role || '').toUpperCase(),
+    name: data?.displayName || data?.name || current?.name,
+    displayName: data?.displayName || data?.name || current?.displayName,
+    email: data?.email || current?.email,
+    avatar: data?.profileImage || data?.avatar || current?.avatar,
+    image: data?.profileImage || data?.image || current?.image,
+    profileImage: data?.profileImage || data?.avatar || current?.profileImage,
+    assignedBranch: ab || current?.assignedBranch,
+  };
+  if (branchId) {
+    localStorage.setItem('selectedBranchId', String(branchId));
+  }
+  localStorage.setItem('userData', JSON.stringify(next));
+  localStorage.setItem('userRole', String(next.role || 'CHEF'));
+  if (next._id || next.id) {
+    localStorage.setItem('userId', String(next._id || next.id));
+  }
+  window.dispatchEvent(new Event('profileUpdated'));
+  window.dispatchEvent(new Event('userDataUpdated'));
+  return next;
+};
+
 const formatMinutesAgo = (iso?: string): string => {
   if (!iso) return '';
   const ts = new Date(iso).getTime();
@@ -264,7 +305,7 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
     if (opts?.forNotifications) setNotificationsLoading(true);
     else setLoading(true);
     try {
-      const payload = await fetchChefDashboardHttp();
+      const payload = await fetchChefDashboardHttp(resolveChefBranchId() || undefined);
       if (payload) applyChefPayload(payload);
     } catch {
       if (!opts?.forNotifications) {
@@ -363,7 +404,25 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
   }, [initialTab]);
 
   useEffect(() => {
-    setUser(parseStoredUser());
+    let cancelled = false;
+    const syncProfile = async () => {
+      try {
+        const res: any = await api.get('/auth/me');
+        if (!res?.success || !res?.data || cancelled) return;
+        setUser(mergeChefUserFromApi(res.data));
+      } catch {
+        if (!cancelled) setUser(parseStoredUser());
+      }
+    };
+    void syncProfile();
+    const onUserData = () => setUser(parseStoredUser());
+    window.addEventListener('userDataUpdated', onUserData);
+    window.addEventListener('profileUpdated', onUserData);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('userDataUpdated', onUserData);
+      window.removeEventListener('profileUpdated', onUserData);
+    };
   }, []);
 
   useEffect(() => {
@@ -465,7 +524,12 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
   const allChecked = useMemo(() => Object.values(packingChecklist).every(Boolean), [packingChecklist]);
 
   const homeOrders = useMemo(() => {
-    return (cookingOrders && cookingOrders.length > 0 ? cookingOrders : orders) as KitchenOrder[];
+    const map = new Map<string, KitchenOrder>();
+    for (const o of [...orders, ...cookingOrders]) {
+      const id = normalizeOrderId(o);
+      if (id) map.set(id, o);
+    }
+    return Array.from(map.values());
   }, [cookingOrders, orders]);
 
   const minutesSince = useCallback((iso?: string) => {
@@ -770,6 +834,12 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
       {error ? (
         <Alert severity="error" sx={{ mb: 2 }}>
           {error}
+        </Alert>
+      ) : null}
+
+      {!loading && !resolveChefBranchId() ? (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          Your chef account has no branch assigned. Ask an admin to assign a branch so kitchen orders appear.
         </Alert>
       ) : null}
 

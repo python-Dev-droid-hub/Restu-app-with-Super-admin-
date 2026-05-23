@@ -194,7 +194,12 @@ export class NotificationController {
 
   // Get admin unread count
   getUnreadCount = asyncHandler(async (req: IAuthRequest, res: Response) => {
-    const count = await this.notificationService.getAdminUnreadCount();
+    const userId = this.toIdString(req.user!._id);
+    const branchId =
+      (req.query.branchId as string) ||
+      this.toIdString(req.user!.assignedBranch) ||
+      undefined;
+    const count = await this.notificationService.getAdminUnreadCount(branchId, userId);
     sendSuccess(res, { unreadCount: count }, 'Unread count retrieved successfully');
   });
 

@@ -54,6 +54,8 @@ const repoRoot = path.resolve(serverRoot, '..');
 const uploadPathEnv = process.env.UPLOAD_PATH || 'uploads';
 const uploadsPathPrimary = path.isAbsolute(uploadPathEnv) ? uploadPathEnv : path.join(serverRoot, uploadPathEnv);
 const uploadsPathFallback = path.isAbsolute(uploadPathEnv) ? uploadPathEnv : path.join(repoRoot, uploadPathEnv);
+/** Legacy dev folder (ts-node era) — many product imageUrl values still point here */
+const uploadsPathLegacy = path.join(serverRoot, 'src', 'uploads');
 
 if (!fs.existsSync(uploadsPathPrimary)) {
   fs.mkdirSync(uploadsPathPrimary, { recursive: true });
@@ -158,8 +160,12 @@ app.use('/uploads', (req, res, next) => {
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   next();
-}, express.static(uploadsPathPrimary), express.static(uploadsPathFallback));
-logger.info(`Serving uploads from: ${uploadsPathPrimary}${uploadsPathFallback !== uploadsPathPrimary ? ` (fallback: ${uploadsPathFallback})` : ''}`);
+}, express.static(uploadsPathPrimary), express.static(uploadsPathFallback), express.static(uploadsPathLegacy));
+logger.info(
+  `Serving uploads from: ${uploadsPathPrimary}` +
+    `${uploadsPathFallback !== uploadsPathPrimary ? `, ${uploadsPathFallback}` : ''}` +
+    `${fs.existsSync(uploadsPathLegacy) ? `, ${uploadsPathLegacy}` : ''}`
+);
 
 // Health check endpoint (minimal info in production)
 const healthHandler = (_req: Request, res: Response) => {

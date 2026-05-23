@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Card, CardActionArea, CardContent, Container, Grid, Typography } from '@mui/material';
-import { Apps, BarChart, Category, Fastfood, Image, LocalOffer, Notifications, Sell, Settings, TwoWheeler } from '@mui/icons-material';
+import { Apps, BarChart, Category, Fastfood, Image, LocalOffer, Notifications, Sell, TwoWheeler } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 
 type MoreItem = {
@@ -22,7 +22,6 @@ const ManagerMore: React.FC = () => {
     { label: 'Coupons', icon: <LocalOffer sx={{ fontSize: 22 }} />, path: '/manager/coupons' },
     { label: 'Deals', icon: <Sell sx={{ fontSize: 22 }} />, path: '/manager/deals' },
     { label: 'Reports', icon: <BarChart sx={{ fontSize: 22 }} />, path: '/manager/reports' },
-    { label: 'Settings', icon: <Settings sx={{ fontSize: 22 }} />, path: '/manager/settings' },
   ];
 
   return (

@@ -36,6 +36,10 @@ function emitDashboardInvalidation(payload: OrderRealtimePayload) {
     io.to(`branch_${payload.branchId}`).emit('waiter_dashboard:invalidate', patch);
   }
   io.emit('waiter_dashboard:invalidate', patch);
+  if (payload.riderId) {
+    io.to(`rider_${payload.riderId}`).emit('rider_dashboard:invalidate', patch);
+  }
+  io.emit('rider_dashboard:invalidate', patch);
 }
 
 function emitToRooms(io: import('socket.io').Server, event: string, payload: Record<string, unknown>) {

@@ -24,6 +24,7 @@ router.get('/admin/performance/branches', authenticate, authorize('ADMIN', 'SUPE
 router.get('/customer/stats', authenticate, authorize('CUSTOMER'), dashboardController.getCustomerStats);
 
 // Rider Dashboard
+router.get('/rider/overview', authenticate, authorize('RIDER'), dashboardController.getRiderDashboardOverview);
 router.get('/rider/stats', authenticate, authorize('RIDER'), dashboardController.getRiderStats);
 router.get('/rider/earnings', authenticate, authorize('RIDER'), dashboardController.getRiderEarnings);
 

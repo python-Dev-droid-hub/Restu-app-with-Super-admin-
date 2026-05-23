@@ -60,11 +60,16 @@ export function Login() {
         const role = String(user.role || '').trim().toUpperCase();
         const normalizedUser = { ...user, role };
         localStorage.setItem('userData', JSON.stringify(normalizedUser));
+        const ab = user.assignedBranch;
+        const branchId = ab?._id || ab?.id || (typeof ab === 'string' ? ab : '');
+        if (branchId) localStorage.setItem('selectedBranchId', String(branchId));
         if (user._id || user.id) {
           localStorage.setItem('userId', String(user._id || user.id));
         }
         if (role) {
           localStorage.setItem('userRole', role);
+          window.dispatchEvent(new Event('profileUpdated'));
+          window.dispatchEvent(new Event('userDataUpdated'));
           redirectByRole(role);
           return;
         }
@@ -73,11 +78,16 @@ export function Login() {
       const meRes: any = await api.get('/auth/me');
       if (meRes?.success && meRes?.data) {
         localStorage.setItem('userData', JSON.stringify(meRes.data));
+        const ab = meRes.data.assignedBranch;
+        const branchId = ab?._id || ab?.id || (typeof ab === 'string' ? ab : '');
+        if (branchId) localStorage.setItem('selectedBranchId', String(branchId));
         if (meRes.data._id || meRes.data.id) {
           localStorage.setItem('userId', String(meRes.data._id || meRes.data.id));
         }
         if (meRes.data.role) {
           localStorage.setItem('userRole', String(meRes.data.role));
+          window.dispatchEvent(new Event('profileUpdated'));
+          window.dispatchEvent(new Event('userDataUpdated'));
           redirectByRole(meRes.data.role);
           return;
         }

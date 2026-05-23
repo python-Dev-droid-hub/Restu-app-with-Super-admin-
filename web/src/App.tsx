@@ -268,10 +268,10 @@ function App() {
             <Route path="/manager/products" element={<RequireManagerAuth><AdminLayout mode="manager"><AdminProducts pageTitle="Products" /></AdminLayout></RequireManagerAuth>} />
             <Route path="/manager/banners" element={<RequireManagerAuth><AdminLayout mode="manager"><AdminBanners /></AdminLayout></RequireManagerAuth>} />
             <Route path="/manager/coupons" element={<RequireManagerAuth><AdminLayout mode="manager"><AdminCoupons /></AdminLayout></RequireManagerAuth>} />
-            <Route path="/manager/deals" element={<RequireManagerAuth><AdminLayout mode="manager"><AdminDeals /></AdminLayout></RequireManagerAuth>} />
+            <Route path="/manager/deals" element={<RequireManagerAuth><AdminLayout mode="manager"><AdminDealCampaigns /></AdminLayout></RequireManagerAuth>} />
             <Route path="/manager/product-size" element={<RequireManagerAuth><AdminLayout mode="manager"><AdminProductSize /></AdminLayout></RequireManagerAuth>} />
             <Route path="/manager/reports" element={<RequireManagerAuth><AdminLayout mode="manager"><AdminReports /></AdminLayout></RequireManagerAuth>} />
-            <Route path="/manager/settings" element={<RequireManagerAuth><AdminLayout mode="manager"><AdminSettings /></AdminLayout></RequireManagerAuth>} />
+            <Route path="/manager/settings" element={<Navigate to="/manager/dashboard" replace />} />
 
             <Route path="/chef/dashboard" element={<RequireChefAuth><AdminLayout mode="chef"><ChefDashboard initialTab="home" /></AdminLayout></RequireChefAuth>} />
             <Route path="/chef/dashbaord" element={<Navigate to="/chef/dashboard" replace />} />

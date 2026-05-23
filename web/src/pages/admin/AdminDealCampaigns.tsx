@@ -36,6 +36,7 @@ import {
   ArrowBack,
 } from '@mui/icons-material';
 import { api } from '../../services/api';
+import { useManagerBranchScope } from '../../utils/managerBranchScope';
 import { useSettings } from '../../context/SettingsContext';
 import { useRealtimeRefresh } from '../../hooks/useRealtimeRefresh';
 
@@ -96,6 +97,7 @@ interface DealProductOption {
 
 const AdminDealCampaigns: React.FC = () => {
   const { currencySymbol, formatPrice } = useSettings();
+  const { isBranchManager, assignedBranchId, hideBranchFilter } = useManagerBranchScope();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
@@ -183,6 +185,10 @@ const AdminDealCampaigns: React.FC = () => {
   });
 
   const filteredCampaigns = campaigns.filter((campaign) => {
+    if (hideBranchFilter) {
+      return true;
+    }
+
     const branchIds = getBranchIds(campaign);
 
     if (selectedBranchFilter === 'all') {
@@ -197,10 +203,18 @@ const AdminDealCampaigns: React.FC = () => {
   });
 
   useEffect(() => {
-    loadCampaigns();
+    if (isBranchManager && assignedBranchId) {
+      setSelectedBranchFilter(assignedBranchId);
+    }
+  }, [isBranchManager, assignedBranchId]);
+
+  useEffect(() => {
+    void loadCampaigns();
     loadCategories();
-    loadBranches();
-  }, []);
+    if (!hideBranchFilter) {
+      loadBranches();
+    }
+  }, [hideBranchFilter, assignedBranchId, isBranchManager]);
 
   const loadBranches = async () => {
     try {
@@ -650,22 +664,24 @@ const AdminDealCampaigns: React.FC = () => {
             Deal Campaigns
           </Typography>
           <Box sx={{ display: 'flex', gap: 2 }}>
-            <FormControl size="small" sx={{ minWidth: 200, bgcolor: 'white' }}>
-              <InputLabel>Filter by Branch</InputLabel>
-              <Select
-                value={selectedBranchFilter}
-                label="Filter by Branch"
-                onChange={(e) => setSelectedBranchFilter(e.target.value)}
-              >
-                <MenuItem value="all">All Branches</MenuItem>
-                <MenuItem value="global">Global (No Branch)</MenuItem>
-                {branches.map((branch) => (
-                  <MenuItem key={branch._id} value={branch._id}>
-                    {branch.branchName}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+            {!hideBranchFilter ? (
+              <FormControl size="small" sx={{ minWidth: 200, bgcolor: 'white' }}>
+                <InputLabel>Filter by Branch</InputLabel>
+                <Select
+                  value={selectedBranchFilter}
+                  label="Filter by Branch"
+                  onChange={(e) => setSelectedBranchFilter(e.target.value)}
+                >
+                  <MenuItem value="all">All Branches</MenuItem>
+                  <MenuItem value="global">Global (No Branch)</MenuItem>
+                  {branches.map((branch) => (
+                    <MenuItem key={branch._id} value={branch._id}>
+                      {branch.branchName}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            ) : null}
             <Button
               variant="contained"
               startIcon={<Add />}

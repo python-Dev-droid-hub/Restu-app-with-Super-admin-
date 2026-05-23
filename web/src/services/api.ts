@@ -226,8 +226,9 @@ class ApiClient {
     return this.request('GET', `/dashboard/admin/overview${queryString}`);
   }
 
-  async getChefDashboardOverview() {
-    return this.request('GET', '/dashboard/chef/overview');
+  async getChefDashboardOverview(branchId?: string) {
+    const q = branchId ? `?branchId=${encodeURIComponent(branchId)}` : '';
+    return this.request('GET', `/dashboard/chef/overview${q}`);
   }
 
   async getWaiterDashboardOverview() {
@@ -356,8 +357,9 @@ class ApiClient {
     return this.request('GET', `/notifications/admin${queryString}`);
   }
 
-  async getNotificationUnreadCount() {
-    return this.request('GET', '/notifications/admin/unread-count');
+  async getNotificationUnreadCount(params?: { branchId?: string }) {
+    const q = params?.branchId ? `?branchId=${encodeURIComponent(params.branchId)}` : '';
+    return this.request('GET', `/notifications/admin/unread-count${q}`);
   }
 
   async getRecentNotifications(limit?: number) {
@@ -551,7 +553,7 @@ class ApiClient {
   }
 
   // Users/Customers (additional methods)
-  async getUsers(params?: { role?: string; page?: number; limit?: number }) {
+  async getUsers(params?: { role?: string; page?: number; limit?: number; showInactive?: string }) {
     const queryString = params ? `?${new URLSearchParams(params as Record<string, string>).toString()}` : '';
     return this.request('GET', `/users${queryString}`);
   }
@@ -621,12 +623,13 @@ class ApiClient {
     ) {
       return imagePath;
     }
-    // Get base URL without /api suffix
+    // Same-origin /uploads so Vite/nginx proxy serves files from the API host
+    if (imagePath.startsWith('/uploads/')) {
+      return imagePath;
+    }
     const serverBase = resolveApiOrigin();
-    // Ensure path starts with /
     const path = imagePath.startsWith('/') ? imagePath : `/${imagePath}`;
-    const finalUrl = `${serverBase}${path}`;
-    return finalUrl;
+    return `${serverBase}${path}`;
   }
 }
 

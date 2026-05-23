@@ -28,8 +28,11 @@ import {
   NOTIFICATIONS_UPDATED_EVENT,
   type NotificationsUpdatedDetail,
   fetchUserUnreadNotificationCount,
+  publishNotificationUnreadCount,
+  resolveStaffBranchId,
 } from '../../utils/notificationCountSync';
 import { api } from '../../services/api';
+import StaffProfileMenu from './StaffProfileMenu';
 
 const SIDEBAR_WIDTH = 260;
 
@@ -106,27 +109,32 @@ const AdminTopBar: React.FC<{
     const refreshFromApi = async () => {
       setLoading(true);
       try {
-        const res = await api.get<any>('/users/profile');
+        const res = await api.get<any>('/auth/me');
         if (!res?.success || cancelled) return;
         const d = res?.data || {};
         const rawImage = d?.profileImage || d?.avatar || d?.image || '';
+        const ab = d?.assignedBranch;
+        const branchId = ab?._id || ab?.id || (typeof ab === 'string' ? ab : '');
         const patch = {
           name: d?.displayName || d?.name,
           displayName: d?.displayName || d?.name,
+          role: String(d?.role || '').toUpperCase(),
+          email: d?.email,
           avatar: rawImage,
           image: rawImage,
           profileImage: rawImage,
+          assignedBranch: ab,
         };
 
         const existingRaw = localStorage.getItem('userData');
         const existing = existingRaw ? (() => { try { return JSON.parse(existingRaw); } catch { return {}; } })() : {};
         const next = { ...existing, ...patch };
         const nextRaw = JSON.stringify(next);
-        if (existingRaw !== nextRaw) {
-          localStorage.setItem('userData', nextRaw);
-          window.dispatchEvent(new Event('profileUpdated'));
-          window.dispatchEvent(new Event('userDataUpdated'));
-        }
+        localStorage.setItem('userData', nextRaw);
+        if (branchId) localStorage.setItem('selectedBranchId', String(branchId));
+        if (next.role) localStorage.setItem('userRole', String(next.role));
+        window.dispatchEvent(new Event('profileUpdated'));
+        window.dispatchEvent(new Event('userDataUpdated'));
       } catch {
         return;
       } finally {
@@ -144,13 +152,24 @@ const AdminTopBar: React.FC<{
     };
   }, [syncUserFromStorage]);
 
+  const applyNotificationCount = useCallback((count: number) => {
+    const n = Math.max(0, count);
+    setNotificationCount(n);
+    if (mode === 'admin' || mode === 'manager') {
+      publishNotificationUnreadCount(n);
+    }
+  }, [mode]);
+
   useEffect(() => {
     const fetchAdminUnread = async () => {
       try {
-        const res = await api.getNotificationUnreadCount();
+        const branchId = mode === 'manager' ? resolveStaffBranchId() : undefined;
+        const res = await api.getNotificationUnreadCount(
+          branchId ? { branchId } : undefined
+        );
         if (res?.success) {
           const data = res.data as { unreadCount?: number } | undefined;
-          setNotificationCount(Number(data?.unreadCount ?? 0));
+          applyNotificationCount(Number(data?.unreadCount ?? 0));
         }
       } catch {
         /* non-fatal */
@@ -175,11 +194,24 @@ const AdminTopBar: React.FC<{
 
       socket.on('connect', requestUnread);
       socket.on('admin_unread_count:data', (payload: any) => {
-        setNotificationCount(typeof payload?.unreadCount === 'number' ? payload.unreadCount : 0);
+        applyNotificationCount(
+          typeof payload?.unreadCount === 'number' ? payload.unreadCount : 0
+        );
       });
       socket.on('notification', requestUnread);
 
+      const onNotificationsUpdated = (event: Event) => {
+        const detail = (event as CustomEvent<NotificationsUpdatedDetail>).detail;
+        if (typeof detail?.unreadCount === 'number') {
+          applyNotificationCount(detail.unreadCount);
+          return;
+        }
+        void fetchAdminUnread();
+      };
+      window.addEventListener(NOTIFICATIONS_UPDATED_EVENT, onNotificationsUpdated);
+
       return () => {
+        window.removeEventListener(NOTIFICATIONS_UPDATED_EVENT, onNotificationsUpdated);
         socket.off('connect', requestUnread);
         socket.off('admin_unread_count:data');
         socket.off('notification', requestUnread);
@@ -197,7 +229,7 @@ const AdminTopBar: React.FC<{
         if (cancelled) return;
         if (mode === 'waiter') {
           const count = await fetchUserUnreadNotificationCount((path) => api.get(path));
-          if (!cancelled) setNotificationCount(count);
+          if (!cancelled) applyNotificationCount(count);
           return;
         }
         const url =
@@ -205,19 +237,18 @@ const AdminTopBar: React.FC<{
         const res = await api.get<{ unreadCount?: number }>(url);
         if (cancelled) return;
         if (res?.success) {
-          setNotificationCount(Number(res?.data?.unreadCount ?? 0));
+          applyNotificationCount(Number(res?.data?.unreadCount ?? 0));
         } else {
-          setNotificationCount(0);
+          applyNotificationCount(0);
         }
       };
 
       void fetchUnread();
 
       const onNotificationsUpdated = (event: Event) => {
-        if (mode !== 'waiter') return;
         const detail = (event as CustomEvent<NotificationsUpdatedDetail>).detail;
         if (typeof detail?.unreadCount === 'number') {
-          setNotificationCount(Math.max(0, detail.unreadCount));
+          applyNotificationCount(detail.unreadCount);
           return;
         }
         void fetchUnread();
@@ -242,7 +273,7 @@ const AdminTopBar: React.FC<{
       };
     }
 
-  }, [mode]);
+  }, [mode, applyNotificationCount]);
 
   const handleProfileMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
     setProfileMenuAnchor(event.currentTarget);
@@ -392,10 +423,11 @@ const AdminTopBar: React.FC<{
             }}
           >
             <Badge
-              badgeContent={notificationCount > 0 ? notificationCount : undefined}
+              badgeContent={notificationCount}
               color="error"
               max={99}
               overlap="circular"
+              invisible={notificationCount <= 0}
               sx={{
                 '& .MuiBadge-badge': {
                   fontSize: 10,
@@ -479,32 +511,25 @@ const AdminTopBar: React.FC<{
             )}
           </Box>
 
-          {/* Profile Menu */}
-          <Menu
-            anchorEl={profileMenuAnchor}
-            open={Boolean(profileMenuAnchor)}
-            onClose={handleProfileMenuClose}
-            PaperProps={{
-              sx: {
-                mt: 1,
-                minWidth: 180,
-              },
-            }}
-          >
-            {mode === 'waiter' || mode === 'rider' ? (
-              <>
-                <MenuItem onClick={() => handleNavigate(`${basePath}/profile`)}>Profile</MenuItem>
-                <MenuItem onClick={handleLogout}>Logout</MenuItem>
-              </>
-            ) : (
-              <>
-                <MenuItem onClick={() => handleNavigate(`${basePath}/settings`)}>Change profile name</MenuItem>
-                <MenuItem onClick={() => handleNavigate(`${basePath}/settings`)}>Change profile image</MenuItem>
-                <MenuItem onClick={() => handleNavigate(`${basePath}/settings`)}>Change password</MenuItem>
-                <MenuItem onClick={handleLogout}>Logout</MenuItem>
-              </>
-            )}
-          </Menu>
+          {mode === 'admin' || mode === 'manager' ? (
+            <StaffProfileMenu
+              anchorEl={profileMenuAnchor}
+              open={Boolean(profileMenuAnchor)}
+              onClose={handleProfileMenuClose}
+              onLogout={handleLogout}
+              mode={mode}
+            />
+          ) : (
+            <Menu
+              anchorEl={profileMenuAnchor}
+              open={Boolean(profileMenuAnchor)}
+              onClose={handleProfileMenuClose}
+              PaperProps={{ sx: { mt: 1, minWidth: 180 } }}
+            >
+              <MenuItem onClick={() => handleNavigate(`${basePath}/profile`)}>Profile</MenuItem>
+              <MenuItem onClick={handleLogout}>Logout</MenuItem>
+            </Menu>
+          )}
         </Box>
       </Toolbar>
     </AppBar>

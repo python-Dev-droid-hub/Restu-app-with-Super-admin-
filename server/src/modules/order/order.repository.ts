@@ -4,6 +4,7 @@ import { Branch } from '@/models/Branch';
 import { Product } from '@/models/Product';
 import { RestaurantTable } from '@/models/RestaurantTable';
 import { Types } from 'mongoose';
+import { buildRiderOrderFilter } from '@/utils/riderOrderFilter';
 
 export class OrderRepository {
   async create(orderData: any): Promise<any> {
@@ -90,9 +91,15 @@ export class OrderRepository {
     try {
       const skip = (page - 1) * limit;
       
-      // Use branchId directly - MongoDB will handle string to ObjectId conversion
-      const filter: any = { branch: branchId };
-      
+      const branchStr = String(branchId || '').trim();
+      if (!branchStr) {
+        return { orders: [], total: 0 };
+      }
+      const branchObjectId = Types.ObjectId.isValid(branchStr) ? new Types.ObjectId(branchStr) : undefined;
+      const filter: any = {
+        branch: { $in: [...(branchObjectId ? [branchObjectId] : []), branchStr] },
+      };
+
       if (status) {
         filter.status = status;
       }
@@ -129,7 +136,7 @@ export class OrderRepository {
     status?: string
   ): Promise<{ orders: any[]; total: number }> {
     const skip = (page - 1) * limit;
-    const filter: any = { rider: riderId };
+    const filter: any = { ...buildRiderOrderFilter(String(riderId)) };
     
     if (status) {
       filter.status = status;

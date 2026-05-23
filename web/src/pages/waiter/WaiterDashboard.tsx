@@ -37,6 +37,10 @@ import {
   Alert,
   Snackbar,
   CircularProgress,
+  RadioGroup,
+  Radio,
+  FormControlLabel,
+  FormLabel,
 } from '@mui/material';
 import {
   Refresh as RefreshIcon,
@@ -84,7 +88,16 @@ interface OrderItem {
 interface Order {
   id: string;
   order_number: string;
-  status: 'PENDING' | 'KITCHEN_ACCEPTED' | 'PREPARING' | 'READY' | 'SERVED' | 'COMPLETED' | 'CANCELLED' | 'DELIVERED';
+  status:
+    | 'PENDING'
+    | 'KITCHEN_ACCEPTED'
+    | 'PREPARING'
+    | 'READY'
+    | 'PICKED_UP'
+    | 'SERVED'
+    | 'COMPLETED'
+    | 'CANCELLED'
+    | 'DELIVERED';
   order_type: 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY';
   table_id?: string | null;
   table_number?: string | null;
@@ -95,6 +108,8 @@ interface Order {
   customer_name?: string;
   customer_phone?: string;
   waiter_name?: string | null;
+  payment_status?: string | null;
+  payment_method?: string | null;
 }
 
 interface Table {
@@ -118,7 +133,17 @@ interface Notification {
   _id?: string;
   title: string;
   message: string;
-  type: 'ORDER_READY' | 'ORDER_CANCELLED' | 'NEW_ORDER' | 'TABLE_STATUS' | 'GENERAL';
+  type:
+    | 'ORDER_READY'
+    | 'KITCHEN_READY'
+    | 'ORDER_SERVED'
+    | 'ORDER_COMPLETED'
+    | 'ORDER_CANCELLED'
+    | 'ORDER_UPDATE'
+    | 'ORDER_PICKED_UP'
+    | 'NEW_ORDER'
+    | 'TABLE_STATUS'
+    | 'GENERAL';
   read: boolean;
   isRead?: boolean;
   createdAt: string;
@@ -159,6 +184,7 @@ type CartItem = {
   name: string;
   price: number;
   quantity: number;
+  image?: string | null;
 };
 
 const COLORS = {
@@ -179,6 +205,7 @@ const STATUS_COLORS: Record<string, string> = {
   KITCHEN_ACCEPTED: '#2196f3',
   PREPARING: '#ff9800',
   READY: '#4caf50',
+  PICKED_UP: '#6c63ff',
   SERVED: '#9c27b0',
   COMPLETED: '#4caf50',
   DELIVERED: '#4caf50',
@@ -190,7 +217,8 @@ const STATUS_LABELS: Record<string, string> = {
   KITCHEN_ACCEPTED: 'Accepted',
   PREPARING: 'Preparing',
   READY: 'Ready',
-  SERVED: 'Served',
+  PICKED_UP: 'Picked Up',
+  SERVED: 'Awaiting Bill',
   COMPLETED: 'Completed',
   DELIVERED: 'Delivered',
   CANCELLED: 'Cancelled',
@@ -202,6 +230,91 @@ const TABLE_STATUS_COLORS: Record<string, string> = {
   RESERVED: '#ff9800',
   CLEANING: '#9e9e9e',
 };
+
+function pickImageSource(...sources: unknown[]): string | null {
+  for (const s of sources) {
+    if (!s) continue;
+    if (typeof s === 'string') {
+      const t = s.trim();
+      if (t && !t.toLowerCase().startsWith('file:')) return t;
+      continue;
+    }
+    if (Array.isArray(s)) {
+      const fromArr = pickImageSource(...s);
+      if (fromArr) return fromArr;
+      continue;
+    }
+    if (typeof s === 'object') {
+      const o = s as Record<string, unknown>;
+      const fromObj = pickImageSource(o.url, o.imageUrl, o.image, o.src, o.path);
+      if (fromObj) return fromObj;
+    }
+  }
+  return null;
+}
+
+function resolveProductImageUrl(imagePath?: string | null): string {
+  if (!imagePath) return '';
+  let path = String(imagePath).trim().replace(/\\/g, '/');
+  if (!path || path.toLowerCase().startsWith('file:')) return '';
+  if (
+    path.startsWith('http://') ||
+    path.startsWith('https://') ||
+    path.startsWith('data:') ||
+    path.startsWith('blob:')
+  ) {
+    return path;
+  }
+  if (path.startsWith('src/uploads/')) path = `/${path.replace(/^src\//, '')}`;
+  else if (path.startsWith('uploads/')) path = `/${path}`;
+  if (path.startsWith('/api/uploads/')) path = path.replace(/^\/api/, '');
+  return api.getImageUrl(path);
+}
+
+function ProductThumb({
+  image,
+  alt,
+  size = 48,
+}: {
+  image?: string | null;
+  alt: string;
+  size?: number;
+}) {
+  const [failed, setFailed] = useState(false);
+  const url = resolveProductImageUrl(image);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [image, url]);
+
+  if (!url || failed) {
+    return (
+      <Avatar
+        variant="rounded"
+        sx={{ width: size, height: size, bgcolor: COLORS.bgLight, flexShrink: 0 }}
+      >
+        <DiningIcon sx={{ fontSize: size * 0.45, color: 'text.disabled' }} />
+      </Avatar>
+    );
+  }
+
+  return (
+    <Box
+      component="img"
+      src={url}
+      alt={alt}
+      onError={() => setFailed(true)}
+      sx={{
+        width: size,
+        height: size,
+        borderRadius: 1,
+        objectFit: 'cover',
+        flexShrink: 0,
+        bgcolor: COLORS.bgLight,
+      }}
+    />
+  );
+}
 
 export default function WaiterDashboard() {
   const navigate = useNavigate();
@@ -264,7 +377,16 @@ export default function WaiterDashboard() {
         unit_price: unitPrice,
         total_price: totalPrice,
         status: (String(it?.status || 'PENDING').toUpperCase() as any) || 'PENDING',
-        image: it?.image ?? it?.imageUrl ?? it?.product?.imageUrl ?? null,
+        image: pickImageSource(
+          it?.image,
+          it?.imageUrl,
+          it?.productImage,
+          it?.product?.imageUrl,
+          it?.product?.image,
+          it?.product?.images,
+          it?.productId?.imageUrl,
+          it?.productId?.image
+        ),
         special_instructions: it?.special_instructions ?? it?.specialInstructions,
       };
     });
@@ -292,6 +414,8 @@ export default function WaiterDashboard() {
         raw?.waiter?.displayName ??
         raw?.waiter?.name ??
         null,
+      payment_status: raw?.payment_status ?? raw?.paymentStatus ?? null,
+      payment_method: raw?.payment_method ?? raw?.paymentMethod ?? null,
     };
   };
 
@@ -351,6 +475,13 @@ export default function WaiterDashboard() {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
+  const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
+  const [billDialogOpen, setBillDialogOpen] = useState(false);
+  const [billOrder, setBillOrder] = useState<Order | null>(null);
+  const [billText, setBillText] = useState('');
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<
+    'CASH' | 'CARD' | 'BANK_TRANSFER' | ''
+  >('');
 
   const [createOrderOpen, setCreateOrderOpen] = useState(false);
   const [creatingOrder, setCreatingOrder] = useState(false);
@@ -481,20 +612,44 @@ export default function WaiterDashboard() {
     socket.on('order:status_updated', refreshWaiterSocket);
     socket.on('admin_dashboard:invalidate', refreshWaiterSocket);
 
-    socket.on('notification', (notification: Notification) => {
-      setNotifications((prev) => [notification, ...prev]);
+    socket.on('notification', (notification: Notification & { message?: string; body?: string; data?: any }) => {
+      const normalized: Notification = {
+        id: String(notification?.id || notification?._id || `n-${Date.now()}`),
+        _id: notification?._id,
+        title: String(notification?.title || 'Notification'),
+        message: String(notification?.message || notification?.body || ''),
+        type: (String(notification?.type || 'GENERAL') as Notification['type']) || 'GENERAL',
+        read: Boolean(notification?.read ?? notification?.isRead ?? false),
+        isRead: notification?.isRead,
+        createdAt: String(notification?.createdAt || new Date().toISOString()),
+        orderId:
+          notification?.orderId ||
+          notification?.data?.orderId ||
+          notification?.data?.order_id,
+        tableId: notification?.tableId || notification?.data?.tableId,
+      };
+
+      setNotifications((prev) => [normalized, ...prev]);
       setUnreadCount((prev) => {
         const next = prev + 1;
         publishNotificationUnreadCount(next);
         return next;
       });
-      
-      // Show snackbar for important notifications
-      if (notification.type === 'ORDER_READY') {
+
+      const snackTypes = new Set([
+        'ORDER_READY',
+        'KITCHEN_READY',
+        'ORDER_SERVED',
+        'ORDER_COMPLETED',
+        'ORDER_CANCELLED',
+        'ORDER_UPDATE',
+        'ORDER_PICKED_UP',
+      ]);
+      if (snackTypes.has(String(normalized.type || '').toUpperCase())) {
         setSnackbar({
           open: true,
-          message: `Order #${notification.orderId} is ready to serve!`,
-          severity: 'success',
+          message: normalized.message || normalized.title,
+          severity: normalized.type === 'ORDER_CANCELLED' ? 'warning' : 'success',
         });
       }
     });
@@ -672,7 +827,7 @@ export default function WaiterDashboard() {
             categoryName,
             name,
             price: Number.isFinite(price) ? price : 0,
-            image: (p?.imageUrl || p?.image || p?.thumbnail || null) as any,
+            image: pickImageSource(p?.images, p?.imageUrl, p?.image, p?.thumbnail, p?.media),
           });
         }
       }
@@ -715,7 +870,10 @@ export default function WaiterDashboard() {
         next[idx] = { ...next[idx], quantity: next[idx].quantity + 1 };
         return next;
       }
-      return [...prev, { productId: product.id, name: product.name, price: product.price, quantity: 1 }];
+      return [
+        ...prev,
+        { productId: product.id, name: product.name, price: product.price, quantity: 1, image: product.image },
+      ];
     });
   };
 
@@ -833,31 +991,191 @@ export default function WaiterDashboard() {
     }
   };
 
-  const handleServeOrder = async (orderId: string) => {
+  const refreshWaiterOrders = () => {
+    if (socketRef.current?.connected) socketRef.current.emit('waiter_dashboard:get');
+    else void loadWaiterDashboardHttp();
+  };
+
+  const isPaymentCleared = (order: Order) => {
+    const s = String(order.status || '').toUpperCase();
+    const ps = String(order.payment_status || '').toUpperCase();
+    return s === 'COMPLETED' || ps === 'SUCCESS' || ps === 'PAID';
+  };
+
+  const isWaiterActiveOrder = (order: Order) => {
+    const s = String(order.status || '').toUpperCase();
+    if (s === 'CANCELLED') return false;
+    return !isPaymentCleared(order);
+  };
+
+  const orderNeedsBill = (order: Order) => {
+    const s = String(order.status || '').toUpperCase();
+    return s === 'SERVED' && isWaiterActiveOrder(order);
+  };
+
+  const waiterShowActions = (order: Order) => {
+    const s = String(order.status || '').toUpperCase();
+    if (!isWaiterActiveOrder(order)) return false;
+    return ['PREPARING', 'READY'].includes(s);
+  };
+
+  const putOrderStatus = async (orderId: string, apiStatus: string) => {
+    setUpdatingOrderId(orderId);
     try {
-      const response = await api.post(`/orders/${orderId}/serve`, {});
+      const response = await api.put(`/orders/${orderId}/status`, { status: apiStatus });
       if (response.success) {
-        setSnackbar({
-          open: true,
-          message: 'Order served successfully',
-          severity: 'success',
-        });
-        socketRef.current?.emit('waiter_dashboard:get');
+        setOrders((prev) =>
+          prev.map((o) => (o.id === orderId ? { ...o, status: apiStatus as Order['status'] } : o))
+        );
+        setSelectedOrder((prev) =>
+          prev?.id === orderId ? { ...prev, status: apiStatus as Order['status'] } : prev
+        );
+        refreshWaiterOrders();
+        setSnackbar({ open: true, message: 'Order updated', severity: 'success' });
+        return true;
       }
-    } catch {
       setSnackbar({
         open: true,
-        message: 'Failed to serve order',
+        message: response.error || 'Failed to update order',
         severity: 'error',
       });
+      return false;
+    } catch {
+      setSnackbar({ open: true, message: 'Failed to update order', severity: 'error' });
+      return false;
+    } finally {
+      setUpdatingOrderId(null);
     }
+  };
+
+  const handleOrderStatusChange = async (orderId: string, status: string) => {
+    const key = status.toLowerCase();
+    const apiStatus =
+      key === 'ready'
+        ? 'READY'
+        : key === 'served'
+          ? 'SERVED'
+          : key === 'picked_up'
+            ? 'PICKED_UP'
+            : status.toUpperCase();
+
+    if (key === 'cancelled') {
+      const order = orders.find((o) => o.id === orderId);
+      if (order) {
+        setSelectedOrder(order);
+        setCancelDialogOpen(true);
+      }
+      return;
+    }
+
+    await putOrderStatus(orderId, apiStatus);
+  };
+
+  const handleGenerateBill = async (order: Order) => {
+    const orderId = String(order?.id || '').trim();
+    if (!orderId) {
+      setSnackbar({ open: true, message: 'Invalid order — refresh and try again', severity: 'error' });
+      return;
+    }
+
+    setUpdatingOrderId(orderId);
+    try {
+      const response = await api.post<{
+        billText?: string;
+        printQueued?: boolean;
+        printError?: string;
+      }>(`/orders/${orderId}/generate-bill`, {});
+
+      if (response.success) {
+        const data = response.data;
+        setBillOrder(order);
+        setBillText(String(data?.billText || ''));
+        setSelectedPaymentMethod('');
+        setBillDialogOpen(true);
+
+        if (data?.printQueued) {
+          setSnackbar({ open: true, message: 'Bill sent to branch printer', severity: 'success' });
+        } else if (data?.printError) {
+          setSnackbar({
+            open: true,
+            message: `Bill ready (printer: ${data.printError})`,
+            severity: 'warning',
+          });
+        }
+      } else {
+        setSnackbar({
+          open: true,
+          message: response.error || (response as { message?: string }).message || 'Failed to generate bill',
+          severity: 'error',
+        });
+      }
+    } catch {
+      setSnackbar({ open: true, message: 'Failed to generate bill', severity: 'error' });
+    } finally {
+      setUpdatingOrderId(null);
+    }
+  };
+
+  const handleConfirmBillPayment = async () => {
+    if (!billOrder?.id || !selectedPaymentMethod) {
+      setSnackbar({ open: true, message: 'Select a payment method', severity: 'warning' });
+      return;
+    }
+
+    setUpdatingOrderId(billOrder.id);
+    try {
+      const response = await api.put(`/orders/${billOrder.id}/status`, {
+        status: 'COMPLETED',
+        paymentMethod: selectedPaymentMethod,
+        paymentStatus: 'SUCCESS',
+      });
+
+      if (response.success) {
+        setBillDialogOpen(false);
+        setBillOrder(null);
+        setBillText('');
+        setSelectedPaymentMethod('');
+        setSnackbar({
+          open: true,
+          message: `Payment received (${selectedPaymentMethod}). Order completed.`,
+          severity: 'success',
+        });
+        refreshWaiterOrders();
+      } else {
+        setSnackbar({
+          open: true,
+          message: response.error || (response as { message?: string }).message || 'Failed to complete order',
+          severity: 'error',
+        });
+      }
+    } catch {
+      setSnackbar({ open: true, message: 'Failed to complete order', severity: 'error' });
+    } finally {
+      setUpdatingOrderId(null);
+    }
+  };
+
+  const handlePrintBillText = () => {
+    if (!billOrder) return;
+    if (billText) {
+      const printWindow = window.open('', '_blank');
+      if (printWindow) {
+        printWindow.document.write(`<pre style="font-family:monospace;padding:16px">${billText.replace(/</g, '&lt;')}</pre>`);
+        printWindow.document.close();
+        printWindow.print();
+        return;
+      }
+    }
+    handlePrintBill(billOrder);
   };
 
   const handleCancelOrder = async () => {
     if (!selectedOrder || !cancelReason.trim()) return;
-    
+
+    setUpdatingOrderId(selectedOrder.id);
     try {
-      const response = await api.post(`/orders/${selectedOrder.id}/cancel`, {
+      const response = await api.patch(`/orders/${selectedOrder.id}/status`, {
+        status: 'CANCELLED',
         reason: cancelReason,
       });
       if (response.success) {
@@ -868,7 +1186,13 @@ export default function WaiterDashboard() {
         });
         setCancelDialogOpen(false);
         setCancelReason('');
-        socketRef.current?.emit('waiter_dashboard:get');
+        refreshWaiterOrders();
+      } else {
+        setSnackbar({
+          open: true,
+          message: response.error || 'Failed to cancel order',
+          severity: 'error',
+        });
       }
     } catch {
       setSnackbar({
@@ -876,7 +1200,65 @@ export default function WaiterDashboard() {
         message: 'Failed to cancel order',
         severity: 'error',
       });
+    } finally {
+      setUpdatingOrderId(null);
     }
+  };
+
+  const renderWaiterOrderActions = (order: Order) => {
+    const busy = updatingOrderId === order.id;
+    const s = String(order.status || '').toUpperCase();
+
+    if (orderNeedsBill(order)) {
+      return (
+        <Button
+          variant="contained"
+          startIcon={<PrintIcon />}
+          disabled={busy}
+          onClick={(e) => {
+            e.stopPropagation();
+            void handleGenerateBill(order);
+          }}
+          sx={{ bgcolor: COLORS.success, '&:hover': { bgcolor: COLORS.success + 'dd' } }}
+        >
+          Generate Bill
+        </Button>
+      );
+    }
+
+    if (!waiterShowActions(order)) return null;
+
+    return (
+      <>
+        {s === 'PREPARING' && (
+          <Button
+            variant="contained"
+            disabled={busy}
+            onClick={(e) => {
+              e.stopPropagation();
+              void handleOrderStatusChange(order.id, 'ready');
+            }}
+            sx={{ bgcolor: COLORS.info, '&:hover': { bgcolor: COLORS.info + 'dd' } }}
+          >
+            Mark Ready
+          </Button>
+        )}
+        {s === 'READY' && (
+          <Button
+            variant="contained"
+            startIcon={<CheckCircleIcon />}
+            disabled={busy}
+            onClick={(e) => {
+              e.stopPropagation();
+              void handleOrderStatusChange(order.id, 'served');
+            }}
+            sx={{ bgcolor: COLORS.success, '&:hover': { bgcolor: COLORS.success + 'dd' } }}
+          >
+            Mark Served
+          </Button>
+        )}
+      </>
+    );
   };
 
   const handlePrintBill = (order: Order) => {
@@ -1017,9 +1399,7 @@ export default function WaiterDashboard() {
     setExpandedOrder(expandedOrder === orderId ? null : orderId);
   };
 
-  const getActiveOrders = () => orders.filter(o => 
-    ['PENDING', 'KITCHEN_ACCEPTED', 'PREPARING', 'READY'].includes(o.status)
-  );
+  const getActiveOrders = () => orders.filter((o) => isWaiterActiveOrder(o));
 
   const getTableOrders = (tableId: string) => orders.filter(o => o.table_id === tableId);
 
@@ -1129,6 +1509,18 @@ export default function WaiterDashboard() {
                 {order.items.slice(0, 2).map((i) => i.product_name).join(', ')}
                 {order.items.length > 2 ? ` +${order.items.length - 2} more` : ''}
               </Typography>
+              {order.items.length > 0 && (
+                <Box sx={{ display: 'flex', gap: 0.75, mt: 1, flexWrap: 'wrap' }}>
+                  {order.items.slice(0, 4).map((item) => (
+                    <ProductThumb key={item.id} image={item.image} alt={item.product_name} size={36} />
+                  ))}
+                </Box>
+              )}
+              {(waiterShowActions(order) || orderNeedsBill(order)) && (
+                <Box sx={{ mt: 1.5, display: 'flex', gap: 1, flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
+                  {renderWaiterOrderActions(order)}
+                </Box>
+              )}
             </Paper>
           ))}
         </Box>
@@ -1210,24 +1602,8 @@ export default function WaiterDashboard() {
                     </Typography>
                   </TableCell>
                   <TableCell>
-                    <Box sx={{ display: 'flex', gap: 1 }}>
-                      {order.status === 'READY' && (
-                        <Button
-                          variant="contained"
-                          size="small"
-                          startIcon={<CheckCircleIcon />}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleServeOrder(order.id);
-                          }}
-                          sx={{
-                            bgcolor: COLORS.success,
-                            '&:hover': { bgcolor: COLORS.success + 'dd' },
-                          }}
-                        >
-                          Serve
-                        </Button>
-                      )}
+                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+                      {renderWaiterOrderActions(order)}
                       <IconButton
                         size="small"
                         onClick={(e) => {
@@ -1259,20 +1635,24 @@ export default function WaiterDashboard() {
                               borderBottom: `1px solid ${COLORS.border}`,
                             }}
                           >
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <Typography variant="body2">
-                                {item.quantity}x {item.product_name}
-                                {item.size_name && ` (${item.size_name})`}
-                              </Typography>
-                              <Chip
-                                label={item.status}
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, flex: 1 }}>
+                              <ProductThumb image={item.image} alt={item.product_name} size={44} />
+                              <Box sx={{ minWidth: 0 }}>
+                                <Typography variant="body2">
+                                  {item.quantity}x {item.product_name}
+                                  {item.size_name && ` (${item.size_name})`}
+                                </Typography>
+                                <Chip
+                                label={STATUS_LABELS[item.status] || item.status}
                                 size="small"
                                 sx={{
-                                  bgcolor: STATUS_COLORS[item.status] + '20',
-                                  color: STATUS_COLORS[item.status],
+                                  mt: 0.5,
+                                  bgcolor: (STATUS_COLORS[item.status] || COLORS.textSecondary) + '20',
+                                  color: STATUS_COLORS[item.status] || COLORS.textSecondary,
                                   fontSize: '10px',
                                 }}
                               />
+                              </Box>
                             </Box>
                             <Typography variant="body2" fontWeight="medium">
                               {price(item.total_price)}
@@ -1289,24 +1669,15 @@ export default function WaiterDashboard() {
                             </Typography>
                           </Box>
                         )}
-                        <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
-                          {order.status === 'READY' && (
-                            <Button
-                              variant="contained"
-                              startIcon={<CheckCircleIcon />}
-                              onClick={() => handleServeOrder(order.id)}
-                              sx={{
-                                bgcolor: COLORS.success,
-                                '&:hover': { bgcolor: COLORS.success + 'dd' },
-                              }}
-                            >
-                              Mark as Served
-                            </Button>
-                          )}
+                        <Box sx={{ mt: 2, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                          {renderWaiterOrderActions(order)}
                           <Button
                             variant="outlined"
                             startIcon={<PrintIcon />}
-                            onClick={() => handlePrintBill(order)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handlePrintBill(order);
+                            }}
                           >
                             Print Bill
                           </Button>
@@ -1314,7 +1685,8 @@ export default function WaiterDashboard() {
                             variant="outlined"
                             color="error"
                             startIcon={<CancelIcon />}
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
                               setSelectedOrder(order);
                               setCancelDialogOpen(true);
                             }}
@@ -1605,8 +1977,9 @@ export default function WaiterDashboard() {
                     {cartItems.map((item) => (
                       <Box
                         key={item.productId}
-                        sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}
+                        sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1.25 }}
                       >
+                        <ProductThumb image={item.image} alt={item.name} size={40} />
                         <Box sx={{ minWidth: 0, flex: 1 }}>
                           <Typography sx={{ fontWeight: 800, color: '#111' }} noWrap>
                             {item.name}
@@ -1725,11 +2098,14 @@ export default function WaiterDashboard() {
                         key={p.id}
                         sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}
                       >
-                        <Box sx={{ minWidth: 0 }}>
-                          <Typography sx={{ fontWeight: 900, color: '#111' }} noWrap>
-                            {p.name}
-                          </Typography>
-                          <Typography sx={{ fontSize: 13, color: '#666' }}>{money(p.price)}</Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0, flex: 1 }}>
+                          <ProductThumb image={p.image} alt={p.name} size={52} />
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography sx={{ fontWeight: 900, color: '#111' }} noWrap>
+                              {p.name}
+                            </Typography>
+                            <Typography sx={{ fontSize: 13, color: '#666' }}>{money(p.price)}</Typography>
+                          </Box>
                         </Box>
                         <Button
                           size="small"
@@ -1973,25 +2349,30 @@ export default function WaiterDashboard() {
               <Typography variant="subtitle2" gutterBottom>Items:</Typography>
               {selectedOrder.items.map((item) => (
                 <Box key={item.id} sx={{ py: 1, borderBottom: `1px solid ${COLORS.border}` }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <Typography variant="body2">
-                      {item.quantity}x {item.product_name}
-                      {item.size_name && ` (${item.size_name})`}
-                    </Typography>
-                    <Typography variant="body2" fontWeight="medium">
-                      {price(item.total_price)}
-                    </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.25 }}>
+                    <ProductThumb image={item.image} alt={item.product_name} size={48} />
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
+                        <Typography variant="body2">
+                          {item.quantity}x {item.product_name}
+                          {item.size_name && ` (${item.size_name})`}
+                        </Typography>
+                        <Typography variant="body2" fontWeight="medium">
+                          {price(item.total_price)}
+                        </Typography>
+                      </Box>
+                      <Chip
+                        label={STATUS_LABELS[item.status] || item.status}
+                        size="small"
+                        sx={{
+                          mt: 0.5,
+                          bgcolor: (STATUS_COLORS[item.status] || COLORS.textSecondary) + '20',
+                          color: STATUS_COLORS[item.status] || COLORS.textSecondary,
+                          fontSize: '10px',
+                        }}
+                      />
+                    </Box>
                   </Box>
-                  <Chip
-                    label={item.status}
-                    size="small"
-                    sx={{
-                      mt: 0.5,
-                      bgcolor: STATUS_COLORS[item.status] + '20',
-                      color: STATUS_COLORS[item.status],
-                      fontSize: '10px',
-                    }}
-                  />
                 </Box>
               ))}
               <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -2003,24 +2384,129 @@ export default function WaiterDashboard() {
             </Box>
           )}
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={{ flexWrap: 'wrap', gap: 1 }}>
           <Button onClick={() => setOrderDetailsDialogOpen(false)}>Close</Button>
           <Button variant="outlined" startIcon={<PrintIcon />} onClick={() => selectedOrder && handlePrintBill(selectedOrder)}>
             Print Bill
           </Button>
-          {selectedOrder?.status === 'READY' && (
+          {selectedOrder && orderNeedsBill(selectedOrder) && (
             <Button
               variant="contained"
-              startIcon={<CheckCircleIcon />}
+              startIcon={<PrintIcon />}
+              disabled={updatingOrderId === selectedOrder.id}
               onClick={() => {
-                handleServeOrder(selectedOrder.id);
-                setOrderDetailsDialogOpen(false);
+                void handleGenerateBill(selectedOrder);
               }}
               sx={{ bgcolor: COLORS.success }}
             >
-              Mark Served
+              Generate Bill
             </Button>
           )}
+          {selectedOrder && renderWaiterOrderActions(selectedOrder)}
+          {selectedOrder && isWaiterActiveOrder(selectedOrder) && (
+            <Button
+              variant="outlined"
+              color="error"
+              startIcon={<CancelIcon />}
+              onClick={() => {
+                setCancelDialogOpen(true);
+              }}
+            >
+              Cancel
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+
+      {/* Bill / Payment Dialog */}
+      <Dialog
+        open={billDialogOpen}
+        onClose={() => {
+          if (updatingOrderId) return;
+          setBillDialogOpen(false);
+          setBillOrder(null);
+          setBillText('');
+          setSelectedPaymentMethod('');
+        }}
+        maxWidth="sm"
+        fullWidth
+        fullScreen={isMobile}
+      >
+        <DialogTitle>Order Bill #{billOrder?.order_number}</DialogTitle>
+        <DialogContent>
+          {billOrder && (
+            <Box sx={{ py: 1 }}>
+              <Typography variant="body2" color="text.secondary">
+                {billOrder.order_type}
+                {billOrder.table_number ? ` • Table ${billOrder.table_number}` : ''}
+              </Typography>
+              <Divider sx={{ my: 2 }} />
+              <Typography variant="subtitle2" gutterBottom>
+                Items
+              </Typography>
+              {billOrder.items.map((item) => (
+                <Box
+                  key={item.id}
+                  sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, py: 0.75 }}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, flex: 1 }}>
+                    <ProductThumb image={item.image} alt={item.product_name} size={40} />
+                    <Typography variant="body2">
+                      {item.quantity}x {item.product_name}
+                    </Typography>
+                  </Box>
+                  <Typography variant="body2" fontWeight="medium">
+                    {price(item.total_price)}
+                  </Typography>
+                </Box>
+              ))}
+              <Divider sx={{ my: 2 }} />
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+                <Typography variant="h6">Total</Typography>
+                <Typography variant="h6" fontWeight="bold" sx={{ color: COLORS.primary }}>
+                  {price(billOrder.total_amount)}
+                </Typography>
+              </Box>
+              <FormLabel component="legend" sx={{ mb: 1 }}>
+                Payment method
+              </FormLabel>
+              <RadioGroup
+                value={selectedPaymentMethod}
+                onChange={(e) =>
+                  setSelectedPaymentMethod(e.target.value as 'CASH' | 'CARD' | 'BANK_TRANSFER')
+                }
+              >
+                <FormControlLabel value="CASH" control={<Radio />} label="Cash" />
+                <FormControlLabel value="CARD" control={<Radio />} label="Card" />
+                <FormControlLabel value="BANK_TRANSFER" control={<Radio />} label="Bank Transfer" />
+              </RadioGroup>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ flexWrap: 'wrap', gap: 1, px: 2, pb: 2 }}>
+          <Button
+            onClick={() => {
+              setBillDialogOpen(false);
+              setBillOrder(null);
+              setBillText('');
+              setSelectedPaymentMethod('');
+            }}
+            disabled={!!updatingOrderId}
+          >
+            Close
+          </Button>
+          <Button variant="outlined" startIcon={<PrintIcon />} onClick={handlePrintBillText} disabled={!billOrder}>
+            Print
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={updatingOrderId ? <CircularProgress size={18} color="inherit" /> : <CheckCircleIcon />}
+            disabled={!selectedPaymentMethod || !!updatingOrderId}
+            onClick={() => void handleConfirmBillPayment()}
+            sx={{ bgcolor: COLORS.success, '&:hover': { bgcolor: COLORS.success + 'dd' } }}
+          >
+            Confirm Payment & Complete
+          </Button>
         </DialogActions>
       </Dialog>
 

@@ -1,5 +1,6 @@
 import { Types } from 'mongoose';
 import { Branch } from '@/models/Branch';
+import { User } from '@/models/User';
 import { DashboardService } from './dashboard.service';
 import { MenuRepository } from '@/modules/menu/menu.repository';
 import { OrderRepository } from '@/modules/order/order.repository';
@@ -127,8 +128,17 @@ export class DashboardSnapshotService {
   }
 
   async getChefDashboard(userId: string, role: string, assignedBranchId: string) {
-    const branchId = role === 'ADMIN' || role === 'SUPER_ADMIN' ? '' : assignedBranchId || '';
-    if (!userId || !branchId) {
+    const isAdmin = role === 'ADMIN' || role === 'SUPER_ADMIN';
+    let branchId = isAdmin ? assignedBranchId || '' : assignedBranchId || '';
+
+    if (!branchId && userId) {
+      const { User } = await import('@/models/User');
+      const chef = await User.findById(userId).select('assignedBranch').lean();
+      const ab = (chef as any)?.assignedBranch;
+      branchId = ab?._id?.toString?.() || (ab ? String(ab) : '');
+    }
+
+    if (!userId) {
       return {
         orders: [],
         cookingOrders: [],
@@ -138,12 +148,27 @@ export class DashboardSnapshotService {
       };
     }
 
-    const branchObjectId = Types.ObjectId.isValid(branchId) ? new Types.ObjectId(branchId) : undefined;
-    const branchMatch = branchObjectId ? { $in: [branchObjectId, branchId] } : branchId;
+    if (!branchId && !isAdmin) {
+      return {
+        orders: [],
+        cookingOrders: [],
+        mostOrdered: [],
+        notifications: [],
+        unreadCount: 0,
+      };
+    }
+
+    const branchObjectId = branchId && Types.ObjectId.isValid(branchId) ? new Types.ObjectId(branchId) : undefined;
+    const branchMatch = branchId
+      ? { $in: [...(branchObjectId ? [branchObjectId] : []), branchId] }
+      : undefined;
+    const orderBranchFilter = branchMatch ? { branch: branchMatch } : {};
 
     const [ordersList, cookingResult, mostOrderedResult, notifResult, unreadCount] = await Promise.all([
-      this.orderRepository.findAllOrders({ branch: branchMatch }, 1, 200),
-      this.orderRepository.findByBranchId(branchId, 1, 100, undefined),
+      this.orderRepository.findAllOrders(orderBranchFilter, 1, 200),
+      branchId
+        ? this.orderRepository.findByBranchId(branchId, 1, 200, undefined)
+        : Promise.resolve({ orders: [], total: 0 }),
       this.dashboardService.getMostOrderedItemsForChef(userId, { days: 7, limit: 5 }),
       this.notificationService.getChefNotifications(userId, branchId, 1, 30),
       this.notificationService.getChefUnreadCount(userId, branchId),
@@ -192,6 +217,61 @@ export class DashboardSnapshotService {
       stats,
       orders: (ordersList || []).map(normalizeOrder),
       tables: tablesList || [],
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  async getRiderDashboard(userId: string) {
+    if (!userId) {
+      return {
+        stats: {
+          assignedDeliveries: 0,
+          completedDeliveries: 0,
+          todayEarnings: 0,
+          thisWeekEarnings: 0,
+        },
+        earnings: {
+          totalEarnings: 0,
+          thisWeekEarnings: 0,
+          thisMonthEarnings: 0,
+          lastMonthEarnings: 0,
+        },
+        orders: [],
+        availableOrders: [],
+        notifications: [],
+        unreadCount: 0,
+        onDuty: false,
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    const page = 1;
+    const limit = 50;
+
+    const [stats, earnings, assignedResult, availableResult, notifResult, unreadCount, riderUser] =
+      await Promise.all([
+        this.dashboardService.getRiderStats(userId),
+        this.dashboardService.getRiderEarnings(userId),
+        this.orderRepository.findByRiderId(userId, page, limit),
+        this.orderRepository.getAvailableOrdersForRiders(1, 10),
+        this.notificationService.getRiderNotifications(userId, 1, 30),
+        this.notificationService.getRiderUnreadCount(userId),
+        User.findById(userId).select('onDuty'),
+      ]);
+
+    const assignedIds = new Set((assignedResult?.orders || []).map((o: { _id: { toString(): string } }) => o._id.toString()));
+    const availableOnly = (availableResult?.orders || []).filter(
+      (o: { _id: { toString(): string } }) => !assignedIds.has(o._id.toString())
+    );
+
+    return {
+      stats,
+      earnings,
+      orders: (assignedResult?.orders || []).map(normalizeOrder),
+      availableOrders: availableOnly.map(normalizeOrder),
+      notifications: (notifResult as { notifications?: unknown[] })?.notifications || [],
+      unreadCount: typeof unreadCount === 'number' ? unreadCount : 0,
+      onDuty: !!(riderUser as { onDuty?: boolean } | null)?.onDuty,
       timestamp: new Date().toISOString(),
     };
   }

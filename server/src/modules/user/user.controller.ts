@@ -84,12 +84,15 @@ export class UserController {
     }
     
     console.log('[USERS] Extracted branchId:', userBranchId, 'from:', rawBranchId);
-    const showInactive = req.query.showInactive === 'true' || userRole === 'SUPER_ADMIN';
+    const canManageUsers = ['SUPER_ADMIN', 'ADMIN', 'BRANCH_MANAGER'].includes(userRole);
+    const activeOnly = req.query.activeOnly === 'true';
+    const showInactive =
+      req.query.showInactive === 'true' || (canManageUsers && req.query.showInactive !== 'false');
 
     let filter: any = {};
-    
-    // Only filter by isActive if not showing inactive and not SUPER_ADMIN
-    if (!showInactive) {
+
+    // Management dashboards list active + inactive; use ?activeOnly=true to hide deactivated
+    if (activeOnly || (!showInactive && !canManageUsers)) {
       filter.isActive = true;
     }
     

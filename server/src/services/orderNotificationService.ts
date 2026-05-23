@@ -496,6 +496,154 @@ class OrderNotificationService {
   /**
    * Rider picked up order
    */
+  /**
+   * Waiter changed order status — confirm to actor + notify kitchen, managers, admins, other waiters.
+   */
+  static async notifyWaiterStatusChange(input: {
+    orderId: string;
+    orderNumber: string;
+    newStatus: string;
+    actorUserId: string;
+    actorDisplayName?: string;
+    branchId?: string;
+    tableNumber?: string;
+    orderType?: string;
+    skipTeamRoles?: string[];
+  }) {
+    try {
+      const newStatus = String(input.newStatus || '').toUpperCase();
+      const orderNumber = input.orderNumber;
+      const tableLabel = input.tableNumber ? `Table ${input.tableNumber}` : '';
+      const tableSuffix = tableLabel ? ` (${tableLabel})` : '';
+      const actor = String(input.actorDisplayName || 'Waiter').trim() || 'Waiter';
+
+      const templates: Record<
+        string,
+        {
+          type: string;
+          actorTitle: string;
+          actorMessage: string;
+          teamTitle: string;
+          teamMessage: string;
+        }
+      > = {
+        READY: {
+          type: 'ORDER_READY',
+          actorTitle: 'Marked as ready',
+          actorMessage: `You marked order #${orderNumber} as ready to serve${tableSuffix}.`,
+          teamTitle: 'Order ready to serve',
+          teamMessage: `${actor} marked order #${orderNumber} as ready to serve${tableSuffix}.`,
+        },
+        SERVED: {
+          type: 'ORDER_SERVED',
+          actorTitle: 'Order served',
+          actorMessage: `You served order #${orderNumber}${tableSuffix}.`,
+          teamTitle: 'Order served',
+          teamMessage: `Order #${orderNumber} has been served${tableSuffix} by ${actor}.`,
+        },
+        PICKED_UP: {
+          type: 'ORDER_PICKED_UP',
+          actorTitle: 'Order picked up',
+          actorMessage: `You marked order #${orderNumber} as picked up.`,
+          teamTitle: 'Order picked up',
+          teamMessage: `${actor} picked up order #${orderNumber}.`,
+        },
+        COMPLETED: {
+          type: 'ORDER_COMPLETED',
+          actorTitle: 'Order completed',
+          actorMessage: `Order #${orderNumber} is completed and payment recorded.`,
+          teamTitle: 'Order completed',
+          teamMessage: `Order #${orderNumber} has been completed${tableSuffix}.`,
+        },
+        CANCELLED: {
+          type: 'ORDER_CANCELLED',
+          actorTitle: 'Order cancelled',
+          actorMessage: `You cancelled order #${orderNumber}${tableSuffix}.`,
+          teamTitle: 'Order cancelled',
+          teamMessage: `${actor} cancelled order #${orderNumber}${tableSuffix}.`,
+        },
+      };
+
+      const tpl = templates[newStatus];
+      if (!tpl) return;
+
+      const baseData = {
+        orderId: input.orderId,
+        orderNumber,
+        status: newStatus,
+        tableNumber: input.tableNumber,
+        orderType: input.orderType,
+        actorUserId: input.actorUserId,
+        actorName: actor,
+      };
+
+      await NotificationService.sendNotification({
+        recipient: input.actorUserId,
+        recipientRole: 'WAITER',
+        type: tpl.type,
+        title: tpl.actorTitle,
+        message: tpl.actorMessage,
+        priority: 'HIGH',
+        data: baseData,
+        relatedOrder: input.orderId,
+      });
+
+      const skip = new Set((input.skipTeamRoles || []).map((r) => r.toUpperCase()));
+      const teamRoles = ['CHEF', 'BRANCH_MANAGER', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'];
+
+      for (const role of teamRoles) {
+        if (skip.has(role)) continue;
+        await NotificationService.notifyByRole({
+          role,
+          branchId: input.branchId,
+          type: tpl.type,
+          title: tpl.teamTitle,
+          message: tpl.teamMessage,
+          priority: newStatus === 'CANCELLED' ? 'URGENT' : 'HIGH',
+          data: baseData,
+        });
+      }
+
+      if (input.branchId) {
+        const otherWaiters = await User.find({
+          role: 'WAITER',
+          isActive: true,
+          _id: { $ne: input.actorUserId },
+          $or: [
+            { assignedBranch: input.branchId },
+            { assignedBranch: { $exists: false } },
+            { assignedBranch: null },
+          ],
+        })
+          .select('_id')
+          .lean();
+
+        await Promise.all(
+          otherWaiters.map((w) =>
+            NotificationService.sendNotification({
+              recipient: w._id.toString(),
+              recipientRole: 'WAITER',
+              type: tpl.type,
+              title: tpl.teamTitle,
+              message: tpl.teamMessage,
+              priority: 'HIGH',
+              data: baseData,
+              relatedOrder: input.orderId,
+            })
+          )
+        );
+      }
+
+      console.log('[Order Event] Waiter status change notified:', {
+        orderId: input.orderId,
+        newStatus,
+        actor: input.actorUserId,
+      });
+    } catch (error) {
+      console.error('[Order Event] Waiter status change notification error:', error);
+    }
+  }
+
   static async notifyRiderPickedUp(orderId: string, riderId: string) {
     try {
       const order = await Order.findById(orderId).populate('customer');

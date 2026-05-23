@@ -159,7 +159,13 @@ export const initWebSocket = (app: Express) => {
       if (!role || !allowedRoles.has(role) || !userId) return;
 
       try {
-        const data = await dashboardSnapshot.getChefDashboard(userId, role, assignedBranchId || '');
+        let branchForChef = assignedBranchId || '';
+        if (!branchForChef) {
+          const chefUser = await User.findById(userId).select('assignedBranch').lean();
+          const ab = (chefUser as any)?.assignedBranch;
+          branchForChef = ab?._id?.toString?.() || (ab ? String(ab) : '');
+        }
+        const data = await dashboardSnapshot.getChefDashboard(userId, role, branchForChef);
         socket.emit('chef_dashboard:data', data);
       } catch (e) {
         socket.emit('chef_dashboard:error', { message: 'Failed to load chef dashboard' });
@@ -191,11 +197,15 @@ export const initWebSocket = (app: Express) => {
     });
 
     socket.on('admin_unread_count:get', async () => {
-      const allowed = role === 'ADMIN' || role === 'SUPER_ADMIN';
-      if (!allowed) return;
+      const allowed =
+        role === 'ADMIN' || role === 'SUPER_ADMIN' || role === 'BRANCH_MANAGER';
+      if (!allowed || !userId) return;
 
       try {
-        const unreadCount = await notificationService.getAdminUnreadCount();
+        const unreadCount = await notificationService.getAdminUnreadCount(
+          assignedBranchId || '',
+          userId
+        );
         socket.emit('admin_unread_count:data', { unreadCount });
       } catch (e) {
         socket.emit('admin_unread_count:data', { unreadCount: 0 });
@@ -495,35 +505,8 @@ export const initWebSocket = (app: Express) => {
       if (role !== 'RIDER' || !userId) return;
 
       try {
-        const page = 1;
-        const limit = 50;
-        const [stats, earnings, assignedResult, availableResult, notifResult, unreadCount, riderUser] =
-          await Promise.all([
-            dashboardService.getRiderStats(userId),
-            dashboardService.getRiderEarnings(userId),
-            orderRepository.findByRiderId(userId, page, limit),
-            orderRepository.getAvailableOrdersForRiders(1, 10),
-            notificationService.getRiderNotifications(userId, 1, 30),
-            notificationService.getRiderUnreadCount(userId),
-            User.findById(userId).select('onDuty'),
-          ]);
-
-        const assignedIds = new Set((assignedResult?.orders || []).map((o: any) => o._id.toString()));
-        const availableOrders = (availableResult?.orders || []).filter(
-          (o: any) => !assignedIds.has(o._id.toString())
-        );
-        const allOrders = [...(assignedResult?.orders || []), ...availableOrders];
-
-        socket.emit('rider_dashboard:data', {
-          stats,
-          earnings,
-          orders: allOrders.map(normalizeOrderForSocket),
-          availableOrders: (availableResult?.orders || []).map(normalizeOrderForSocket),
-          notifications: (notifResult as any)?.notifications || [],
-          unreadCount: typeof unreadCount === 'number' ? unreadCount : 0,
-          onDuty: !!(riderUser as any)?.onDuty,
-          timestamp: new Date().toISOString(),
-        });
+        const data = await dashboardSnapshot.getRiderDashboard(userId);
+        socket.emit('rider_dashboard:data', data);
       } catch {
         socket.emit('rider_dashboard:error', { message: 'Failed to load rider dashboard' });
       }
@@ -550,13 +533,29 @@ export const initWebSocket = (app: Express) => {
     });
   });
 
-  const pushAdminUnreadBadge = async () => {
+  const pushAdminUnreadBadgeForUser = async (
+    recipientId: string,
+    branchId?: string
+  ) => {
+    const adminRoles = new Set(['ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER']);
     try {
-      const unreadCount = await notificationService.getAdminUnreadCount();
-      io.to('admin').emit('admin_unread_count:data', { unreadCount });
-      io.to('role_ADMIN').emit('admin_unread_count:data', { unreadCount });
-      io.to('role_SUPER_ADMIN').emit('admin_unread_count:data', { unreadCount });
-      io.to('role_BRANCH_MANAGER').emit('admin_unread_count:data', { unreadCount });
+      const user = await User.findById(recipientId).select('role assignedBranch').lean();
+      const userRole = String(user?.role || '').toUpperCase();
+      if (!user || !adminRoles.has(userRole)) return;
+
+      const ab = user.assignedBranch;
+      const resolvedBranch =
+        branchId ||
+        (ab && typeof ab === 'object' && '_id' in ab
+          ? String((ab as { _id: unknown })._id)
+          : ab
+            ? String(ab)
+            : '');
+      const unreadCount = await notificationService.getAdminUnreadCount(
+        resolvedBranch,
+        recipientId
+      );
+      io.to(`user_${recipientId}`).emit('admin_unread_count:data', { unreadCount });
     } catch {
       /* non-fatal */
     }
@@ -572,7 +571,11 @@ export const initWebSocket = (app: Express) => {
     };
     io.to(`user_${recipientId}`).emit('notification', payload);
     io.to(`user_${recipientId}`).emit('notification:new', payload);
-    void pushAdminUnreadBadge();
+    const dataBranch = (notificationData.data as Record<string, unknown> | undefined)?.branchId;
+    void pushAdminUnreadBadgeForUser(
+      recipientId,
+      typeof dataBranch === 'string' ? dataBranch : undefined
+    );
     console.log(`[WebSocket] Notification sent to user ${recipientId}:`, notificationData?.type);
   };
 

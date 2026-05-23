@@ -23,6 +23,7 @@ import { useTheme } from '@mui/material/styles';
 import {
   Notifications as NotificationsIcon,
   MarkEmailRead,
+  DeleteSweep,
   Delete,
   Circle,
   Info,
@@ -32,9 +33,14 @@ import {
   LocalOffer,
   Restaurant,
 } from '@mui/icons-material';
+import { useLocation } from 'react-router-dom';
 import { api } from '../../services/api';
 import { io, type Socket } from 'socket.io-client';
-import { resolveSocketUrl } from '../../utils/resolveSocketUrl';
+import {
+  publishNotificationUnreadCount,
+  resolveStaffBranchId,
+} from '../../utils/notificationCountSync';
+import { getSocketIoOptions, getSocketIoUrl } from '../../utils/socketOptions';
 
 interface NotificationItem {
   _id: string;
@@ -48,19 +54,42 @@ interface NotificationItem {
 
 const AdminNotifications: React.FC = () => {
   const theme = useTheme();
+  const location = useLocation();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const isManager = location.pathname.startsWith('/manager');
+  const ordersBase = isManager ? '/manager' : '/admin';
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
   const [tabValue, setTabValue] = useState(0);
   const socketRef = useRef<Socket | null>(null);
 
+  const applyUnread = (count: number) => {
+    const n = Math.max(0, count);
+    setUnreadCount(n);
+    publishNotificationUnreadCount(n);
+  };
+
+  const refreshUnreadCount = async () => {
+    try {
+      const branchId = isManager ? resolveStaffBranchId() : undefined;
+      const res = await api.getNotificationUnreadCount(branchId ? { branchId } : undefined);
+      if (res?.success) {
+        const data = res.data as { unreadCount?: number } | undefined;
+        applyUnread(Number(data?.unreadCount ?? 0));
+      }
+    } catch {
+      /* non-fatal */
+    }
+  };
+
   useEffect(() => {
     loadNotifications();
+    void refreshUnreadCount();
     if (socketRef.current?.connected) {
       socketRef.current.emit('admin_unread_count:get');
     }
-  }, [tabValue]);
+  }, [tabValue, isManager]);
 
   const loadNotifications = async () => {
     try {
@@ -89,20 +118,17 @@ const AdminNotifications: React.FC = () => {
   useEffect(() => {
     if (socketRef.current) return;
 
-    const token = localStorage.getItem('auth_token') || localStorage.getItem('authToken') || '';
-
-    const socket = io(resolveSocketUrl(), {
-      path: '/socket.io',
-      transports: ['websocket', 'polling'],
-      auth: token ? { token } : undefined,
-    });
+    const socket = io(getSocketIoUrl(), getSocketIoOptions());
     socketRef.current = socket;
 
-    const requestUnread = () => socket.emit('admin_unread_count:get');
+    const requestUnread = () => {
+      socket.emit('admin_unread_count:get');
+      void refreshUnreadCount();
+    };
 
     socket.on('connect', requestUnread);
     socket.on('admin_unread_count:data', (payload: any) => {
-      setUnreadCount(typeof payload?.unreadCount === 'number' ? payload.unreadCount : 0);
+      applyUnread(typeof payload?.unreadCount === 'number' ? payload.unreadCount : 0);
     });
     socket.on('notification', requestUnread);
 
@@ -115,7 +141,7 @@ const AdminNotifications: React.FC = () => {
   const handleNotificationClick = async (notification: NotificationItem) => {
     const orderId = notification.data?.orderId || notification.data?.order_id;
     if (orderId) {
-      window.location.href = `/admin/orders?orderId=${encodeURIComponent(String(orderId))}`;
+      window.location.href = `${ordersBase}/orders?orderId=${encodeURIComponent(String(orderId))}`;
     }
     if (notification.read) return;
     await handleMarkAsRead(notification._id);
@@ -128,7 +154,7 @@ const AdminNotifications: React.FC = () => {
         setNotifications(notifications.map(n => 
           n._id === id ? { ...n, read: true } : n
         ));
-        setUnreadCount(Math.max(0, unreadCount - 1));
+        applyUnread(Math.max(0, unreadCount - 1));
       }
     } catch (err) {
       console.error('Error marking notification as read:', err);
@@ -137,13 +163,35 @@ const AdminNotifications: React.FC = () => {
 
   const handleMarkAllAsRead = async () => {
     try {
-      const response: any = await api.markAllNotificationsAsRead();
+      const branchId = isManager ? resolveStaffBranchId() : undefined;
+      const response: any = await api.markAllNotificationsAsRead(branchId);
       if (response?.success) {
         setNotifications(notifications.map(n => ({ ...n, read: true })));
-        setUnreadCount(0);
+        applyUnread(0);
       }
     } catch (err) {
       console.error('Error marking all as read:', err);
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (notifications.length === 0) return;
+    if (
+      !window.confirm(
+        'Delete all notifications? This removes every notification in your list and cannot be undone.'
+      )
+    ) {
+      return;
+    }
+    try {
+      const branchId = isManager ? resolveStaffBranchId() : undefined;
+      const response: any = await api.clearAllAdminNotifications(branchId);
+      if (response?.success) {
+        setNotifications([]);
+        applyUnread(0);
+      }
+    } catch (err) {
+      console.error('Error clearing notifications:', err);
     }
   };
 
@@ -153,7 +201,7 @@ const AdminNotifications: React.FC = () => {
       if (response?.success) {
         const notification = notifications.find(n => n._id === id);
         if (notification && !notification.read) {
-          setUnreadCount(Math.max(0, unreadCount - 1));
+          applyUnread(Math.max(0, unreadCount - 1));
         }
         setNotifications(notifications.filter(n => n._id !== id));
       }
@@ -216,14 +264,25 @@ const AdminNotifications: React.FC = () => {
             Notifications
           </Typography>
         </Box>
-        <Button
-          variant="outlined"
-          startIcon={<MarkEmailRead />}
-          onClick={handleMarkAllAsRead}
-          disabled={unreadCount === 0}
-        >
-          Mark All as Read
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+          <Button
+            variant="outlined"
+            startIcon={<MarkEmailRead />}
+            onClick={() => void handleMarkAllAsRead()}
+            disabled={unreadCount === 0}
+          >
+            Mark All as Read
+          </Button>
+          <Button
+            variant="outlined"
+            color="error"
+            startIcon={<DeleteSweep />}
+            onClick={() => void handleClearAll()}
+            disabled={notifications.length === 0}
+          >
+            Clear All
+          </Button>
+        </Box>
       </Box>
 
       <Paper sx={{ borderRadius: 2, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>

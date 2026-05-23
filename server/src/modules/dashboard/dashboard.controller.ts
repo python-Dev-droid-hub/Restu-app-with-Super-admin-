@@ -8,10 +8,18 @@ import { OrderRepository } from '@/modules/order/order.repository';
 import { normalizeOrderPayload } from '@/utils/normalizeOrderPayload';
 
 function resolveAssignedBranchId(req: IAuthRequest): string {
+  const fromQuery = String((req.query as { branchId?: string; branch?: string })?.branchId || (req.query as { branch?: string })?.branch || '').trim();
   const branch = req.user?.assignedBranch as
     | { _id?: { toString(): string }; toString?: () => string }
+    | string
     | undefined;
-  return branch?._id?.toString?.() || (typeof branch?.toString === 'function' ? branch.toString() : '') || '';
+  const fromUser =
+    branch && typeof branch === 'object'
+      ? branch?._id?.toString?.() || (typeof branch?.toString === 'function' ? branch.toString() : '')
+      : branch
+        ? String(branch)
+        : '';
+  return fromUser || fromQuery || '';
 }
 
 export class DashboardController {
@@ -57,6 +65,12 @@ export class DashboardController {
     const userId = String(req.user?._id || '');
     const data = await this.dashboardSnapshot.getWaiterDashboard(userId, resolveAssignedBranchId(req));
     sendSuccess(res, data, 'Waiter dashboard retrieved successfully');
+  });
+
+  getRiderDashboardOverview = asyncHandler(async (req: IAuthRequest, res: Response) => {
+    const userId = String(req.user?._id || '');
+    const data = await this.dashboardSnapshot.getRiderDashboard(userId);
+    sendSuccess(res, data, 'Rider dashboard retrieved successfully');
   });
 
   // Super Admin Dashboard Stats

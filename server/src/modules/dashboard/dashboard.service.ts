@@ -4,6 +4,7 @@ import { Branch } from '@/models/Branch';
 import { Payment } from '@/models/Payment';
 import { Product } from '@/models/Product';
 import { Types } from 'mongoose';
+import { buildRiderOrderFilter } from '@/utils/riderOrderFilter';
 
 export class DashboardService {
   // Super Admin Dashboard Stats
@@ -1070,13 +1071,16 @@ export class DashboardService {
 
   // Rider Dashboard Stats
   async getRiderStats(riderId: string) {
+    const riderFilter = buildRiderOrderFilter(riderId);
+    const deliveredStatus = { $in: ['DELIVERED', 'COMPLETED'] };
+
     const assignedDeliveries = await Order.countDocuments({
-      rider: riderId,
+      ...riderFilter,
       status: { $in: ['RIDER_ASSIGNED', 'PICKED_UP', 'OUT_FOR_DELIVERY', 'IN_DELIVERY'] },
     });
     const completedDeliveries = await Order.countDocuments({
-      rider: riderId,
-      status: { $in: ['DELIVERED', 'COMPLETED'] },
+      ...riderFilter,
+      status: deliveredStatus,
     });
 
     const todayStart = new Date();
@@ -1086,27 +1090,15 @@ export class DashboardService {
     weekStart.setDate(weekStart.getDate() - weekStart.getDay());
     weekStart.setHours(0, 0, 0, 0);
 
+    const sumDeliveryFees = (extraMatch: Record<string, unknown>) =>
+      Order.aggregate([
+        { $match: { ...riderFilter, status: deliveredStatus, ...extraMatch } },
+        { $group: { _id: null, total: { $sum: { $ifNull: ['$deliveryFee', 0] } } } },
+      ]).then((r) => r[0]?.total || 0);
+
     const [todayEarnings, thisWeekEarnings] = await Promise.all([
-      Order.aggregate([
-        {
-          $match: {
-            rider: (typeof riderId === 'string' ? (new (require('mongoose').Types.ObjectId)(riderId)) : riderId) as any,
-            status: { $in: ['DELIVERED', 'COMPLETED'] },
-            updatedAt: { $gte: todayStart },
-          },
-        },
-        { $group: { _id: null, total: { $sum: { $ifNull: ['$deliveryFee', 0] } } } },
-      ]).then((r) => r[0]?.total || 0),
-      Order.aggregate([
-        {
-          $match: {
-            rider: (typeof riderId === 'string' ? (new (require('mongoose').Types.ObjectId)(riderId)) : riderId) as any,
-            status: { $in: ['DELIVERED', 'COMPLETED'] },
-            updatedAt: { $gte: weekStart },
-          },
-        },
-        { $group: { _id: null, total: { $sum: { $ifNull: ['$deliveryFee', 0] } } } },
-      ]).then((r) => r[0]?.total || 0),
+      sumDeliveryFees({ updatedAt: { $gte: todayStart } }),
+      sumDeliveryFees({ updatedAt: { $gte: weekStart } }),
     ]);
 
     return {
@@ -1119,79 +1111,39 @@ export class DashboardService {
 
   // Rider Earnings
   async getRiderEarnings(riderId: string) {
-    const rider = await User.findById(riderId);
-    if (!rider) {
-      return {
-        totalEarnings: 0,
-        thisWeekEarnings: 0,
-        thisMonthEarnings: 0,
-        lastMonthEarnings: 0,
-        weeklyBreakdown: []
-      };
-    }
+    const riderFilter = buildRiderOrderFilter(riderId);
+    const deliveredStatus = { $in: ['DELIVERED', 'COMPLETED'] };
 
-    // NOTE: This codebase does not persist rider earnings in Payment documents.
-    // Calculate earnings from delivered/completed rider orders using deliveryFee.
-    const totalEarnings = await Order.aggregate([
-      { $match: { rider: rider._id, status: { $in: ['DELIVERED', 'COMPLETED'] } } },
-      { $group: { _id: null, total: { $sum: { $ifNull: ['$deliveryFee', 0] } } } },
-    ]).then((result) => result[0]?.total || 0);
+    const sumDeliveryFees = (extraMatch: Record<string, unknown>) =>
+      Order.aggregate([
+        { $match: { ...riderFilter, status: deliveredStatus, ...extraMatch } },
+        { $group: { _id: null, total: { $sum: { $ifNull: ['$deliveryFee', 0] } } } },
+      ]).then((result) => result[0]?.total || 0);
 
-    // Calculate this week's earnings
     const weekStart = new Date();
     weekStart.setDate(weekStart.getDate() - weekStart.getDay());
     weekStart.setHours(0, 0, 0, 0);
 
-    const thisWeekEarnings = await Order.aggregate([
-      {
-        $match: {
-          rider: rider._id,
-          status: { $in: ['DELIVERED', 'COMPLETED'] },
-          updatedAt: { $gte: weekStart },
-        },
-      },
-      { $group: { _id: null, total: { $sum: { $ifNull: ['$deliveryFee', 0] } } } },
-    ]).then((result) => result[0]?.total || 0);
-
-    // Calculate this month's earnings
     const monthStart = new Date();
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
 
-    const thisMonthEarnings = await Order.aggregate([
-      {
-        $match: {
-          rider: rider._id,
-          status: { $in: ['DELIVERED', 'COMPLETED'] },
-          updatedAt: { $gte: monthStart },
-        },
-      },
-      { $group: { _id: null, total: { $sum: { $ifNull: ['$deliveryFee', 0] } } } },
-    ]).then((result) => result[0]?.total || 0);
-
-    // Calculate last month's earnings
     const lastMonthStart = new Date(monthStart);
     lastMonthStart.setMonth(lastMonthStart.getMonth() - 1);
-    const lastMonthEnd = new Date(monthStart);
-    lastMonthEnd.setDate(0); // Last day of previous month
 
-    const lastMonthEarnings = await Order.aggregate([
-      {
-        $match: {
-          rider: rider._id,
-          status: { $in: ['DELIVERED', 'COMPLETED'] },
-          updatedAt: { $gte: lastMonthStart, $lt: lastMonthEnd },
-        },
-      },
-      { $group: { _id: null, total: { $sum: { $ifNull: ['$deliveryFee', 0] } } } },
-    ]).then((result) => result[0]?.total || 0);
+    const [totalEarnings, thisWeekEarnings, thisMonthEarnings, lastMonthEarnings] = await Promise.all([
+      sumDeliveryFees({}),
+      sumDeliveryFees({ updatedAt: { $gte: weekStart } }),
+      sumDeliveryFees({ updatedAt: { $gte: monthStart } }),
+      sumDeliveryFees({ updatedAt: { $gte: lastMonthStart, $lt: monthStart } }),
+    ]);
 
     return {
       totalEarnings,
       thisWeekEarnings,
       thisMonthEarnings,
       lastMonthEarnings,
-      weeklyBreakdown: [] // Could implement daily breakdown if needed
+      weeklyBreakdown: [],
     };
   }
 

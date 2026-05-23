@@ -1135,102 +1135,99 @@ export class OrderController {
     const updatedOrder = await this.orderRepository.updateById(id, updateData);
     const populatedOrder = await this.orderRepository.findById(id);
 
-    // Real-time customer/rider/kitchen notifications (DB + WebSocket)
+    // Real-time notifications (DB + WebSocket)
+    const orderId = order._id.toString();
+    const orderNumber = order.orderNumber || `ORD-${orderId.slice(-6).toUpperCase()}`;
+    const actorUserId = userId.toString();
+    const actorName = String((req.user as any)?.displayName || (req.user as any)?.name || 'Waiter').trim();
+    const tableNumber = String(order.table?.tableNumber || order.tableNumber || '').trim();
+    const notifyBranchId =
+      order.branch?._id?.toString?.() || (order.branch ? String(order.branch) : userBranchId || undefined);
+    const waiterStatusNotifyInput = {
+      orderId,
+      orderNumber,
+      newStatus: normalizedStatus,
+      actorUserId,
+      actorDisplayName: actorName,
+      branchId: notifyBranchId,
+      tableNumber: tableNumber || undefined,
+      orderType,
+    };
+
     try {
-      const orderId = order._id.toString();
-      switch (normalizedStatus) {
-        case 'KITCHEN_ACCEPTED':
-        case 'CONFIRMED':
-          // no dedicated helper in service; treat as preparing for now
-          await OrderNotificationService.notifyOrderPreparing(orderId);
-          // Notify waiter that order was accepted by kitchen
-          if (order.waiter) {
-            await this.notificationService.createOrderStatusNotification(
-              order.waiter._id.toString(),
-              orderId,
-              order.orderNumber || `ORD-${orderId.slice(-6).toUpperCase()}`,
-              'KITCHEN_ACCEPTED',
-              'Order Accepted by Kitchen',
-              `Order #${order.orderNumber} has been accepted by kitchen and will be prepared soon.`
-            );
-          }
-          break;
-        case 'PREPARING':
-          await OrderNotificationService.notifyOrderPreparing(orderId);
-          // Notify waiter that order is being prepared
-          if (order.waiter) {
-            await this.notificationService.createOrderStatusNotification(
-              order.waiter._id.toString(),
-              orderId,
-              order.orderNumber || `ORD-${orderId.slice(-6).toUpperCase()}`,
-              'PREPARING',
-              'Order is Being Prepared',
-              `Order #${order.orderNumber} is now being prepared by the kitchen.`
-            );
-          }
-          break;
-        case 'READY':
-          await OrderNotificationService.notifyOrderReady(orderId);
-          break;
-        case 'RIDER_ASSIGNED':
-          if (updatedOrder?.rider?._id) {
-            await OrderNotificationService.notifyRiderAssigned(orderId, updatedOrder.rider._id.toString());
-          }
-          break;
-        case 'OUT_FOR_DELIVERY':
-          if (updatedOrder?.rider?._id) {
-            await OrderNotificationService.notifyOrderOutForDelivery(orderId, updatedOrder.rider._id.toString());
-          }
-          break;
-        case 'DELIVERED':
-          await OrderNotificationService.notifyOrderDelivered(orderId);
-          break;
-        case 'SERVED':
-          if (order.waiter) {
-            await this.notificationService.createOrderStatusNotification(
-              order.waiter._id.toString(),
-              orderId,
-              order.orderNumber || `ORD-${orderId.slice(-6).toUpperCase()}`,
-              'SERVED',
-              'Order Served',
-              `Order #${order.orderNumber} has been served.`
-            );
-          }
-          break;
-        case 'CANCELLED':
-          await OrderNotificationService.notifyOrderCancelled(orderId);
-          // Notify waiter if order was cancelled
-          if (order.waiter) {
-            await this.notificationService.createOrderStatusNotification(
-              order.waiter._id.toString(),
-              orderId,
-              order.orderNumber || `ORD-${orderId.slice(-6).toUpperCase()}`,
-              'CANCELLED',
-              'Order Cancelled',
-              `Order #${order.orderNumber} has been cancelled.`
-            );
-          }
-          break;
-        default:
-          break;
+      const waiterDroveStatus =
+        isWaiter && ['READY', 'SERVED', 'COMPLETED', 'PICKED_UP'].includes(normalizedStatus);
+
+      if (waiterDroveStatus) {
+        await OrderNotificationService.notifyWaiterStatusChange(waiterStatusNotifyInput);
+      } else if (normalizedStatus === 'CANCELLED' && isWaiter) {
+        await OrderNotificationService.notifyOrderCancelled(orderId);
+        await OrderNotificationService.notifyWaiterStatusChange({
+          ...waiterStatusNotifyInput,
+          skipTeamRoles: ['CHEF'],
+        });
+      } else {
+        switch (normalizedStatus) {
+          case 'KITCHEN_ACCEPTED':
+          case 'CONFIRMED':
+            await OrderNotificationService.notifyOrderPreparing(orderId);
+            if (order.waiter) {
+              await this.notificationService.createOrderStatusNotification(
+                order.waiter._id.toString(),
+                orderId,
+                orderNumber,
+                'KITCHEN_ACCEPTED',
+                'Order Accepted by Kitchen',
+                `Order #${order.orderNumber} has been accepted by kitchen and will be prepared soon.`
+              );
+            }
+            break;
+          case 'PREPARING':
+            await OrderNotificationService.notifyOrderPreparing(orderId);
+            if (order.waiter) {
+              await this.notificationService.createOrderStatusNotification(
+                order.waiter._id.toString(),
+                orderId,
+                orderNumber,
+                'PREPARING',
+                'Order is Being Prepared',
+                `Order #${order.orderNumber} is now being prepared by the kitchen.`
+              );
+            }
+            break;
+          case 'READY':
+            await OrderNotificationService.notifyOrderReady(orderId);
+            if (order.orderType === 'DINE_IN' && order.waiter) {
+              await this.notificationService.createKitchenReadyNotification(
+                order.waiter._id.toString(),
+                orderId,
+                tableNumber || '-',
+                orderNumber
+              );
+            }
+            break;
+          case 'RIDER_ASSIGNED':
+            if (updatedOrder?.rider?._id) {
+              await OrderNotificationService.notifyRiderAssigned(orderId, updatedOrder.rider._id.toString());
+            }
+            break;
+          case 'OUT_FOR_DELIVERY':
+            if (updatedOrder?.rider?._id) {
+              await OrderNotificationService.notifyOrderOutForDelivery(orderId, updatedOrder.rider._id.toString());
+            }
+            break;
+          case 'DELIVERED':
+            await OrderNotificationService.notifyOrderDelivered(orderId);
+            break;
+          case 'CANCELLED':
+            await OrderNotificationService.notifyOrderCancelled(orderId);
+            break;
+          default:
+            break;
+        }
       }
     } catch (notifError) {
       console.error('[Order Event] updateOrderStatus notification failed:', notifError);
-    }
-
-    // Send notification to waiter when order is READY (for DINE_IN orders)
-    if (normalizedStatus === 'READY' && order.orderType === 'DINE_IN' && order.waiter) {
-      try {
-        await this.notificationService.createKitchenReadyNotification(
-          order.waiter._id.toString(),
-          order._id.toString(),
-          order.table?.tableNumber || order.tableNumber || '-',
-          order.orderNumber || `ORD-${order._id.toString().slice(-6).toUpperCase()}`
-        );
-      } catch (notifError) {
-        console.error('Failed to send kitchen ready notification:', notifError);
-        // Don't fail the request if notification fails
-      }
     }
 
     const branchId =
@@ -1499,6 +1496,19 @@ export class OrderController {
     }
 
     const updatedOrder = await this.orderRepository.assignRider(id, userId);
+    const populatedOrder = await this.orderRepository.findById(id);
+    const branchId =
+      order.branch?._id?.toString?.() || (order.branch ? String(order.branch) : undefined);
+    const orderType = String(order.orderType || 'DELIVERY');
+
+    emitOrderAssigned({
+      orderId: String(id),
+      status: 'RIDER_ASSIGNED',
+      branchId,
+      orderType,
+      order: populatedOrder || updatedOrder,
+      riderId: userId.toString(),
+    });
 
     // Real-time rider assigned notifications (DB + WebSocket)
     try {
@@ -1507,7 +1517,7 @@ export class OrderController {
       console.error('[Order Event] acceptOrder notifyRiderAssigned failed:', notifError);
     }
 
-    sendSuccess(res, updatedOrder, 'Order accepted successfully');
+    sendSuccess(res, populatedOrder || updatedOrder, 'Order accepted successfully');
   });
 
   rejectOrder = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
@@ -1584,6 +1594,17 @@ export class OrderController {
     } catch (notifError) {
       console.error('[Order Reject] Failed to send notifications:', notifError);
     }
+
+    const branchId =
+      order.branch?._id?.toString?.() || (order.branch ? String(order.branch) : undefined);
+    emitOrderStatusUpdated({
+      orderId: String(id),
+      status: 'READY',
+      branchId,
+      orderType: String(order.orderType || 'DELIVERY'),
+      order: populatedOrder,
+      riderId: currentUserId,
+    });
 
     sendSuccess(res, populatedOrder, 'Order rejected successfully');
   });
@@ -1738,7 +1759,8 @@ export class OrderController {
   });
 
   generateBill = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
-    const { id } = req.params;
+    const id = String(req.params.id || req.params.orderId || '').trim();
+    if (!id) throw createError('Order id is required', 400);
     const userId = req.user!._id;
     const userRole = req.user!.role;
 

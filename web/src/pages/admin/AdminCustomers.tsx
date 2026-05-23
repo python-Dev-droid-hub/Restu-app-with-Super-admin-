@@ -107,9 +107,9 @@ const AdminCustomers: React.FC = () => {
   const loadUsers = async () => {
     try {
       setLoading(true);
-      const params: any = {};
+      const params: Record<string, string> = { showInactive: 'true' };
       if (roleFilter !== 'all') params.role = roleFilter;
-      
+
       const response: any = await api.getUsers(params);
       if (response?.success) {
         const rawUsers = response.data?.users || response.data || [];
@@ -144,13 +144,26 @@ const AdminCustomers: React.FC = () => {
   };
 
   const handleToggleActive = async (user: UserItem) => {
+    const nextActive = !user.isActive;
     try {
-      const response: any = await api.updateUser(user._id, { isActive: !user.isActive });
+      const response: any = await api.updateUser(user._id, { isActive: nextActive });
       if (response?.success) {
-        loadUsers();
+        const updated = response.data?.user || response.data;
+        setUsers((prev) =>
+          prev.map((u) =>
+            u._id === user._id
+              ? {
+                  ...u,
+                  isActive:
+                    typeof updated?.isActive === 'boolean' ? updated.isActive : nextActive,
+                }
+              : u
+          )
+        );
       }
     } catch (err) {
       console.error('Error updating user:', err);
+      setError('Failed to update user status');
     }
   };
 

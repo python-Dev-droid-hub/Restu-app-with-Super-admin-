@@ -176,7 +176,19 @@ router.post(
   orderController.generateBill
 );
 router.post(
+  '/:orderId/generate-bill',
+  authenticate,
+  authorize('WAITER', 'BRANCH_MANAGER', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'),
+  orderController.generateBill
+);
+router.post(
   '/:id/print-bill',
+  authenticate,
+  authorize('WAITER', 'BRANCH_MANAGER', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'),
+  orderController.generateBill
+);
+router.post(
+  '/:orderId/print-bill',
   authenticate,
   authorize('WAITER', 'BRANCH_MANAGER', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'),
   orderController.generateBill

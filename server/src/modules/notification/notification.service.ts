@@ -1,6 +1,7 @@
 import { Notification } from '@/models/Notification';
 import { User } from '@/models/User';
 import { Types } from 'mongoose';
+import { dispatchNotification } from '@/services/notificationDispatchService';
 
 export class NotificationService {
   // ============================================
@@ -216,13 +217,10 @@ export class NotificationService {
     return result.deletedCount;
   }
 
-  async getAdminUnreadCount() {
+  async getAdminUnreadCount(branchId?: string, userId?: string) {
+    const filter = this.buildAdminNotificationFilter(branchId, userId);
     return await Notification.countDocuments({
-      $or: [
-        { recipient: null },
-        { type: { $in: ['SYSTEM', 'ORDER_ALERT', 'PAYMENT_ALERT'] } }
-      ],
-      isRead: false
+      $and: [filter, { isRead: false }],
     });
   }
 
@@ -414,14 +412,15 @@ export class NotificationService {
   // ============================================
 
   async createKitchenReadyNotification(waiterId: string, orderId: string, tableNumber: string, orderNumber: string) {
-    return await Notification.create({
-      recipient: new Types.ObjectId(waiterId),
+    return await dispatchNotification({
+      recipient: waiterId,
+      recipientRole: 'WAITER',
       type: 'KITCHEN_READY',
       title: 'Order Ready!',
-      body: `Order ${orderNumber} for Table ${tableNumber} is ready to serve.`,
+      message: `Order ${orderNumber} for Table ${tableNumber} is ready to serve.`,
       relatedOrder: orderId,
       priority: 'HIGH',
-      data: { tableNumber, orderNumber, action: 'PICKUP_ORDER' }
+      data: { tableNumber, orderNumber, action: 'PICKUP_ORDER', orderId },
     });
   }
 
@@ -433,14 +432,15 @@ export class NotificationService {
     title: string,
     body: string
   ) {
-    return await Notification.create({
-      recipient: new Types.ObjectId(waiterId),
+    return await dispatchNotification({
+      recipient: waiterId,
+      recipientRole: 'WAITER',
       type: 'ORDER_UPDATE',
       title,
-      body,
+      message: body,
       relatedOrder: orderId,
       priority: 'HIGH',
-      data: { orderNumber, status, action: 'VIEW_ORDER' }
+      data: { orderNumber, status, action: 'VIEW_ORDER', orderId },
     });
   }
 
