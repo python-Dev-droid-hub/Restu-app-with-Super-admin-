@@ -162,7 +162,8 @@ const StaffProfileMenu: React.FC<StaffProfileMenuProps> = ({
         reader.readAsDataURL(file);
       });
       const res = await api.uploadImage(base64Data, file.name);
-      const url = String(res?.data?.url || '');
+      const uploadData = res?.data as { url?: string; imageUrl?: string } | undefined;
+      const url = String(uploadData?.url || uploadData?.imageUrl || '');
       if (!res?.success || !url) {
         setProfileError(String(res?.error || res?.message || 'Failed to upload image'));
         return;

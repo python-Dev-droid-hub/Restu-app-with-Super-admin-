@@ -210,14 +210,6 @@ const ACCENT_MID = '#FF8E53';
 const ACCENT_LIGHT = '#FFB74D';
 const TEXT_PRIMARY = '#1a1a2e';
 
-const unwrapApiData = <T,>(res: any): T => {
-  const outer = res?.data;
-  if (outer && typeof outer === 'object' && 'data' in outer && (outer as any).data != null) {
-    return (outer as any).data as T;
-  }
-  return (outer ?? {}) as T;
-};
-
 const STATUS_COLORS: Record<string, string> = {
   READY: '#FF6B35',
   RIDER_ASSIGNED: '#1976d2',
@@ -523,47 +515,6 @@ export default function RiderDashboard() {
     const res = await api.get<any>('/users/rider/status');
     if (!res?.success) return;
     setOnDuty(Boolean(res?.data?.onDuty));
-  }, []);
-
-  const loadStats = useCallback(async () => {
-    const res = await api.get<any>('/dashboard/rider/stats');
-    if (!res?.success) return;
-    const d = unwrapApiData<Record<string, unknown>>(res);
-    setStats({
-      assignedDeliveries: toNumber(d.assignedDeliveries, 0),
-      completedDeliveries: toNumber(d.completedDeliveries, 0),
-      todayEarnings: toNumber(d.todayEarnings, 0),
-      thisWeekEarnings: toNumber(d.thisWeekEarnings, 0),
-    });
-  }, []);
-
-  const loadEarnings = useCallback(async () => {
-    const res = await api.get<any>('/dashboard/rider/earnings');
-    if (!res?.success) return;
-    const d = unwrapApiData<Record<string, unknown>>(res);
-    setEarnings({
-      totalEarnings: toNumber(d.totalEarnings, 0),
-      thisWeekEarnings: toNumber(d.thisWeekEarnings, 0),
-      thisMonthEarnings: toNumber(d.thisMonthEarnings, 0),
-      lastMonthEarnings: toNumber(d.lastMonthEarnings, 0),
-    });
-  }, []);
-
-  const loadOrders = useCallback(async () => {
-    const [availableRes, myRes] = await Promise.all([
-      api.get<any>('/orders/driver/available'),
-      api.get<any>('/orders/driver/my-orders?limit=50&page=1'),
-    ]);
-
-    if (availableRes?.success) {
-      const list = availableRes?.data?.orders || availableRes?.data?.data?.orders || availableRes?.data || [];
-      setAvailableOrders(normalizeOrders(list));
-    }
-
-    if (myRes?.success) {
-      const list = myRes?.data?.orders || myRes?.data?.data?.orders || myRes?.data || [];
-      setMyOrders(normalizeOrders(list));
-    }
   }, []);
 
   const loadNotifications = useCallback(async () => {

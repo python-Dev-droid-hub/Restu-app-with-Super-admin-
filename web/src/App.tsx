@@ -39,7 +39,6 @@ const AdminCategories = lazy(() => import('./pages/admin/AdminCategories'));
 const AdminProducts = lazy(() => import('./pages/admin/AdminProducts'));
 const AdminCoupons = lazy(() => import('./pages/admin/AdminCoupons'));
 const AdminDealCampaigns = lazy(() => import('./pages/admin/AdminDealCampaigns'));
-const AdminDeals = lazy(() => import('./pages/admin/AdminDeals'));
 const AdminReports = lazy(() => import('./pages/admin/AdminReports'));
 const AdminSettings = lazy(() => import('./pages/admin/AdminSettings'));
 const AdminProductSize = lazy(() => import('./pages/admin/AdminProductSize'));
