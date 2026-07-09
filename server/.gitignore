@@ -9,8 +9,7 @@ pnpm-debug.log*
 dist/
 build/
 
-# Environment variables
-.env
+# Environment variables (local overrides only — .env is tracked for deployment)
 .env.local
 .env.development.local
 .env.test.local
