@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const adminDir = 'c:/Projects/restaurant-app/mobile/screens/admin';
+const adminDir = 'c:/Projects/restaurant-app-saas/mobile/screens/admin';
 const files = fs.readdirSync(adminDir).filter(f => f.endsWith('.tsx'));
 
 files.forEach(file => {

@@ -30,6 +30,8 @@ import {
   Email,
 } from '@mui/icons-material';
 import { api } from '../../services/api';
+import { useTenantPlan } from '../../hooks/useTenantPlan';
+import { useAdminPageStyles } from '../../utils/adminResponsive';
 
 interface BranchItem {
   _id: string;
@@ -51,6 +53,8 @@ interface BranchItem {
 }
 
 const AdminBranches: React.FC = () => {
+  const { page, header, primaryBtn, titleSx, theme } = useAdminPageStyles();
+  const { canAddBranch, plan } = useTenantPlan();
   const [branches, setBranches] = useState<BranchItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -114,6 +118,7 @@ const AdminBranches: React.FC = () => {
   };
 
   const handleOpenDialog = (branch?: BranchItem) => {
+    if (!branch && !canAddBranch) return;
     if (branch) {
       setEditingBranch(branch);
       setFormData({
@@ -260,25 +265,32 @@ const AdminBranches: React.FC = () => {
   };
 
   return (
-    <Box sx={{ px: { xs: 2, md: 3 }, pb: { xs: 2, md: 3 }, pt: 0, bgcolor: '#f8f5ff', minHeight: '100vh' }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 1.5 }}>
-        <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#333' }}>
+    <Box sx={{ ...page, bgcolor: theme.palette.background.default, minHeight: '100vh' }}>
+      <Box sx={header}>
+        <Typography variant="h5" sx={titleSx}>
           Branches
         </Typography>
         <Button
           variant="contained"
           startIcon={<Add />}
           onClick={() => handleOpenDialog()}
-          sx={{
-            bgcolor: '#FF6B35',
-            '&:hover': { bgcolor: '#E55A24' },
-            borderRadius: 2,
-            textTransform: 'none',
-          }}
+          disabled={!canAddBranch}
+          title={
+            !canAddBranch
+              ? `${plan.planName || 'Your'} plan allows up to ${plan.maxBranches} branch(es). Upgrade to add more.`
+              : undefined
+          }
+          sx={{ ...primaryBtn, borderRadius: 2 }}
         >
           Add Branch
         </Button>
       </Box>
+
+      {!canAddBranch && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Branch limit reached ({plan.usage.branches}/{plan.maxBranches}) on {plan.planName || 'your'} plan.
+        </Alert>
+      )}
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
@@ -304,7 +316,7 @@ const AdminBranches: React.FC = () => {
                 variant="contained"
                 startIcon={<Add />}
                 onClick={() => handleOpenDialog()}
-                sx={{ mt: 2, bgcolor: '#FF6B35', '&:hover': { bgcolor: '#E55A24' } }}
+                sx={{ mt: 2, ...primaryBtn, borderRadius: 2 }}
               >
                 Create First Branch
               </Button>

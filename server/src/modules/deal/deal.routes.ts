@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { DealController } from './deal.controller';
-import { authenticate, authorize } from '@/middleware/auth';
+import { authenticate, authorize, optionalAuth } from '@/middleware/auth';
 import { validate } from '@/middleware/validation';
 import Joi from 'joi';
 import dealCampaignRoutes from '@/modules/deal-campaign/deal-campaign.routes';
@@ -44,8 +44,8 @@ const updateDealSchema = Joi.object({
 // Mount deal-campaign routes at /campaigns
 router.use('/', dealCampaignRoutes);
 
-// Public routes
-router.get('/', dealController.getAllDeals);
+// Public routes (optionalAuth scopes tenant admins to their data)
+router.get('/', optionalAuth, dealController.getAllDeals);
 router.get('/active', dealController.getActiveDeals);
 router.get('/:id', dealController.getDealById);
 

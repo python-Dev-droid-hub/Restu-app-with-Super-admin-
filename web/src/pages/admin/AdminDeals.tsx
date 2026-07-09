@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
   Box,
-  Container,
   Card,
   CardContent,
   Avatar,
@@ -37,6 +36,7 @@ import { useTheme } from '@mui/material/styles';
 import { Add, Edit, Delete, Refresh, CloudUpload } from '@mui/icons-material';
 import { api } from '../../services/api';
 import { useSettings } from '../../context/SettingsContext';
+import { useAdminPageStyles } from '../../utils/adminResponsive';
 
 interface Deal {
   _id: string;
@@ -70,6 +70,7 @@ const AdminDeals: React.FC = () => {
   const { currencySymbol } = useSettings();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const { page, header, headerActions, primaryBtn, primary, primaryDark, tableWrap } = useAdminPageStyles();
   const [deals, setDeals] = useState<Deal[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [products, setProducts] = useState<ProductOption[]>([]);
@@ -331,20 +332,20 @@ const AdminDeals: React.FC = () => {
   };
 
   return (
-    <Container maxWidth="lg" sx={{ pb: { xs: 2, md: 3 }, pt: 0 }}>
+    <Box sx={{ ...page, bgcolor: theme.palette.background.default, minHeight: '100vh' }}>
       <Card sx={{ borderRadius: 3, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
         <CardContent>
           {/* Header */}
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 1.5 }}>
+          <Box sx={header}>
             <Box>
-              <Typography variant="h5" sx={{ fontWeight: 700, color: '#1a1a2e' }}>
+              <Typography variant="h5" sx={{ fontWeight: 700, color: '#1a1a2e', fontSize: { xs: 22, sm: 28 } }}>
                 Deals Management
               </Typography>
               <Typography variant="body2" color="textSecondary">
                 Manage promotional deals and discounts
               </Typography>
             </Box>
-            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            <Box sx={headerActions}>
               <Button
                 variant="outlined"
                 startIcon={<Refresh />}
@@ -357,7 +358,7 @@ const AdminDeals: React.FC = () => {
                 variant="contained"
                 startIcon={<Add />}
                 onClick={() => handleOpenDialog()}
-                sx={{ bgcolor: '#FF6B35', '&:hover': { bgcolor: '#e55a2b' }, borderRadius: 2 }}
+                sx={{ ...primaryBtn, borderRadius: 2 }}
               >
                 Add Deal
               </Button>
@@ -374,7 +375,7 @@ const AdminDeals: React.FC = () => {
           {/* Stats */}
           <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
             <Paper sx={{ p: 2, borderRadius: 2, flex: '1 1 220px', bgcolor: '#FFF3E0' }}>
-              <Typography variant="h4" sx={{ fontWeight: 700, color: '#FF6B35' }}>
+              <Typography variant="h4" sx={{ fontWeight: 700, color: primary }}>
                 {loading ? <Skeleton width={40} /> : deals.length}
               </Typography>
               <Typography variant="body2" color="textSecondary">Total Deals</Typography>
@@ -396,7 +397,7 @@ const AdminDeals: React.FC = () => {
           {/* Table */}
           <TableContainer
             component={Paper}
-            sx={{ borderRadius: 2, boxShadow: 'none', border: '1px solid #f0f0f0', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}
+            sx={{ ...tableWrap, borderRadius: 2, boxShadow: 'none', border: '1px solid #f0f0f0' }}
           >
             <Table size={isMobile ? 'small' : 'medium'} sx={{ minWidth: 980 }}>
               <TableHead sx={{ bgcolor: '#f8f5ff' }}>
@@ -446,7 +447,7 @@ const AdminDeals: React.FC = () => {
                         <Chip
                           label={formatDiscount(deal)}
                           size="small"
-                          sx={{ bgcolor: '#FF6B35', color: 'white', fontWeight: 600 }}
+                          sx={{ bgcolor: primary, color: 'white', fontWeight: 600 }}
                         />
                       </TableCell>
                       <TableCell>
@@ -704,13 +705,13 @@ const AdminDeals: React.FC = () => {
             variant="contained"
             onClick={handleSave}
             disabled={!formData.title || formData.discountValue <= 0}
-            sx={{ bgcolor: '#FF6B35', '&:hover': { bgcolor: '#e55a2b' } }}
+            sx={primaryBtn}
           >
             {editingDeal ? 'Update' : 'Create'}
           </Button>
         </DialogActions>
       </Dialog>
-    </Container>
+    </Box>
   );
 };
 

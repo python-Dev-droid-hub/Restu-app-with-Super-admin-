@@ -86,19 +86,25 @@ export class NotificationService {
   // ============================================
 
   private buildAdminNotificationFilter(branchId?: string, userId?: string): Record<string, unknown> {
+    const effectiveBranchId = branchId?.trim() ? branchId.trim() : undefined;
     const orConditions: Record<string, unknown>[] = [];
 
     if (userId) {
-      orConditions.push({ recipient: new Types.ObjectId(userId) });
+      orConditions.push(
+        { recipient: new Types.ObjectId(userId) },
+        { recipient: userId }
+      );
     }
 
-    if (branchId) {
-      const branchOid = Types.ObjectId.isValid(branchId) ? new Types.ObjectId(branchId) : branchId;
+    if (effectiveBranchId) {
+      const branchOid = Types.ObjectId.isValid(effectiveBranchId)
+        ? new Types.ObjectId(effectiveBranchId)
+        : effectiveBranchId;
       orConditions.push(
-        { 'data.branchId': branchId },
+        { 'data.branchId': effectiveBranchId },
         { 'data.branchId': String(branchOid) },
         { recipientBranch: branchOid },
-        { recipientBranch: branchId }
+        { recipientBranch: effectiveBranchId }
       );
     } else {
       orConditions.push(

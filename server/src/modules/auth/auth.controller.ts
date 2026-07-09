@@ -4,6 +4,17 @@ import { IAuthRequest, sendSuccess, sendError, asyncHandler } from '@/utils';
 import { createError } from '@/utils';
 import { parseDurationToMs } from '@/utils/tokenTtl';
 import { getAuthCookieOptions } from '@/config/cookies';
+import { verifyImpersonationToken } from '@/superadmin/services/impersonation.service';
+import { logTenantActivity } from '@/superadmin/utils/helpers';
+import { generateTokenPair } from '@/utils/jwt';
+import { User } from '@/models/User';
+import { Tenant } from '@/superadmin/models';
+import { IJWTPayload } from '@/types';
+import {
+  assertPlanCanCreateStaff,
+  assertRoleAllowedForPlan,
+} from '@/superadmin/services/planEnforcement.service';
+import jwt from 'jsonwebtoken';
 
 export class AuthController {
   private authService: AuthService;
@@ -59,6 +70,7 @@ export class AuthController {
     const branchStaffRoles = ['CHEF', 'WAITER', 'RIDER'];
     const privilegedRoles = [...adminOnlyRoles, ...branchStaffRoles];
     const requestedRole = (role || 'CUSTOMER').toUpperCase();
+    let creatorTenantId: string | undefined;
     
     if (privilegedRoles.includes(requestedRole)) {
       // Only authenticated users can create privileged roles
@@ -77,7 +89,22 @@ export class AuthController {
         // SUPER_ADMIN can create any role
         if (decoded.role === 'SUPER_ADMIN') {
           console.log(`SUPER_ADMIN ${decoded.userId} is creating a ${requestedRole} user`);
-        } 
+          const User = require('@/models/User').User;
+          const creator = await User.findById(decoded.userId).select('tenantId');
+          creatorTenantId = decoded.tenantId || creator?.tenantId?.toString();
+        }
+        else if (decoded.role === 'ADMIN') {
+          if (requestedRole === 'SUPER_ADMIN') {
+            throw createError('Access denied. Cannot create SUPER_ADMIN users.', 403);
+          }
+          const User = require('@/models/User').User;
+          const creator = await User.findById(decoded.userId).select('tenantId');
+          creatorTenantId = decoded.tenantId || creator?.tenantId?.toString();
+          if (!creatorTenantId) {
+            throw createError('Access denied. Tenant context required.', 403);
+          }
+          await assertPlanCanCreateStaff(creatorTenantId, requestedRole);
+        }
         // BRANCH_MANAGER can only create CHEF, WAITER, RIDER for their branch
         else if (decoded.role === 'BRANCH_MANAGER') {
           if (adminOnlyRoles.includes(requestedRole)) {
@@ -125,9 +152,15 @@ export class AuthController {
             throw createError('Access denied. You can only create users for your assigned branch.', 403);
           }
           console.log(`[AUTH] BRANCH_MANAGER ${decoded.userId} creating ${requestedRole} for branch ${managerBranchId}`);
+          const User = require('@/models/User').User;
+          const creator = await User.findById(decoded.userId).select('tenantId');
+          creatorTenantId = decoded.tenantId || creator?.tenantId?.toString();
+          if (creatorTenantId) {
+            await assertPlanCanCreateStaff(creatorTenantId, requestedRole);
+          }
         }
         else {
-          throw createError('Access denied. Only SUPER_ADMIN or BRANCH_MANAGER can create users with privileged roles.', 403);
+          throw createError('Access denied. Only ADMIN, SUPER_ADMIN or BRANCH_MANAGER can create users with privileged roles.', 403);
         }
       } catch (error: any) {
         if (error?.message?.includes('Access denied')) {
@@ -147,6 +180,7 @@ export class AuthController {
       vehicleNumber,
       vehicleType,
       assignedBranchId: assignedBranchId || branchId,
+      tenantId: creatorTenantId,
     });
 
     // Check if this is an admin creating a user (vs self-registration)
@@ -252,5 +286,73 @@ export class AuthController {
     }
     
     sendSuccess(res, user.getPublicProfile(), 'Current user retrieved successfully');
+  });
+
+  impersonate = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { token } = req.body;
+    if (!token) throw createError('Impersonation token is required.', 400);
+
+    const imp = verifyImpersonationToken(token);
+    const user = await User.findById(imp.userId);
+    if (!user || !user.isActive) throw createError('Tenant user not found.', 404);
+
+    const payload: IJWTPayload = {
+      userId: imp.userId,
+      email: imp.email,
+      role: user.role,
+      impersonating: true,
+      superAdminId: imp.superAdminId,
+      tenantId: imp.tenantId,
+    };
+
+    const tokens = generateTokenPair(payload);
+    this.setAuthCookies(res, tokens);
+
+    const tenant = imp.tenantId
+      ? await Tenant.findById(imp.tenantId).select('name slug logoUrl faviconUrl primaryColor secondaryColor')
+      : null;
+
+    sendSuccess(res, {
+      user: user.getPublicProfile(),
+      tokens,
+      impersonating: true,
+      tenantId: imp.tenantId,
+      tenant: tenant
+        ? {
+            id: String(tenant._id),
+            name: tenant.name,
+            slug: tenant.slug,
+            logoUrl: tenant.logoUrl,
+            faviconUrl: tenant.faviconUrl,
+            primaryColor: tenant.primaryColor,
+            secondaryColor: tenant.secondaryColor,
+          }
+        : undefined,
+    }, 'Impersonation login successful');
+  });
+
+  exitImpersonate = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
+    const cookieToken = (req as any).cookies?.accessToken as string | undefined;
+    const headerToken = req.header('Authorization')?.replace(/^Bearer\s+/i, '');
+    const token = headerToken || cookieToken;
+
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET!) as IJWTPayload;
+        if (decoded.impersonating && decoded.tenantId) {
+          await logTenantActivity(decoded.tenantId, 'IMPERSONATION_ENDED', {
+            performedBy: decoded.superAdminId,
+            performedByType: 'SUPER_ADMIN',
+            description: `Super admin ended impersonation of ${req.user?.email || decoded.email}`,
+            metadata: { userId: decoded.userId },
+          });
+        }
+      } catch {
+        /* token may already be invalid */
+      }
+    }
+
+    this.clearAuthCookies(res);
+    sendSuccess(res, { redirectTo: '/superadmin/tenants' }, 'Impersonation ended');
   });
 }

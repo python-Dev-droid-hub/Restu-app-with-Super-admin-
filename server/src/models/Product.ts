@@ -35,6 +35,12 @@ const productSchema = new Schema({
     ref: 'Branch',
     index: true,
   }],
+  tenantId: {
+    type: Schema.Types.ObjectId,
+    ref: 'SaasTenant',
+    index: true,
+    default: null,
+  },
   category: {
     type: Schema.Types.ObjectId,
     ref: 'Category',

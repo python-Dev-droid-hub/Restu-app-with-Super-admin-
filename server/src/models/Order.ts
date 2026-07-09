@@ -134,6 +134,12 @@ const orderSchema = new Schema({
     ref: 'Branch',
     required: [true, 'Branch is required'],
   },
+  /** SaaS tenant scope for platform-wide analytics */
+  tenantId: {
+    type: Schema.Types.ObjectId,
+    ref: 'SaasTenant',
+    index: true,
+  },
   orderType: {
     type: String,
     enum: ['DELIVERY', 'DINE_IN', 'TAKEAWAY'],
@@ -342,6 +348,7 @@ const orderSchema = new Schema({
 // Indexes for better performance
 orderSchema.index({ orderNumber: 1 });
 orderSchema.index({ branch: 1, createdAt: -1 });
+orderSchema.index({ tenantId: 1, createdAt: -1 });
 orderSchema.index({ status: 1, createdAt: -1 });
 orderSchema.index({ customer: 1, createdAt: -1 });
 orderSchema.index({ rider: 1, createdAt: -1 });

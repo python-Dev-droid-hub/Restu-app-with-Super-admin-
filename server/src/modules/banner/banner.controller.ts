@@ -2,13 +2,14 @@ import { Request, Response } from 'express';
 import { Banner } from '@/models/Banner';
 import { sendSuccess, asyncHandler, IAuthRequest } from '@/utils';
 import { createError } from '@/middleware/errorHandler';
+import { getTenantIdFromRequest, tenantDataFilter, withTenantId } from '@/utils/tenantScope';
 
 export class BannerController {
   // Get all banners (admin)
   getAllBanners = asyncHandler(async (req: IAuthRequest, res: Response) => {
     const { branchId, isActive } = req.query;
     
-    const filter: any = {};
+    const filter: any = { ...tenantDataFilter(getTenantIdFromRequest(req)) };
     if (branchId) filter.branchId = branchId;
     if (isActive !== undefined) filter.isActive = isActive === 'true';
     
@@ -33,7 +34,7 @@ export class BannerController {
 
   // Create banner (admin/manager)
   createBanner = asyncHandler(async (req: IAuthRequest, res: Response) => {
-    const bannerData = req.body;
+    const bannerData = withTenantId({ ...req.body }, getTenantIdFromRequest(req));
     
     const banner = await Banner.create(bannerData);
     

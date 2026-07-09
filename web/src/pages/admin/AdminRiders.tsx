@@ -3,6 +3,7 @@ import {
   Box,
   Typography,
   Button,
+  Alert,
   Card,
   CardContent,
   Table,
@@ -30,7 +31,6 @@ import {
   ListItemText,
   Radio,
   Skeleton,
-  Alert,
   AlertTitle,
   useMediaQuery,
 } from '@mui/material';
@@ -52,6 +52,8 @@ import { useManagerBranchScope } from '../../utils/managerBranchScope';
 import { useSettings } from '../../context/SettingsContext';
 import { io, type Socket } from 'socket.io-client';
 import { resolveSocketUrl } from '../../utils/resolveSocketUrl';
+import { PlanFeatureGate } from '../../components/admin/PlanFeatureGate';
+import { useAdminPageStyles } from '../../utils/adminResponsive';
 
 // ==================== TYPES ====================
 interface Branch {
@@ -101,6 +103,7 @@ const AdminRiders: React.FC = () => {
   const { isBranchManager, assignedBranchId, hideBranchFilter } = useManagerBranchScope();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const { page, primary, primaryBtn, titleSx } = useAdminPageStyles();
   const socketRef = useRef<Socket | null>(null);
   const selectedBranchRef = useRef<string>('all');
   
@@ -321,7 +324,8 @@ const AdminRiders: React.FC = () => {
   };
 
   return (
-    <Box sx={{ px: { xs: 2, md: 3 }, pb: { xs: 2, md: 3 }, pt: 0, bgcolor: '#f5f5f5', minHeight: '100vh' }}>
+    <PlanFeatureGate feature="rider_app" featureLabel="Rider management">
+    <Box sx={{ ...page, bgcolor: theme.palette.background.default, minHeight: '100vh' }}>
       {/* Header */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3, flexWrap: 'wrap' }}>
         <Button startIcon={<ArrowBack />} onClick={() => navigate('/admin/dashboard')}>
@@ -359,7 +363,7 @@ const AdminRiders: React.FC = () => {
       {/* Tabs */}
       <Card sx={{ borderRadius: 3, boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}>
         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-          <Tabs value={activeTab} onChange={handleTabChange} sx={{ px: 2, pt: 1 }}>
+          <Tabs value={activeTab} onChange={handleTabChange} sx={{ px: 2, pt: 1 }} variant={isMobile ? 'scrollable' : 'standard'} allowScrollButtonsMobile>
             <Tab 
               value="riders" 
               label={`Riders (${riders.length})`}
@@ -405,7 +409,7 @@ const AdminRiders: React.FC = () => {
                       <TableRow key={rider.riderId} sx={{ '&:hover': { bgcolor: '#fafafa' } }}>
                         <TableCell>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                            <Avatar sx={{ bgcolor: '#FF6B35' }}>
+                            <Avatar sx={{ bgcolor: primary }}>
                               {rider.avatar ? (
                                 <img src={rider.avatar} alt={rider.name} style={{ width: '100%', height: '100%' }} />
                               ) : (
@@ -543,7 +547,7 @@ const AdminRiders: React.FC = () => {
                             <TableCell>
                               {order.rider ? (
                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                  <Avatar sx={{ width: 24, height: 24, bgcolor: '#FF6B35', fontSize: 12 }}>
+                                  <Avatar sx={{ width: 24, height: 24, bgcolor: primary, fontSize: 12 }}>
                                     {order.rider.name?.[0] || 'R'}
                                   </Avatar>
                                   <Typography sx={{ color: '#666' }}>
@@ -569,7 +573,7 @@ const AdminRiders: React.FC = () => {
                                   startIcon={<PersonAdd />}
                                   onClick={() => handleAssignClick(order)}
                                   sx={{
-                                    bgcolor: needsReassignment ? '#dc2626' : '#FF6B35',
+                                    bgcolor: needsReassignment ? '#dc2626' : primary,
                                     '&:hover': {
                                       bgcolor: needsReassignment ? '#b91c1c' : '#e55a2b',
                                     },
@@ -639,14 +643,14 @@ const AdminRiders: React.FC = () => {
                       borderRadius: 2,
                       mb: 1,
                       bgcolor: selectedRider === rider.riderId ? '#fff7ed' : 'transparent',
-                      border: selectedRider === rider.riderId ? '2px solid #FF6B35' : '1px solid #e5e7eb',
+                      border: selectedRider === rider.riderId ? `2px solid ${primary}` : '1px solid #e5e7eb',
                       '&:hover': {
                         bgcolor: selectedRider === rider.riderId ? '#fff7ed' : '#f9fafb',
                       },
                     }}
                   >
                     <ListItemAvatar>
-                      <Avatar sx={{ bgcolor: '#FF6B35' }}>
+                      <Avatar sx={{ bgcolor: primary }}>
                         <TwoWheeler />
                       </Avatar>
                     </ListItemAvatar>
@@ -678,7 +682,7 @@ const AdminRiders: React.FC = () => {
             disabled={!selectedRider || assigning}
             startIcon={assigning ? null : <CheckCircle />}
             sx={{
-              bgcolor: '#FF6B35',
+              bgcolor: primary,
               '&:hover': { bgcolor: '#e55a2b' },
             }}
           >
@@ -687,6 +691,7 @@ const AdminRiders: React.FC = () => {
         </DialogActions>
       </Dialog>
     </Box>
+    </PlanFeatureGate>
   );
 };
 

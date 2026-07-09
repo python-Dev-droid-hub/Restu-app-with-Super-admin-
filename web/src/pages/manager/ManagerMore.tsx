@@ -1,7 +1,8 @@
 import React from 'react';
-import { Box, Card, CardActionArea, CardContent, Container, Grid, Typography } from '@mui/material';
+import { Box, Card, CardActionArea, CardContent, Grid, Typography } from '@mui/material';
 import { Apps, BarChart, Category, Fastfood, Image, LocalOffer, Notifications, Sell, TwoWheeler } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import { useStaffPalette } from '../../utils/adminResponsive';
 
 type MoreItem = {
   label: string;
@@ -11,6 +12,7 @@ type MoreItem = {
 
 const ManagerMore: React.FC = () => {
   const navigate = useNavigate();
+  const { page, titleSx, primary, theme } = useStaffPalette();
 
   const items: MoreItem[] = [
     { label: 'Notifications', icon: <Notifications sx={{ fontSize: 22 }} />, path: '/manager/notifications' },
@@ -25,9 +27,9 @@ const ManagerMore: React.FC = () => {
   ];
 
   return (
-    <Container maxWidth="lg" sx={{ pb: 3, pt: 0 }}>
+    <Box sx={{ ...page, bgcolor: theme.palette.background.default, minHeight: '100vh' }}>
       <Box sx={{ mb: 2 }}>
-        <Typography sx={{ fontWeight: 900, fontSize: { xs: 22, sm: 28 }, color: '#111' }}>
+        <Typography sx={titleSx}>
           More
         </Typography>
         <Typography sx={{ color: '#666', mt: 0.25 }}>
@@ -41,7 +43,7 @@ const ManagerMore: React.FC = () => {
             <Card sx={{ borderRadius: 3, boxShadow: '0 10px 30px rgba(20,20,40,0.08)' }}>
               <CardActionArea onClick={() => navigate(item.path)} sx={{ p: 0.25 }}>
                 <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 2 }}>
-                  <Box sx={{ width: 42, height: 42, borderRadius: 2.5, bgcolor: '#FFE8E0', color: '#FF6B35', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Box sx={{ width: 42, height: 42, borderRadius: 2.5, bgcolor: `${primary}18`, color: primary, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     {item.icon}
                   </Box>
                   <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -58,7 +60,7 @@ const ManagerMore: React.FC = () => {
           </Grid>
         ))}
       </Grid>
-    </Container>
+    </Box>
   );
 };
 

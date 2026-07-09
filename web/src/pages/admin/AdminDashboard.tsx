@@ -22,7 +22,6 @@ import {
   Select,
   MenuItem,
   Paper,
-  useMediaQuery,
 } from '@mui/material';
 import type { SelectChangeEvent } from '@mui/material';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -42,6 +41,8 @@ import { resolveSocketUrl } from '../../utils/resolveSocketUrl';
 import { getSocketIoOptions, getSocketIoUrl } from '../../utils/socketOptions';
 import { enrichOrderParty } from '../../utils/orderParty';
 import { fetchAdminBranchesHttp, fetchAdminDashboardHttp } from '../../utils/dashboardHttp';
+import { darken, lighten } from '../../utils/tenantBranding';
+import { adminPageContainerSx, useAdminBreakpoints } from '../../utils/adminResponsive';
 
 // ==================== TYPES ====================
 interface UserData {
@@ -117,46 +118,59 @@ type StatCardProps = {
   value: string;
   label: string;
   sublabel: string;
-  bgcolor: string;
+  gradient: string;
+  accent: string;
   loading: boolean;
 };
 
-const StatCard = ({ icon, value, label, sublabel, bgcolor, loading }: StatCardProps) => (
+const StatCard = ({ icon, value, label, sublabel, gradient, accent, loading }: StatCardProps) => (
   <Card sx={{
-    borderRadius: 4,
-    backgroundColor: bgcolor,
-    boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+    borderRadius: 3,
+    background: gradient,
+    boxShadow: `0 8px 24px ${accent}33`,
     color: 'white',
     position: 'relative',
     overflow: 'hidden',
-    height: 140,
+    height: 148,
+    border: '1px solid rgba(255,255,255,0.12)',
     transition: 'transform 0.2s ease, box-shadow 0.2s ease',
     '&:hover': {
-      transform: 'translateY(-2px)',
-      boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+      transform: 'translateY(-3px)',
+      boxShadow: `0 12px 28px ${accent}44`,
+    },
+    '&::after': {
+      content: '""',
+      position: 'absolute',
+      top: -24,
+      right: -24,
+      width: 96,
+      height: 96,
+      borderRadius: '50%',
+      background: 'rgba(255,255,255,0.14)',
     },
   }}>
-    <CardContent sx={{ p: 2.5, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+    <CardContent sx={{ p: 2.5, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', position: 'relative', zIndex: 1 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <Box sx={{
-          bgcolor: 'rgba(255,255,255,0.2)',
+          bgcolor: 'rgba(255,255,255,0.22)',
+          backdropFilter: 'blur(4px)',
           borderRadius: 2,
           p: 1,
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'center'
+          justifyContent: 'center',
         }}>
           {icon}
         </Box>
       </Box>
       <Box>
-        <Typography sx={{ fontSize: 28, fontWeight: 700, lineHeight: 1, color: 'white' }}>
+        <Typography sx={{ fontSize: 30, fontWeight: 800, lineHeight: 1, color: 'white', letterSpacing: '-0.02em' }}>
           {loading ? <Skeleton width={80} sx={{ bgcolor: 'rgba(255,255,255,0.4)' }} /> : value}
         </Typography>
       </Box>
       <Box>
-        <Typography sx={{ fontSize: 13, fontWeight: 600, color: 'white', opacity: 0.95 }}>{label}</Typography>
-        <Typography sx={{ fontSize: 11, color: 'white', opacity: 0.8 }}>{sublabel}</Typography>
+        <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'white', opacity: 0.98 }}>{label}</Typography>
+        <Typography sx={{ fontSize: 11, color: 'rgba(255,255,255,0.82)', mt: 0.25 }}>{sublabel}</Typography>
       </Box>
     </CardContent>
   </Card>
@@ -165,7 +179,32 @@ const StatCard = ({ icon, value, label, sublabel, bgcolor, loading }: StatCardPr
 // ==================== COMPONENT ====================
 const AdminDashboard: React.FC = () => {
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const { isMobile, isCompact } = useAdminBreakpoints();
+  const primary = theme.palette.primary.main;
+  const primaryDark = theme.palette.primary.dark;
+  const secondary = theme.palette.secondary.main;
+  const secondaryDark = theme.palette.secondary.dark;
+  const statCards = useMemo(
+    () => [
+      {
+        gradient: `linear-gradient(135deg, ${primary} 0%, ${primaryDark} 100%)`,
+        accent: primary,
+      },
+      {
+        gradient: `linear-gradient(135deg, ${lighten(primary, 0.18)} 0%, ${primary} 100%)`,
+        accent: primary,
+      },
+      {
+        gradient: `linear-gradient(135deg, ${secondary} 0%, ${secondaryDark} 100%)`,
+        accent: secondary,
+      },
+      {
+        gradient: `linear-gradient(135deg, ${darken(secondary, 0.05)} 0%, ${lighten(secondary, 0.08)} 100%)`,
+        accent: secondary,
+      },
+    ],
+    [primary, primaryDark, secondary, secondaryDark]
+  );
   const navigate = useNavigate();
   const location = useLocation();
   const { refreshSettings } = useSettings();
@@ -531,19 +570,19 @@ const AdminDashboard: React.FC = () => {
   }, [globalQuery, recentOrders]);
 
   return (
-    <Box sx={{ bgcolor: '#f5f5f5', minHeight: '100vh', px: { xs: 2, md: 3 }, pb: { xs: 2, md: 3 }, pt: 0, width: '100%' }}>
+    <Box sx={{ ...adminPageContainerSx, bgcolor: theme.palette.background.default, minHeight: '100vh' }}>
       <Container maxWidth={false} disableGutters>
         {/* Header */}
-        <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2, flexWrap: 'wrap' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+        <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2, flexWrap: 'wrap', flexDirection: { xs: 'column', md: 'row' } }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0, width: { xs: '100%', md: 'auto' } }}>
             <Avatar
               src={profileImage || undefined}
-              sx={{ width: 56, height: 56, bgcolor: '#FF6B35', fontSize: 24, fontWeight: 'bold' }}
+              sx={{ width: { xs: 48, sm: 56 }, height: { xs: 48, sm: 56 }, bgcolor: primary, fontSize: 24, fontWeight: 'bold', flexShrink: 0 }}
             >
               {userData?.displayName?.charAt(0) || userData?.name?.charAt(0) || 'A'}
             </Avatar>
-            <Box>
-              <Typography variant="h4" sx={{ fontWeight: 600, color: '#1a1a2e', fontSize: 28, mb: 0.5 }}>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="h4" sx={{ fontWeight: 600, color: '#1a1a2e', fontSize: { xs: 22, sm: 28 }, mb: 0.5 }}>
                 Welcome Back, {userData?.displayName || userData?.name || 'Admin'}!
               </Typography>
               <Typography sx={{ color: '#666', fontSize: 14 }}>
@@ -557,15 +596,16 @@ const AdminDashboard: React.FC = () => {
             </Box>
           </Box>
 
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', width: { xs: '100%', md: 'auto' } }}>
             <Tabs
               value={activePeriod}
               onChange={handlePeriodChange}
-              variant={isMobile ? 'scrollable' : 'standard'}
-              scrollButtons={isMobile ? 'auto' : false}
+              variant={isCompact ? 'scrollable' : 'standard'}
+              scrollButtons={isCompact ? 'auto' : false}
               allowScrollButtonsMobile
               sx={{
                 minHeight: 36,
+                maxWidth: { xs: '100%', md: 'none' },
                 '& .MuiTabs-flexContainer': { gap: 1 },
               }}
             >
@@ -580,15 +620,15 @@ const AdminDashboard: React.FC = () => {
                     fontWeight: 600,
                     minHeight: 36,
                     px: 2,
-                    bgcolor: activePeriod === p ? '#FF6B35' : 'transparent',
-                    color: activePeriod === p ? 'white !important' : '#666',
+                    bgcolor: activePeriod === p ? primary : 'transparent',
+                    color: activePeriod === p ? 'white !important' : theme.palette.text.secondary,
                     borderRadius: 2,
                   }}
                 />
               ))}
             </Tabs>
 
-            <FormControl size="small" sx={{ minWidth: isMobile ? 160 : 200, width: isMobile ? '100%' : 'auto' }}>
+            <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 160, md: 200 }, width: { xs: '100%', sm: 'auto' } }}>
               <Select
                 value={selectedBranch}
                 onChange={handleBranchChange}
@@ -619,7 +659,8 @@ const AdminDashboard: React.FC = () => {
               value={loading ? '' : formatCurrency(stats.totalRevenue)}
               label="Total Revenue"
               sublabel={loading ? '' : `${statusCounts.completed} completed • ${statusCounts.cancelled} cancelled`}
-              bgcolor="#2E7D52"
+              gradient={statCards[0].gradient}
+              accent={statCards[0].accent}
               loading={loading}
               />
             </Box>
@@ -631,7 +672,8 @@ const AdminDashboard: React.FC = () => {
               value={loading ? '' : stats.totalOrders.toLocaleString()}
               label="Total Orders"
               sublabel={loading ? '' : `${statusCounts.preparing} preparing • ${statusCounts.ready} ready`}
-              bgcolor="#E87E35"
+              gradient={statCards[1].gradient}
+              accent={statCards[1].accent}
               loading={loading}
               />
             </Box>
@@ -643,7 +685,8 @@ const AdminDashboard: React.FC = () => {
               value={loading ? '' : stats.totalProducts.toLocaleString()}
               label="Menu Items"
               sublabel={loading ? '' : 'Active products across selection'}
-              bgcolor="#7B5CB8"
+              gradient={statCards[2].gradient}
+              accent={statCards[2].accent}
               loading={loading}
               />
             </Box>
@@ -655,7 +698,8 @@ const AdminDashboard: React.FC = () => {
               value={loading ? '' : stats.totalBranches.toString()}
               label="Branches"
               sublabel={loading ? '' : 'All branches'}
-              bgcolor="#1E5AA8"
+              gradient={statCards[3].gradient}
+              accent={statCards[3].accent}
               loading={loading}
               />
             </Box>
@@ -667,7 +711,7 @@ const AdminDashboard: React.FC = () => {
           {/* Left Column - Branch Performance */}
           <Grid size={{ xs: 12, lg: 12 }}>
             <Card sx={{ borderRadius: 4, boxShadow: '0 4px 20px rgba(0,0,0,0.08)', mb: 3 }}>
-              <CardContent sx={{ p: 3 }}>
+              <CardContent sx={{ p: { xs: 2, md: 3 } }}>
                 {/* Header with Tabs */}
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
                   <Typography variant="h6" sx={{ fontWeight: 600, color: '#1a1a2e', fontSize: 18 }}>
@@ -676,7 +720,7 @@ const AdminDashboard: React.FC = () => {
                 </Box>
 
                 {/* Filter Tabs */}
-                <Box sx={{ display: 'flex', gap: 1, mb: 3 }}>
+                <Box sx={{ display: 'flex', gap: 1, mb: 3, flexWrap: 'wrap' }}>
                   {['all', 'active', 'inactive'].map((filter) => (
                     <Button
                       key={filter}
@@ -688,10 +732,10 @@ const AdminDashboard: React.FC = () => {
                         py: 0.5,
                         fontSize: 13,
                         fontWeight: 500,
-                        bgcolor: branchFilter === filter ? '#FF6B35' : '#f5f5f5',
-                        color: branchFilter === filter ? 'white' : '#666',
+                        bgcolor: branchFilter === filter ? primary : '#f5f5f5',
+                        color: branchFilter === filter ? 'white' : theme.palette.text.secondary,
                         '&:hover': {
-                          bgcolor: branchFilter === filter ? '#e55a2b' : '#e0e0e0',
+                          bgcolor: branchFilter === filter ? primaryDark : '#e0e0e0',
                         },
                       }}
                     >
@@ -759,7 +803,7 @@ const AdminDashboard: React.FC = () => {
             </Card>
 
             <Card sx={{ borderRadius: 4, boxShadow: '0 4px 20px rgba(0,0,0,0.08)', mb: 3 }}>
-              <CardContent sx={{ p: 3 }}>
+              <CardContent sx={{ p: { xs: 2, md: 3 } }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
                   <Typography variant="h6" sx={{ fontWeight: 600, color: '#1a1a2e', fontSize: 18 }}>
                     Waiters Performance
@@ -818,7 +862,7 @@ const AdminDashboard: React.FC = () => {
             </Card>
 
             <Card sx={{ borderRadius: 4, boxShadow: '0 4px 20px rgba(0,0,0,0.08)', mb: 3 }}>
-              <CardContent sx={{ p: 3 }}>
+              <CardContent sx={{ p: { xs: 2, md: 3 } }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
                   <Typography variant="h6" sx={{ fontWeight: 600, color: '#1a1a2e', fontSize: 18 }}>
                     Riders Performance
@@ -881,7 +925,7 @@ const AdminDashboard: React.FC = () => {
 
             {/* Live Orders Section */}
             <Card sx={{ borderRadius: 4, boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}>
-              <CardContent sx={{ p: 3 }}>
+              <CardContent sx={{ p: { xs: 2, md: 3 } }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
                   <Typography variant="h6" sx={{ fontWeight: 600, color: '#1a1a2e', fontSize: 18 }}>
                     Live Orders
@@ -956,7 +1000,7 @@ const AdminDashboard: React.FC = () => {
                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                   <Avatar
                                     src={order.rider?.avatar ? normalizeMediaUrl(order.rider.avatar) : undefined}
-                                    sx={{ width: 28, height: 28, fontSize: 12, bgcolor: '#FF6B35' }}
+                                    sx={{ width: 28, height: 28, fontSize: 12, bgcolor: primary }}
                                   >
                                     {order.rider?.name?.charAt(0) || 'R'}
                                   </Avatar>

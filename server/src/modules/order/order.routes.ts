@@ -2,10 +2,13 @@ import { Router } from 'express';
 import { OrderController } from './order.controller';
 import { authenticate, authorize } from '@/middleware/auth';
 import { validate, validateParams } from '@/middleware/validation';
+import { resolveTenantFromUser, ensureTenantActive } from '@/superadmin/middleware/tenantIsolation.middleware';
 import Joi from 'joi';
 
 const router = Router() as any;
 const orderController = new OrderController();
+
+router.use(resolveTenantFromUser, ensureTenantActive);
 
 // Validation schemas
 const customizationSchema = Joi.alternatives().try(

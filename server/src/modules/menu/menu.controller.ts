@@ -7,6 +7,8 @@ import { createError } from '@/middleware/errorHandler';
 import { logger } from '@/utils/logger';
 import { ProductSize } from '@/models/ProductSize';
 import { Product } from '@/models/Product';
+import { getTenantIdFromRequest, tenantDataFilter, withTenantId } from '@/utils/tenantScope';
+import { assertPlanMenuItemLimit } from '@/superadmin/services/planEnforcement.service';
 
 const branchProductModel = BranchProduct as any;
 
@@ -501,7 +503,7 @@ export class MenuController {
     const pageNum = parseInt(page as string, 10);
     const limitNum = parseInt(limit as string, 10);
 
-    const filter: any = {};
+    const filter: any = { ...tenantDataFilter(getTenantIdFromRequest(req)) };
     const userRole = req.user?.role;
     const userBranch = req.user?.assignedBranch as any;
     const assignedBranchId = userBranch?._id?.toString() || userBranch?.toString?.() || '';
@@ -576,37 +578,30 @@ export class MenuController {
   });
 
   getAllCategories = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
-    console.log('🔍 [DEBUG] getAllCategories called!'); 
-    console.log('🔍 [DEBUG] Auth token present:', !!req.headers.authorization);
-    console.log('🔍 [DEBUG] User ID:', req.user?._id);
-    console.log('🔍 [DEBUG] User role:', req.user?.role);
+    const tenantId = getTenantIdFromRequest(req);
+    const scope = tenantDataFilter(tenantId);
+    const categories = await this.menuRepository.findAllCategories(scope);
 
-    console.log('🔍 [DEBUG] Starting category query...');
-    const categories = await this.menuRepository.findAllCategories();
-    console.log('🔍 [DEBUG] Found categories:', categories.length);
-
-    // Add product count for each category
     const categoriesWithCounts = await Promise.all(
       categories.map(async (category) => {
-        // Count products by category ObjectId
         const productCount = await this.menuRepository.countProducts({
           category: category._id,
-          deletedAt: null
+          deletedAt: null,
+          ...scope,
         });
         return {
           ...category.toObject(),
-          productCount
+          productCount,
         };
       })
     );
-
-    console.log('🔍 [DEBUG] Categories with product counts:', categoriesWithCounts.map(c => ({ name: c.name, productCount: c.productCount })));
 
     sendSuccess(res, categoriesWithCounts, 'Categories retrieved successfully');
   });
 
   createAdminCategory = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
-    const categoryData = req.body;
+    const tenantId = getTenantIdFromRequest(req);
+    const categoryData = withTenantId({ ...req.body }, tenantId);
     const category = await this.menuRepository.createCategory(categoryData);
     sendSuccess(res, category, 'Category created successfully', 201);
   });
@@ -621,6 +616,9 @@ export class MenuController {
   });
 
   createAdminProduct = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
+    const tenantId = getTenantIdFromRequest(req);
+    if (tenantId) await assertPlanMenuItemLimit(tenantId);
+
     const { sizes, ...productData } = req.body as any;
 
     // Branch managers create global products (no branchId restriction)
@@ -633,7 +631,9 @@ export class MenuController {
       productData.hasSizes = true;
     }
 
-    const product = await this.menuRepository.createProduct(productData);
+    const product = await this.menuRepository.createProduct(
+      withTenantId(productData, getTenantIdFromRequest(req))
+    );
 
     await this.syncProductSizes(product?._id, sizes);
 

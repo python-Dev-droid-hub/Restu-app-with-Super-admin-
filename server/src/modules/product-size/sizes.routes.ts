@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { ProductSizeController } from './product-size.controller';
-import { authenticate, authorize } from '@/middleware/auth';
+import { authenticate, authorize, optionalAuth } from '@/middleware/auth';
 import { validate } from '@/middleware/validation';
 import Joi from 'joi';
 
@@ -30,8 +30,8 @@ const updateSizeSchema = Joi.object({
   is_active: Joi.boolean().optional(),
 });
 
-// Public routes
-router.get('/', productSizeController.getAllSizes);
+// Scoped by tenant when authenticated; legacy sizes when not
+router.get('/', optionalAuth, productSizeController.getAllSizes);
 
 // Admin routes - Size management (BRANCH_MANAGER can also manage sizes)
 router.post('/', authenticate, authorize('ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER'), validate(createSizeSchema), productSizeController.createSize);

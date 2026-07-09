@@ -47,6 +47,7 @@ import {
   getCustomerDisplayName,
 } from '../../utils/orderParty';
 import { OrderCardMeta } from '../../components/orders/OrderCardMeta';
+import { useAdminPageStyles } from '../../utils/adminResponsive';
 
 interface Order {
   _id: string;
@@ -110,6 +111,7 @@ const AdminOrders: React.FC = () => {
   const { formatPrice } = useSettings();
   const { isBranchManager, assignedBranchId, hideBranchFilter } = useManagerBranchScope();
   const theme = useTheme();
+  const { isCompact, page, header, titleSx, tabBtn, primaryBtn, primary, primaryDark, tableWrap } = useAdminPageStyles();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -626,32 +628,19 @@ const AdminOrders: React.FC = () => {
   };
 
   return (
-    <Box sx={{ px: { xs: 2, md: 3 }, pb: { xs: 2, md: 3 }, pt: 0, bgcolor: '#f8f5ff', minHeight: '100vh' }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 1 }}>
-        <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#333' }}>
+    <Box sx={{ ...page, bgcolor: theme.palette.background.default, minHeight: '100vh' }}>
+      <Box sx={header}>
+        <Typography variant="h5" sx={titleSx}>
           Orders
         </Typography>
       </Box>
 
-      <Box sx={{ mb: 3, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+      <Box sx={{ mb: 3, display: 'flex', gap: 1, flexWrap: 'wrap', overflowX: isCompact ? 'auto' : 'visible', pb: isCompact ? 0.5 : 0 }}>
         {tabs.map((tab) => (
           <Button
             key={tab.value}
             onClick={() => setActiveTab(tab.value)}
-            sx={{
-              bgcolor: activeTab === tab.value ? '#FF6B35' : 'white',
-              color: activeTab === tab.value ? 'white' : '#666',
-              borderRadius: 2,
-              px: 2,
-              py: 0.8,
-              textTransform: 'none',
-              fontSize: 14,
-              fontWeight: 500,
-              boxShadow: activeTab === tab.value ? '0 2px 8px rgba(255,107,53,0.3)' : '0 1px 3px rgba(0,0,0,0.08)',
-              '&:hover': {
-                bgcolor: activeTab === tab.value ? '#E55A24' : '#f5f5f5',
-              },
-            }}
+            sx={tabBtn(activeTab === tab.value)}
           >
             {tab.label}
             <Box
@@ -839,7 +828,7 @@ const AdminOrders: React.FC = () => {
                     }}
                   >
                     <TableCell sx={{ py: 2 }}>
-                      <Typography sx={{ fontWeight: 600, color: '#FF6B35', fontSize: 14 }}>
+                      <Typography sx={{ fontWeight: 600, color: primary, fontSize: 14 }}>
                         {order.orderNumber}
                       </Typography>
                     </TableCell>
@@ -929,7 +918,7 @@ const AdminOrders: React.FC = () => {
               '& .MuiPaginationItem-root': {
                 color: '#666',
                 '&.Mui-selected': {
-                  bgcolor: '#FF6B35',
+                  ...primaryBtn,
                   color: 'white',
                 },
               },

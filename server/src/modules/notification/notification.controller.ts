@@ -83,6 +83,16 @@ export class NotificationController {
     const limit = parseInt(req.query.limit as string) || 20;
     const branchId = req.query.branchId as string;
 
+    const tenantId =
+      req.authTenantId ||
+      (req.user?.tenantId ? String(req.user.tenantId) : undefined);
+    if (tenantId) {
+      const { syncPendingSupportTicketNotifications } = await import(
+        '@/superadmin/services/supportTicketNotification.service'
+      );
+      await syncPendingSupportTicketNotifications(tenantId);
+    }
+
     const userId = this.toIdString(req.user!._id);
     const result = await this.notificationService.getAdminNotifications(
       page,
@@ -195,6 +205,16 @@ export class NotificationController {
   // Get admin unread count
   getUnreadCount = asyncHandler(async (req: IAuthRequest, res: Response) => {
     const userId = this.toIdString(req.user!._id);
+    const tenantId =
+      req.authTenantId ||
+      (req.user?.tenantId ? String(req.user.tenantId) : undefined);
+    if (tenantId) {
+      const { syncPendingSupportTicketNotifications } = await import(
+        '@/superadmin/services/supportTicketNotification.service'
+      );
+      await syncPendingSupportTicketNotifications(tenantId);
+    }
+
     const branchId =
       (req.query.branchId as string) ||
       this.toIdString(req.user!.assignedBranch) ||

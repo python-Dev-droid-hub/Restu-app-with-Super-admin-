@@ -2,8 +2,22 @@ import { Request, Response } from 'express';
 import { ProductSize } from '@/models/ProductSize';
 import { Size } from '@/models/Size';
 import { Product } from '@/models/Product';
+import { IAuthRequest } from '@/types';
+import {
+  getTenantIdFromRequest,
+  tenantDataFilter,
+  withTenantId,
+} from '@/utils/tenantScope';
 
 const productSizeModel = ProductSize as any;
+
+function sizeScope(req: Request): Record<string, unknown> {
+  return tenantDataFilter(getTenantIdFromRequest(req as IAuthRequest));
+}
+
+async function findScopedSize(req: Request, id: string) {
+  return Size.findOne({ _id: id, deletedAt: null, ...sizeScope(req) });
+}
 
 export class ProductSizeController {
   private syncProductBasePriceFromSizes = async (productId: any): Promise<void> => {
@@ -39,14 +53,10 @@ export class ProductSizeController {
   // Get all sizes (master list) - show all for admin management
   async getAllSizes(req: Request, res: Response) {
     try {
-      console.log('🔵 [GET SIZES] Fetching all sizes');
-      const sizes = await Size.find({ deletedAt: null })
+      const scope = sizeScope(req);
+      const sizes = await Size.find({ deletedAt: null, ...scope })
         .sort({ display_order: 1 });
 
-      console.log('✅ [GET SIZES] Found sizes:', sizes.length);
-      console.log('✅ [GET SIZES] Raw sizes data:', JSON.stringify(sizes, null, 2));
-
-      // Map _id to id for mobile app compatibility
       const transformedSizes = sizes.map(size => ({
         id: size._id.toString(),
         size_name: size.size_name,
@@ -54,8 +64,6 @@ export class ProductSizeController {
         is_active: size.is_active,
         _id: size._id
       }));
-
-      console.log('✅ [GET SIZES] Transformed sizes data:', JSON.stringify(transformedSizes, null, 2));
 
       return res.status(200).json({
         success: true,
@@ -78,12 +86,8 @@ export class ProductSizeController {
       console.log('🔵 [CREATE SIZE] Request body:', JSON.stringify(req.body, null, 2));
       console.log('🔵 [CREATE SIZE] User:', (req as any).user?.id || 'Unknown');
       
-      const sizeData = req.body;
-
-      console.log('🔵 [CREATE SIZE] Creating size with data:', sizeData);
+      const sizeData = withTenantId({ ...req.body }, getTenantIdFromRequest(req as IAuthRequest));
       const size = new Size(sizeData);
-      
-      console.log('🔵 [CREATE SIZE] Size instance created, saving to database...');
       await size.save();
       
       console.log('✅ [CREATE SIZE] Size saved successfully:', JSON.stringify(size, null, 2));
@@ -111,7 +115,7 @@ export class ProductSizeController {
       const { id } = req.params;
       const updateData = req.body;
 
-      const size = await Size.findById(id);
+      const size = await findScopedSize(req, id);
       if (!size) {
         return res.status(404).json({
           success: false,
@@ -439,7 +443,7 @@ export class ProductSizeController {
       const { id } = req.params;
       console.log('🗑️ [DELETE SIZE] Deleting size with ID:', id);
 
-      const size = await Size.findById(id);
+      const size = await findScopedSize(req, id);
       if (!size) {
         console.log('🗑️ [DELETE SIZE] Size not found:', id);
         return res.status(404).json({

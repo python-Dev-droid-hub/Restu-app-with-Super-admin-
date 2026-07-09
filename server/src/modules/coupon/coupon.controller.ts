@@ -1,16 +1,18 @@
 import { Request, Response } from 'express';
 import { Coupon } from '@/models/Coupon';
 import { Branch } from '@/models/Branch';
+import { IAuthRequest } from '@/utils';
+import { getTenantIdFromRequest, tenantDataFilter, withTenantId } from '@/utils/tenantScope';
 
 const couponModel = Coupon as any;
 
 export class CouponController {
   // Get all coupons (with optional filters)
-  async getAllCoupons(req: Request, res: Response) {
+  async getAllCoupons(req: IAuthRequest, res: Response) {
     try {
       const { branch, isActive, page = 1, limit = 50 } = req.query;
       
-      const filter: any = { deletedAt: null };
+      const filter: any = { deletedAt: null, ...tenantDataFilter(getTenantIdFromRequest(req)) };
       
       if (branch) {
         filter.$or = [
@@ -108,12 +110,16 @@ export class CouponController {
   }
 
   // Create new coupon
-  async createCoupon(req: Request, res: Response) {
+  async createCoupon(req: IAuthRequest, res: Response) {
     try {
-      const couponData = {
-        ...req.body,
-        createdBy: (req as any).user._id
-      };
+      const tenantId = getTenantIdFromRequest(req);
+      const couponData = withTenantId(
+        {
+          ...req.body,
+          createdBy: req.user?._id,
+        },
+        tenantId
+      );
       
       // Validate branch if provided
       if (couponData.branch) {
@@ -129,7 +135,8 @@ export class CouponController {
       // Check if code already exists
       const existingCoupon = await Coupon.findOne({
         code: couponData.code.toUpperCase(),
-        deletedAt: null
+        deletedAt: null,
+        ...tenantDataFilter(tenantId),
       });
 
       if (existingCoupon) {

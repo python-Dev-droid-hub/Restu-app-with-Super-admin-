@@ -25,6 +25,13 @@ import { Types } from 'mongoose';
 import { RestaurantTable } from '@/models/RestaurantTable';
 import { User } from '@/models/User';
 import { normalizeOrderPayload } from '@/utils/normalizeOrderPayload';
+import { assertTenantFeature, getTenantIdFromUser } from '@/utils/tenantContext';
+import { ISaasTenantRequest } from '@/superadmin/middleware/tenantIsolation.middleware';
+import { getTenantIdFromRequest, buildTenantOrderScope } from '@/utils/tenantScope';
+import {
+  assertPlanMonthlyOrderLimit,
+  assertPlanFeature,
+} from '@/superadmin/services/planEnforcement.service';
 
 export class OrderController {
   private orderRepository: OrderRepository;
@@ -130,6 +137,13 @@ export class OrderController {
     if (!restaurant || restaurant.isActive === false) {
       console.log('[ORDER DEBUG] Restaurant validation FAILED:', { exists: !!restaurant, isActive: restaurant?.isActive });
       throw createError('Branch not available', 404);
+    }
+
+    const orderTenantId =
+      getTenantIdFromRequest(req) ||
+      (restaurant.tenantId ? String(restaurant.tenantId) : undefined);
+    if (orderTenantId) {
+      await assertPlanMonthlyOrderLimit(orderTenantId);
     }
     console.log('[ORDER DEBUG] Restaurant validated OK');
 
@@ -338,6 +352,15 @@ export class OrderController {
         ? 'DINE_IN'
         : orderType;
 
+    const saasReq = req as IAuthRequest & ISaasTenantRequest;
+    if (normalizedOrderType === 'DELIVERY') {
+      await assertTenantFeature(actor, 'delivery', saasReq.tenant);
+    } else if (normalizedOrderType === 'DINE_IN') {
+      await assertTenantFeature(actor, 'dine_in', saasReq.tenant);
+    } else if (normalizedOrderType === 'TAKEAWAY' || orderType === 'takeaway') {
+      await assertTenantFeature(actor, 'takeaway', saasReq.tenant);
+    }
+
     const resolvedTableId = tableId || table || selectedTable;
     let resolvedTableNumber = tableNumber ?? table_number;
     if (normalizedOrderType === 'DINE_IN' && resolvedTableId && !resolvedTableNumber) {
@@ -369,6 +392,11 @@ export class OrderController {
       status: getInitialStatusForOrder(normalizedOrderType, userRole),
       paymentStatus: 'PENDING',
     };
+
+    const tenantId =
+      getTenantIdFromUser(actor) ||
+      (saasReq.tenant?._id ? String(saasReq.tenant._id) : undefined);
+    if (tenantId) orderData.tenantId = tenantId;
 
     if (normalizedOrderType === 'DINE_IN' && userRole === 'WAITER') {
       orderData.kitchenAcceptedAt = new Date();
@@ -1665,6 +1693,11 @@ export class OrderController {
     const limitNum = parseInt(limit as string, 10);
 
     const filter: any = {};
+
+    const tenantId = getTenantIdFromRequest(req);
+    if (tenantId) {
+      Object.assign(filter, await buildTenantOrderScope(tenantId));
+    }
 
     const userRole = req.user?.role;
 

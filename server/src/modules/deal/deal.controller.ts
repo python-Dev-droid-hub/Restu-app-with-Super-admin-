@@ -2,6 +2,8 @@ import { Request, Response } from 'express';
 import { Deal } from '@/models/Deal';
 import { Branch } from '@/models/Branch';
 import { Product } from '@/models/Product';
+import { IAuthRequest } from '@/utils';
+import { getTenantIdFromRequest, tenantDataFilter, withTenantId } from '@/utils/tenantScope';
 
 function normalizeBranchIds(value: unknown): string[] {
   const rawBranchIds = Array.isArray(value) ? value : value ? [value] : [];
@@ -10,11 +12,11 @@ function normalizeBranchIds(value: unknown): string[] {
 
 export class DealController {
   // Get all deals (with optional filters)
-  async getAllDeals(req: Request, res: Response) {
+  async getAllDeals(req: IAuthRequest, res: Response) {
     try {
       const { branch, isActive, page = 1, limit = 50 } = req.query;
       
-      const filter: any = { deletedAt: null };
+      const filter: any = { deletedAt: null, ...tenantDataFilter(getTenantIdFromRequest(req)) };
       
       if (branch) {
         filter.$or = [
@@ -130,9 +132,9 @@ export class DealController {
   }
 
   // Create new deal
-  async createDeal(req: Request, res: Response) {
+  async createDeal(req: IAuthRequest, res: Response) {
     try {
-      const dealData = req.body;
+      const dealData = withTenantId({ ...req.body }, getTenantIdFromRequest(req));
       
       // Validate branch if provided
       const branchIds = normalizeBranchIds(dealData.branch);

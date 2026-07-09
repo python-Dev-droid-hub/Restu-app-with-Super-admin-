@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { ProductSizeController } from './product-size.controller';
-import { authenticate, authorize } from '@/middleware/auth';
+import { authenticate, authorize, optionalAuth } from '@/middleware/auth';
 import { validate } from '@/middleware/validation';
 import Joi from 'joi';
 
@@ -45,7 +45,7 @@ const updateSizeSchema = Joi.object({
 });
 
 // Public routes
-router.get('/sizes', productSizeController.getAllSizes);
+router.get('/sizes', optionalAuth, productSizeController.getAllSizes);
 router.get('/product/:productId', productSizeController.getProductSizes);
 router.get('/product/:productId/default', productSizeController.getDefaultProductSize);
 

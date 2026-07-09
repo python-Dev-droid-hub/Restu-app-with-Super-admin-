@@ -6,10 +6,15 @@ const categorySchema = new Schema({
     ref: 'Branch',
     index: true,
   }],
+  tenantId: {
+    type: Schema.Types.ObjectId,
+    ref: 'SaasTenant',
+    index: true,
+    default: null,
+  },
   name: {
     type: String,
     required: [true, 'Category name is required'],
-    unique: true,
     trim: true,
     maxlength: [100, 'Category name cannot exceed 100 characters']
   },
@@ -41,6 +46,7 @@ const categorySchema = new Schema({
 });
 
 // Indexes for better performance
+categorySchema.index({ tenantId: 1, name: 1 }, { unique: true, partialFilterExpression: { deletedAt: null } });
 categorySchema.index({ name: 1 });
 categorySchema.index({ displayOrder: 1 });
 categorySchema.index({ isActive: 1, deletedAt: 1 });

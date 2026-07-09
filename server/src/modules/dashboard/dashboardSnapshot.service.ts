@@ -7,12 +7,14 @@ import { OrderRepository } from '@/modules/order/order.repository';
 import { TableRepository } from '@/modules/table/table.repository';
 import { NotificationService } from '@/modules/notification/notification.service';
 import { normalizeOrderPayload } from '@/utils/normalizeOrderPayload';
+import { tenantBranchFilter, buildTenantOrderScope, tenantDataFilter } from '@/utils/tenantScope';
 
-export function buildAdminOrderFilter(
+export async function buildAdminOrderFilter(
   role: string,
   assignedBranchId: string,
-  effectiveBranchId: string
-): { filter: Record<string, unknown> | null } {
+  effectiveBranchId: string,
+  tenantId?: string
+): Promise<{ filter: Record<string, unknown> | null }> {
   const branchObjectId =
     effectiveBranchId && Types.ObjectId.isValid(effectiveBranchId)
       ? new Types.ObjectId(effectiveBranchId)
@@ -23,14 +25,22 @@ export function buildAdminOrderFilter(
       : effectiveBranchId
     : undefined;
 
-  const filter: Record<string, unknown> = {};
+  const and: Record<string, unknown>[] = [];
+  if (tenantId) {
+    const tenantScope = await buildTenantOrderScope(tenantId);
+    if (Object.keys(tenantScope).length) and.push(tenantScope);
+  }
+
   if (role === 'BRANCH_MANAGER') {
     if (!assignedBranchId) return { filter: null };
-    filter.branch = branchIdForMatch;
+    and.push({ branch: branchIdForMatch });
   } else if (effectiveBranchId) {
-    filter.branch = branchIdForMatch;
+    and.push({ branch: branchIdForMatch });
   }
-  return { filter };
+
+  if (!and.length) return { filter: {} };
+  if (and.length === 1) return { filter: and[0] };
+  return { filter: { $and: and } };
 }
 
 function normalizeOrder(o: unknown) {
@@ -44,8 +54,8 @@ export class DashboardSnapshotService {
   private tableRepository = new TableRepository();
   private notificationService = new NotificationService();
 
-  async getAdminBranches(role: string, assignedBranchId: string) {
-    const query: Record<string, unknown> = { deletedAt: null };
+  async getAdminBranches(role: string, assignedBranchId: string, tenantId?: string) {
+    const query: Record<string, unknown> = { deletedAt: null, ...tenantBranchFilter(tenantId) };
     if (role === 'BRANCH_MANAGER') {
       if (!assignedBranchId) return { branches: [] };
       query._id = assignedBranchId;
@@ -71,8 +81,9 @@ export class DashboardSnapshotService {
   async getAdminDashboard(
     role: string,
     assignedBranchId: string,
-    params?: { period?: string; branchId?: string; limit?: number }
+    params?: { period?: string; branchId?: string; limit?: number; tenantId?: string }
   ) {
+    const tenantId = params?.tenantId;
     const requestedBranchId =
       params?.branchId && params.branchId !== 'all' ? String(params.branchId) : '';
     const effectiveBranchId =
@@ -81,7 +92,7 @@ export class DashboardSnapshotService {
     const limit =
       typeof params?.limit === 'number' && params.limit > 0 ? Math.min(params.limit, 200) : 50;
 
-    const orderFilterResult = buildAdminOrderFilter(role, assignedBranchId, effectiveBranchId);
+    const orderFilterResult = await buildAdminOrderFilter(role, assignedBranchId, effectiveBranchId, tenantId);
     const orderFilter = orderFilterResult.filter;
 
     const [stats, waitersPerformance, ridersPerformance, branchesPerformance, ordersResult, unreadCount, recentProducts, totalProducts] =
@@ -89,16 +100,19 @@ export class DashboardSnapshotService {
         this.dashboardService.getAdminStats({
           period,
           branchId: effectiveBranchId || undefined,
+          tenantId,
         }),
         this.dashboardService.getAdminWaitersPerformance({
           period,
           branchId: effectiveBranchId || undefined,
+          tenantId,
         }),
         this.dashboardService.getAdminRidersPerformance({
           period,
           branchId: effectiveBranchId || undefined,
+          tenantId,
         }),
-        this.dashboardService.getAdminBranchesPerformance({ period }),
+        this.dashboardService.getAdminBranchesPerformance({ period, tenantId }),
         (async () => {
           if (orderFilter === null) return { orders: [], total: 0 };
           const orders = await this.orderRepository.findAllOrders(orderFilter, 1, limit);
@@ -106,8 +120,8 @@ export class DashboardSnapshotService {
           return { orders: (orders || []).map(normalizeOrder), total };
         })(),
         this.notificationService.getAdminUnreadCount(),
-        this.menuRepository.findAllProducts({}, 1, 5),
-        this.menuRepository.countProducts({}),
+        this.menuRepository.findAllProducts(tenantDataFilter(tenantId), 1, 5),
+        this.menuRepository.countProducts(tenantDataFilter(tenantId)),
       ]);
 
     return {

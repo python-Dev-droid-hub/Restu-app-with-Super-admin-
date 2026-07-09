@@ -2,6 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import { RestaurantRepository } from './restaurant.repository';
 import { IAuthRequest, sendSuccess, sendError, asyncHandler } from '@/utils';
 import { createError } from '@/middleware/errorHandler';
+import { getTenantIdFromRequest, tenantBranchFilter } from '@/utils/tenantScope';
+import { assertPlanBranchLimit } from '@/superadmin/services/planEnforcement.service';
 
 export class RestaurantController {
   private restaurantRepository: RestaurantRepository;
@@ -41,6 +43,12 @@ export class RestaurantController {
     // Default branch manager to creator when creator is a branch manager
     if (!data.branchManager && req.user?.role === 'BRANCH_MANAGER') {
       data.branchManager = userId;
+    }
+
+    const tenantId = getTenantIdFromRequest(req);
+    if (tenantId) {
+      await assertPlanBranchLimit(tenantId);
+      data.tenantId = tenantId;
     }
 
     const branch = await this.restaurantRepository.create(data);
@@ -124,7 +132,7 @@ export class RestaurantController {
     sendSuccess(res, null, 'Restaurant deleted successfully');
   });
 
-  getAllRestaurants = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  getAllRestaurants = asyncHandler(async (req: IAuthRequest, res: Response): Promise<void> => {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
     const city = req.query.city as string;
@@ -133,7 +141,8 @@ export class RestaurantController {
     const search = req.query.search as string;
     const sort = req.query.sort as string || '-createdAt';
 
-    let filter: any = {};
+    const tenantId = getTenantIdFromRequest(req);
+    let filter: any = { ...tenantBranchFilter(tenantId) };
     if (city) filter['address.city'] = new RegExp(city, 'i');
     if (cuisine) filter.cuisine = { $in: [cuisine] };
     if (priceRange) filter.priceRange = priceRange;

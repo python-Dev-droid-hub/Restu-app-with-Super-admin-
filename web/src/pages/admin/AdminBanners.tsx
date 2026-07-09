@@ -20,6 +20,14 @@ import {
 } from '@mui/material';
 import { Add, Edit, Delete, Image as ImageIcon } from '@mui/icons-material';
 import { api } from '../../services/api';
+import { useTheme } from '@mui/material/styles';
+import { useTenantBranding } from '../../context/TenantBrandingProvider';
+import {
+  adminPageContainerSx,
+  adminPageHeaderSx,
+  adminPrimaryButtonSx,
+  useAdminBreakpoints,
+} from '../../utils/adminResponsive';
 
 interface Banner {
   _id: string;
@@ -32,6 +40,11 @@ interface Banner {
 }
 
 const AdminBanners: React.FC = () => {
+  const theme = useTheme();
+  const { branding } = useTenantBranding();
+  const { isCompact } = useAdminBreakpoints();
+  const primary = branding.primaryColor || theme.palette.primary.main;
+  const primaryDark = theme.palette.primary.dark;
   const [banners, setBanners] = useState<Banner[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -158,19 +171,20 @@ const AdminBanners: React.FC = () => {
   };
 
   return (
-    <Box sx={{ bgcolor: '#f5f5f5', minHeight: '100vh', pb: 3, pt: 0 }}>
-      <Container maxWidth="xl">
+    <Box sx={{ ...adminPageContainerSx, bgcolor: '#f5f5f5', minHeight: '100vh' }}>
+      <Container maxWidth="xl" disableGutters sx={{ px: 0 }}>
         <Card sx={{ borderRadius: 2, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-          <CardContent>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-              <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
+          <CardContent sx={{ p: { xs: 2, md: 3 } }}>
+            <Box sx={adminPageHeaderSx}>
+              <Typography variant="h5" sx={{ fontWeight: 'bold', fontSize: { xs: 22, sm: 28 } }}>
                 Banner Management
               </Typography>
               <Button
                 variant="contained"
                 startIcon={<Add />}
                 onClick={() => handleOpenDialog()}
-                sx={{ bgcolor: '#FF6B35', '&:hover': { bgcolor: '#e55a2b' } }}
+                fullWidth={isCompact}
+                sx={adminPrimaryButtonSx(primary, primaryDark)}
               >
                 Add Banner
               </Button>
@@ -290,7 +304,7 @@ const AdminBanners: React.FC = () => {
           </DialogContent>
           <DialogActions>
             <Button onClick={handleCloseDialog}>Cancel</Button>
-            <Button onClick={handleSave} variant="contained" sx={{ bgcolor: '#FF6B35' }}>
+            <Button onClick={handleSave} variant="contained" sx={adminPrimaryButtonSx(primary, primaryDark)}>
               Save
             </Button>
           </DialogActions>

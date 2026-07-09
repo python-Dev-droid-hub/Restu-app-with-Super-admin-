@@ -57,14 +57,14 @@ const updateSettingsSchema = Joi.object({
     pushNotifications: Joi.boolean().optional(),
   }).optional(),
   socialMedia: Joi.object({
-    facebook: Joi.string().uri().optional(),
-    instagram: Joi.string().uri().optional(),
-    twitter: Joi.string().uri().optional(),
+    facebook: Joi.string().allow('').optional(),
+    instagram: Joi.string().allow('').optional(),
+    twitter: Joi.string().allow('').optional(),
   }).optional(),
 });
 
-// Allow unknown fields by using .keys() pattern
-const flexibleUpdateSettingsSchema = updateSettingsSchema.keys({});
+// Allow unknown fields from the client; strip read-only keys
+const flexibleUpdateSettingsSchema = updateSettingsSchema.keys({}).unknown(true);
 
 // Public settings for customers (no auth required)
 router.get('/public', settingsController.getPublicSettings);

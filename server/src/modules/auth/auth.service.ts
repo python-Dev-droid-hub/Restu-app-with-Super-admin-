@@ -2,8 +2,13 @@ import { UserRepository } from '@/modules/user/user.repository';
 import { generateTokenPair, verifyRefreshToken } from '@/utils/jwt';
 import { IUser, IJWTPayload } from '@/types';
 import { createError } from '@/middleware/errorHandler';
+import { Tenant } from '@/superadmin/models';
 import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
+import {
+  assertRoleAllowedForPlan,
+  roleRequiresFeature,
+} from '@/superadmin/services/planEnforcement.service';
 
 type LoginAttemptEntry = { failures: number; lockUntil: number };
 
@@ -54,6 +59,7 @@ export class AuthService {
     vehicleNumber?: string;
     vehicleType?: string;
     assignedBranchId?: string;
+    tenantId?: string;
   }): Promise<{ user: IUser; tokens: any }> {
     const { 
       name, 
@@ -64,7 +70,8 @@ export class AuthService {
       profileImage,
       vehicleNumber,
       vehicleType,
-      assignedBranchId
+      assignedBranchId,
+      tenantId,
     } = userData;
     const normalizedRole = (role || 'CUSTOMER').toUpperCase() as IUser['role'];
 
@@ -88,6 +95,7 @@ export class AuthService {
     if (vehicleNumber) userCreateData.vehicleNumber = vehicleNumber;
     if (vehicleType) userCreateData.vehicleType = vehicleType;
     if (assignedBranchId) userCreateData.assignedBranch = new mongoose.Types.ObjectId(assignedBranchId);
+    if (tenantId) userCreateData.tenantId = new mongoose.Types.ObjectId(tenantId);
 
     const user = await this.userRepository.create(userCreateData);
 
@@ -119,6 +127,17 @@ export class AuthService {
       throw createError('Account is deactivated', 401);
     }
 
+    if (user.tenantId) {
+      const tenant = await Tenant.findById(user.tenantId);
+      if (tenant && (!tenant.isActive || tenant.subscriptionStatus === 'SUSPENDED')) {
+        const err = createError('Your restaurant account is suspended. Contact support.', 403) as Error & {
+          suspended?: boolean;
+        };
+        err.suspended = true;
+        throw err;
+      }
+    }
+
     // Verify password
     const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) {
@@ -127,6 +146,12 @@ export class AuthService {
     }
 
     this.clearLoginFailures(email);
+
+    const tenantId = user.tenantId ? String(user.tenantId) : undefined;
+    const featureGate = roleRequiresFeature(user.role);
+    if (tenantId && featureGate) {
+      await assertRoleAllowedForPlan(tenantId, user.role);
+    }
 
     // Generate tokens with proper assignedBranch handling
     let assignedBranchId: string | undefined;
@@ -145,6 +170,7 @@ export class AuthService {
       email: user.email,
       role: user.role,
       assignedBranch: assignedBranchId,
+      tenantId: user.tenantId ? String(user.tenantId) : undefined,
     };
 
     const tokens = generateTokenPair(payload);
@@ -171,6 +197,10 @@ export class AuthService {
         userId: user._id.toString(),
         email: user.email,
         role: user.role,
+        assignedBranch: user.assignedBranch?.toString(),
+        tenantId: user.tenantId ? String(user.tenantId) : payload.tenantId,
+        impersonating: payload.impersonating,
+        superAdminId: payload.superAdminId,
       };
 
       const tokens = generateTokenPair(newPayload);

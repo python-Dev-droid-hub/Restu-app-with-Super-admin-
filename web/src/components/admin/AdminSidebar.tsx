@@ -26,8 +26,13 @@ import {
   Settings,
   Logout,
   TwoWheeler,
+  SupportAgent,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useTheme } from '@mui/material/styles';
+import { useTenantBranding } from '../../context/TenantBrandingProvider';
+import { useTenantPlan } from '../../hooks/useTenantPlan';
+import { api } from '../../services/api';
 
 const SIDEBAR_WIDTH = 260;
 
@@ -46,6 +51,12 @@ const AdminSidebar: React.FC<{
 }> = ({ mode = 'admin', variant = 'permanent', open = false, onClose }) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const theme = useTheme();
+  const { branding } = useTenantBranding();
+  const { isNavAllowed } = useTenantPlan();
+  const primary = branding.primaryColor || theme.palette.primary.main;
+  const brandInitial = (branding.name || 'R').charAt(0).toUpperCase();
+  const logoSrc = branding.logoUrl ? api.getImageUrl(branding.logoUrl) : '';
 
   const basePath =
     mode === 'manager' ? '/manager' : mode === 'chef' ? '/chef' : mode === 'waiter' ? '/waiter' : mode === 'rider' ? '/rider' : '/admin';
@@ -90,6 +101,7 @@ const AdminSidebar: React.FC<{
           { label: 'Deals', icon: <Sell sx={{ fontSize: 20 }} />, path: `${basePath}/deals`, key: 'deals' },
           { label: 'Product Size', icon: <Fastfood sx={{ fontSize: 20 }} />, path: `${basePath}/product-size`, key: 'product-size' },
           { label: 'Reports', icon: <BarChart sx={{ fontSize: 20 }} />, path: `${basePath}/reports`, key: 'reports' },
+          { label: 'Platform Support', icon: <SupportAgent sx={{ fontSize: 20 }} />, path: `${basePath}/support`, key: 'support' },
         ]
       : [
           { label: 'Dashboard', icon: <Dashboard sx={{ fontSize: 20 }} />, path: `${basePath}/dashboard`, key: 'dashboard' },
@@ -108,7 +120,10 @@ const AdminSidebar: React.FC<{
           { label: 'Product Size', icon: <Fastfood sx={{ fontSize: 20 }} />, path: `${basePath}/product-size`, key: 'product-size' },
           { label: 'Reports', icon: <BarChart sx={{ fontSize: 20 }} />, path: `${basePath}/reports`, key: 'reports' },
           { label: 'Settings', icon: <Settings sx={{ fontSize: 20 }} />, path: `${basePath}/settings`, key: 'settings' },
+          { label: 'Platform Support', icon: <SupportAgent sx={{ fontSize: 20 }} />, path: `${basePath}/support`, key: 'support' },
         ];
+
+  const visibleMenuItems = menuItems.filter((item) => isNavAllowed(item.key));
 
   const isActive = (path: string): boolean => location.pathname === path;
 
@@ -134,7 +149,7 @@ const AdminSidebar: React.FC<{
         '& .MuiDrawer-paper': {
           width: SIDEBAR_WIDTH,
           boxSizing: 'border-box',
-          bgcolor: '#f8f5ff',
+          bgcolor: theme.palette.primary.light,
           borderRight: 'none',
           boxShadow: 'none',
         },
@@ -151,27 +166,18 @@ const AdminSidebar: React.FC<{
             alignItems: 'center',
             justifyContent: 'center',
             overflow: 'hidden',
+            bgcolor: primary,
+            flexShrink: 0,
           }}
         >
-          <Box
-            sx={{
-              width: 36,
-              height: 36,
-              bgcolor: '#FF6B35',
-              borderRadius: '50%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'white',
-              fontWeight: 'bold',
-              fontSize: 18,
-            }}
-          >
-            E
-          </Box>
+          {logoSrc ? (
+            <Box component="img" src={logoSrc} alt="" sx={{ width: 36, height: 36, objectFit: 'cover' }} />
+          ) : (
+            <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 18 }}>{brandInitial}</Typography>
+          )}
         </Box>
-        <Typography variant="h6" sx={{ fontWeight: 600, color: '#333', fontSize: 20 }}>
-          eatzilla
+        <Typography variant="h6" sx={{ fontWeight: 600, color: '#333', fontSize: 18 }} noWrap>
+          {branding.name || 'Restaurant'}
         </Typography>
       </Box>
 
@@ -179,7 +185,7 @@ const AdminSidebar: React.FC<{
 
       {/* All Menu Items */}
       <List sx={{ pt: 1, px: 1.5, overflow: 'auto', flex: 1 }}>
-        {menuItems.map(item => (
+        {visibleMenuItems.map(item => (
           <ListItemButton
             key={item.key}
             onClick={() => {
@@ -187,14 +193,14 @@ const AdminSidebar: React.FC<{
               if (variant === 'temporary') onClose?.();
             }}
             sx={{
-              bgcolor: isActive(item.path) ? '#FFE8E0' : 'transparent',
-              color: isActive(item.path) ? '#FF6B35' : '#666',
+              bgcolor: isActive(item.path) ? `${primary}18` : 'transparent',
+              color: isActive(item.path) ? primary : '#666',
               borderRadius: 2,
               mb: 0.5,
               py: 1,
               px: 1.5,
               '&:hover': {
-                bgcolor: isActive(item.path) ? '#FFE8E0' : 'rgba(255, 107, 53, 0.08)',
+                bgcolor: isActive(item.path) ? `${primary}18` : `${primary}14`,
               },
               transition: 'all 0.2s ease',
             }}
@@ -233,8 +239,8 @@ const AdminSidebar: React.FC<{
             py: 1,
             px: 1.5,
             '&:hover': {
-              bgcolor: 'rgba(255, 107, 53, 0.08)',
-              color: '#FF6B35',
+              bgcolor: `${primary}14`,
+              color: primary,
             },
           }}
         >

@@ -41,6 +41,7 @@ import {
   resolveStaffBranchId,
 } from '../../utils/notificationCountSync';
 import { getSocketIoOptions, getSocketIoUrl } from '../../utils/socketOptions';
+import { useAdminPageStyles } from '../../utils/adminResponsive';
 
 interface NotificationItem {
   _id: string;
@@ -56,6 +57,7 @@ const AdminNotifications: React.FC = () => {
   const theme = useTheme();
   const location = useLocation();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const { page, header, headerActions, titleSx, primary } = useAdminPageStyles();
   const isManager = location.pathname.startsWith('/manager');
   const ordersBase = isManager ? '/manager' : '/admin';
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -64,10 +66,12 @@ const AdminNotifications: React.FC = () => {
   const [tabValue, setTabValue] = useState(0);
   const socketRef = useRef<Socket | null>(null);
 
-  const applyUnread = (count: number) => {
+  const applyUnread = (count: number, broadcast = true) => {
     const n = Math.max(0, count);
     setUnreadCount(n);
-    publishNotificationUnreadCount(n);
+    if (broadcast) {
+      publishNotificationUnreadCount(n);
+    }
   };
 
   const refreshUnreadCount = async () => {
@@ -254,17 +258,17 @@ const AdminNotifications: React.FC = () => {
   });
 
   return (
-    <Box sx={{ px: { xs: 2, md: 3 }, pb: { xs: 2, md: 3 }, pt: 0, bgcolor: '#f8f5ff', minHeight: '100vh' }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 1.5 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+    <Box sx={{ ...page, bgcolor: theme.palette.background.default, minHeight: '100vh' }}>
+      <Box sx={header}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0 }}>
           <Badge badgeContent={unreadCount} color="error">
-            <NotificationsIcon sx={{ fontSize: 28, color: '#FF6B35' }} />
+            <NotificationsIcon sx={{ fontSize: 28, color: primary }} />
           </Badge>
-          <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#333' }}>
+          <Typography variant="h5" sx={titleSx}>
             Notifications
           </Typography>
         </Box>
-        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+        <Box sx={headerActions}>
           <Button
             variant="outlined"
             startIcon={<MarkEmailRead />}
@@ -289,9 +293,11 @@ const AdminNotifications: React.FC = () => {
         <Tabs
           value={tabValue}
           onChange={(_, v) => setTabValue(v)}
-          sx={{ borderBottom: 1, borderColor: 'divider' }}
+          sx={{ borderBottom: 1, borderColor: 'divider', '& .MuiTab-root': { textTransform: 'none', fontWeight: 600 } }}
           variant={isMobile ? 'scrollable' : 'standard'}
           allowScrollButtonsMobile
+          indicatorColor="primary"
+          textColor="primary"
         >
           <Tab label={`All (${notifications.length})`} />
           <Tab label={`Unread (${unreadCount})`} />
@@ -357,7 +363,7 @@ const AdminNotifications: React.FC = () => {
                           {notification.title}
                         </Typography>
                         {!notification.read && (
-                          <Circle sx={{ fontSize: 8, color: '#FF6B35' }} />
+                          <Circle sx={{ fontSize: 8, color: primary }} />
                         )}
                         <Chip
                           label={notification.type}

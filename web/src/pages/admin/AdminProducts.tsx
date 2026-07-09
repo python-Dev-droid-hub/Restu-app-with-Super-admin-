@@ -36,6 +36,8 @@ import {
 import { api } from '../../services/api';
 import { useSettings } from '../../context/SettingsContext';
 import { useManagerBranchScope } from '../../utils/managerBranchScope';
+import { useTenantPlan } from '../../hooks/useTenantPlan';
+import { useAdminPageStyles } from '../../utils/adminResponsive';
 
 interface Product {
   _id: string;
@@ -67,6 +69,8 @@ interface AdminProductsProps {
 const AdminProducts: React.FC<AdminProductsProps> = ({ pageTitle = 'Products' }) => {
   const { currencySymbol, formatPrice } = useSettings();
   const { isBranchManager, assignedBranchId, hideBranchFilter } = useManagerBranchScope();
+  const { canAddMenuItem, plan } = useTenantPlan();
+  const { page: pageSx, header, primaryBtn, titleSx, primary, primaryDark, theme } = useAdminPageStyles();
   const isMenuPage = pageTitle === 'Menu';
   const [loading, setLoading] = useState(true);
   const [products, setProducts] = useState<Product[]>([]);
@@ -371,9 +375,9 @@ const AdminProducts: React.FC<AdminProductsProps> = ({ pageTitle = 'Products' })
   const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
 
   return (
-    <Box sx={{ px: { xs: 2, md: 3 }, pb: { xs: 2, md: 3 }, pt: 0, bgcolor: '#f8f5ff', minHeight: '100vh' }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 1.5 }}>
-        <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#333' }}>
+    <Box sx={{ ...pageSx, bgcolor: theme.palette.background.default, minHeight: '100vh' }}>
+      <Box sx={header}>
+        <Typography variant="h5" sx={titleSx}>
           {pageTitle}
         </Typography>
         {!isMenuPage && (
@@ -381,17 +385,24 @@ const AdminProducts: React.FC<AdminProductsProps> = ({ pageTitle = 'Products' })
             variant="contained"
             startIcon={<Add />}
             onClick={handleOpenAddDialog}
-            sx={{
-              bgcolor: '#FF6B35',
-              '&:hover': { bgcolor: '#E55A24' },
-              borderRadius: 2,
-              textTransform: 'none',
-            }}
+            disabled={!canAddMenuItem}
+            title={
+              !canAddMenuItem
+                ? `Menu limit reached (${plan.usage.menuItems}/${plan.maxMenuItems}) on ${plan.planName || 'your'} plan.`
+                : undefined
+            }
+            sx={{ ...primaryBtn, borderRadius: 2 }}
           >
             Add Product
           </Button>
         )}
       </Box>
+
+      {!isMenuPage && !canAddMenuItem && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Menu item limit reached ({plan.usage.menuItems}/{plan.maxMenuItems}) on {plan.planName || 'your'} plan.
+        </Alert>
+      )}
 
       <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap', alignItems: 'center' }}>
         <TextField
@@ -526,7 +537,7 @@ const AdminProducts: React.FC<AdminProductsProps> = ({ pageTitle = 'Products' })
                         position: 'absolute',
                         top: 8,
                         left: 8,
-                        bgcolor: '#FF6B35',
+                        bgcolor: primary,
                         color: 'white',
                         fontWeight: 'bold',
                         fontSize: 11,
@@ -571,7 +582,7 @@ const AdminProducts: React.FC<AdminProductsProps> = ({ pageTitle = 'Products' })
                       size="small"
                       sx={{
                         bgcolor: '#FFE8E0',
-                        color: '#FF6B35',
+                        color: primary,
                         fontSize: 11,
                         fontWeight: 500,
                         height: 24,
@@ -615,7 +626,7 @@ const AdminProducts: React.FC<AdminProductsProps> = ({ pageTitle = 'Products' })
 
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Typography sx={{ fontWeight: 'bold', fontSize: 18, color: '#FF6B35' }}>
+                      <Typography sx={{ fontWeight: 'bold', fontSize: 18, color: primary }}>
                         {formatPrice(product.price)}
                       </Typography>
                       {product.originalPrice && product.originalPrice > product.price && (
@@ -631,7 +642,7 @@ const AdminProducts: React.FC<AdminProductsProps> = ({ pageTitle = 'Products' })
                         onClick={() => handleOpenEditDialog(product)}
                         sx={{
                           color: '#666',
-                          '&:hover': { color: '#FF6B35', bgcolor: '#FFE8E0' },
+                          '&:hover': { color: primary, bgcolor: '#FFE8E0' },
                         }}
                       >
                         <Edit sx={{ fontSize: 18 }} />
@@ -641,8 +652,8 @@ const AdminProducts: React.FC<AdminProductsProps> = ({ pageTitle = 'Products' })
                         size="small"
                         startIcon={<Visibility sx={{ fontSize: 16 }} />}
                         sx={{
-                          bgcolor: '#FF6B35',
-                          '&:hover': { bgcolor: '#E55A24' },
+                          bgcolor: primary,
+                          '&:hover': { bgcolor: primaryDark },
                           textTransform: 'none',
                           borderRadius: 2,
                           px: 2,
@@ -682,7 +693,7 @@ const AdminProducts: React.FC<AdminProductsProps> = ({ pageTitle = 'Products' })
               '& .MuiPaginationItem-root': {
                 color: '#666',
                 '&.Mui-selected': {
-                  bgcolor: '#FF6B35',
+                  bgcolor: primary,
                   color: 'white',
                 },
               },
@@ -804,7 +815,7 @@ const AdminProducts: React.FC<AdminProductsProps> = ({ pageTitle = 'Products' })
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
           <Button onClick={handleCloseEditDialog}>Cancel</Button>
-          <Button onClick={handleSaveProduct} variant="contained" disabled={saving} sx={{ bgcolor: '#FF6B35', '&:hover': { bgcolor: '#E55A24' } }}>
+          <Button onClick={handleSaveProduct} variant="contained" disabled={saving} sx={primaryBtn}>
             {saving ? 'Saving...' : 'Save'}
           </Button>
         </DialogActions>

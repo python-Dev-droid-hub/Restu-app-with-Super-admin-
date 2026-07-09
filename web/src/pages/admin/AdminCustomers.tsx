@@ -24,9 +24,16 @@ import {
   Select,
   MenuItem,
   Alert,
-  useMediaQuery,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
+import { useTenantBranding } from '../../context/TenantBrandingProvider';
+import {
+  adminPageContainerSx,
+  adminPageHeaderSx,
+  adminPrimaryButtonSx,
+  responsiveTableContainerSx,
+  useAdminBreakpoints,
+} from '../../utils/adminResponsive';
 import {
   Search,
   Delete,
@@ -38,6 +45,7 @@ import {
   Add,
 } from '@mui/icons-material';
 import { api } from '../../services/api';
+import { useTenantPlan } from '../../hooks/useTenantPlan';
 
 interface UserItem {
   _id: string;
@@ -61,7 +69,11 @@ interface BranchItem {
 
 const AdminCustomers: React.FC = () => {
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const { branding } = useTenantBranding();
+  const { isMobile, isCompact } = useAdminBreakpoints();
+  const primary = branding.primaryColor || theme.palette.primary.main;
+  const primaryDark = theme.palette.primary.dark;
+  const { canAddStaff, allowedStaffRoles, plan } = useTenantPlan();
   const [users, setUsers] = useState<UserItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -223,6 +235,15 @@ const AdminCustomers: React.FC = () => {
     setAddError('');
   };
 
+  const staffRoleOptions = [
+    { value: 'CUSTOMER', label: 'Customer' },
+    { value: 'ADMIN', label: 'Admin' },
+    { value: 'BRANCH_MANAGER', label: 'Branch Manager' },
+    { value: 'CHEF', label: 'Chef' },
+    { value: 'WAITER', label: 'Waiter' },
+    { value: 'RIDER', label: 'Rider' },
+  ].filter((r) => r.value === 'CUSTOMER' || allowedStaffRoles.includes(r.value));
+
   const openAddDialog = () => {
     resetAddForm();
     setAddOpen(true);
@@ -285,22 +306,23 @@ const AdminCustomers: React.FC = () => {
   };
 
   return (
-    <Box sx={{ px: { xs: 2, md: 3 }, pb: { xs: 2, md: 3 }, pt: 0, bgcolor: '#f8f5ff', minHeight: '100vh' }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 1.5 }}>
-        <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#333' }}>
+    <Box sx={{ ...adminPageContainerSx, bgcolor: '#f8f5ff', minHeight: '100vh' }}>
+      <Box sx={adminPageHeaderSx}>
+        <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#333', fontSize: { xs: 22, sm: 28 } }}>
           Users & Customers
         </Typography>
         <Button
           variant="contained"
           startIcon={<Add />}
           onClick={openAddDialog}
-          sx={{
-            textTransform: 'none',
-            borderRadius: 2,
-            bgcolor: '#FF6B35',
-            '&:hover': { bgcolor: '#e55a2b' },
-            fontWeight: 700,
-          }}
+          disabled={!canAddStaff}
+          fullWidth={isCompact}
+          title={
+            !canAddStaff
+              ? `Staff limit reached (${plan.usage.staff}/${plan.maxStaffAccounts}) on ${plan.planName || 'your'} plan.`
+              : undefined
+          }
+          sx={{ ...adminPrimaryButtonSx(primary, primaryDark), borderRadius: 2 }}
         >
           Add User
         </Button>
@@ -366,13 +388,11 @@ const AdminCustomers: React.FC = () => {
                 }}
                 displayEmpty
               >
-                <MenuItem value="CUSTOMER">Customer</MenuItem>
-                <MenuItem value="ADMIN">Admin</MenuItem>
-                <MenuItem value="SUPER_ADMIN">Super Admin</MenuItem>
-                <MenuItem value="BRANCH_MANAGER">Branch Manager</MenuItem>
-                <MenuItem value="CHEF">Chef</MenuItem>
-                <MenuItem value="WAITER">Waiter</MenuItem>
-                <MenuItem value="RIDER">Rider</MenuItem>
+                {staffRoleOptions.map((r) => (
+                  <MenuItem key={r.value} value={r.value}>
+                    {r.label}
+                  </MenuItem>
+                ))}
               </Select>
             </FormControl>
             {addErrors.role && (
@@ -435,7 +455,7 @@ const AdminCustomers: React.FC = () => {
             onClick={handleCreateUser}
             disabled={addLoading}
             variant="contained"
-            sx={{ textTransform: 'none', bgcolor: '#FF6B35', '&:hover': { bgcolor: '#e55a2b' } }}
+            sx={{ textTransform: 'none', ...adminPrimaryButtonSx(primary, primaryDark) }}
           >
             {addLoading ? 'Creating...' : 'Create User'}
           </Button>
@@ -474,18 +494,15 @@ const AdminCustomers: React.FC = () => {
       </Box>
 
       {/* Users Table */}
-      <TableContainer
-        component={Paper}
-        sx={{ borderRadius: 2, boxShadow: '0 2px 12px rgba(0,0,0,0.08)', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}
-      >
-        <Table size={isMobile ? 'small' : 'medium'} sx={{ minWidth: 820 }}>
+      <TableContainer component={Paper} sx={{ borderRadius: 2, boxShadow: '0 2px 12px rgba(0,0,0,0.08)', ...responsiveTableContainerSx }}>
+        <Table size={isMobile ? 'small' : 'medium'} sx={{ minWidth: isCompact ? 0 : 820 }}>
           <TableHead>
             <TableRow sx={{ bgcolor: '#f5f5f5' }}>
               <TableCell sx={{ fontWeight: 600 }}>User</TableCell>
               <TableCell sx={{ fontWeight: 600 }}>Role</TableCell>
-              <TableCell sx={{ fontWeight: 600 }}>Contact</TableCell>
-              <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
-              <TableCell sx={{ fontWeight: 600 }}>Joined</TableCell>
+              {!isCompact && <TableCell sx={{ fontWeight: 600 }}>Contact</TableCell>}
+              <TableCell sx={{ fontWeight: 600, display: { xs: 'none', md: 'table-cell' } }}>Status</TableCell>
+              <TableCell sx={{ fontWeight: 600, display: { xs: 'none', lg: 'table-cell' } }}>Joined</TableCell>
               <TableCell align="right" sx={{ fontWeight: 600 }}>Actions</TableCell>
             </TableRow>
           </TableHead>
@@ -512,11 +529,25 @@ const AdminCustomers: React.FC = () => {
               filteredUsers.map((user) => (
                 <TableRow key={user._id} hover>
                   <TableCell>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                      <Avatar src={user.avatar ? api.getImageUrl(user.avatar) : undefined} sx={{ bgcolor: '#FF6B35' }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0 }}>
+                      <Avatar src={user.avatar ? api.getImageUrl(user.avatar) : undefined} sx={{ bgcolor: primary, flexShrink: 0 }}>
                         {user.name.charAt(0).toUpperCase()}
                       </Avatar>
-                      <Typography sx={{ fontWeight: 500 }}>{user.name}</Typography>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography sx={{ fontWeight: 500 }}>{user.name}</Typography>
+                        {isCompact && (
+                          <Box sx={{ mt: 0.5 }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-all' }}>
+                              {user.email}
+                            </Typography>
+                            {user.phone && (
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                {user.phone}
+                              </Typography>
+                            )}
+                          </Box>
+                        )}
+                      </Box>
                     </Box>
                   </TableCell>
                   <TableCell>
@@ -531,21 +562,23 @@ const AdminCustomers: React.FC = () => {
                       }}
                     />
                   </TableCell>
+                  {!isCompact && (
                   <TableCell>
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        <Email sx={{ fontSize: 14, color: '#999' }} />
-                        <Typography variant="body2">{user.email}</Typography>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, minWidth: 0 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
+                        <Email sx={{ fontSize: 14, color: '#999', flexShrink: 0 }} />
+                        <Typography variant="body2" sx={{ wordBreak: 'break-all' }}>{user.email}</Typography>
                       </Box>
                       {user.phone && (
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          <Phone sx={{ fontSize: 14, color: '#999' }} />
+                          <Phone sx={{ fontSize: 14, color: '#999', flexShrink: 0 }} />
                           <Typography variant="body2" color="#666">{user.phone}</Typography>
                         </Box>
                       )}
                     </Box>
                   </TableCell>
-                  <TableCell>
+                  )}
+                  <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
                     <Chip
                       label={user.isActive ? 'Active' : 'Inactive'}
                       size="small"
@@ -557,7 +590,7 @@ const AdminCustomers: React.FC = () => {
                       }}
                     />
                   </TableCell>
-                  <TableCell>
+                  <TableCell sx={{ display: { xs: 'none', lg: 'table-cell' } }}>
                     <Typography variant="body2" color="#666">
                       {new Date(user.createdAt).toLocaleDateString()}
                     </Typography>

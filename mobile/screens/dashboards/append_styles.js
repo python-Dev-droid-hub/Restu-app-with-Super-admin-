@@ -381,7 +381,7 @@ const cookingStyles = StyleSheet.create({
 });
 `;
 
-const mainFile = 'c:\\Projects\\restaurant-app\\mobile\\screens\\dashboards\\ChefDashboard.tsx';
+const mainFile = 'c:\\Projects\\restaurant-app-saas\\mobile\\screens\\dashboards\\ChefDashboard.tsx';
 const content = fs.readFileSync(mainFile, 'utf8');
 fs.writeFileSync(mainFile, content + cookingStyles);
 console.log('cookingStyles appended successfully');

@@ -1,4 +1,4 @@
-import mongoose, { Document, Schema } from 'mongoose';
+import mongoose, { Document, Schema, Types } from 'mongoose';
 
 export interface ISystemSettings extends Document {
   restaurantName: string;
@@ -55,6 +55,8 @@ export interface ISystemSettings extends Document {
     instagram?: string;
     twitter?: string;
   };
+  /** SaaS tenant scope — one settings doc per tenant */
+  tenantId?: Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -86,12 +88,12 @@ const SystemSettingsSchema: Schema = new Schema({
     required: true,
     trim: true,
     lowercase: true,
-    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please enter a valid email']
+    match: [/^\S+@\S+\.\S+$/, 'Please enter a valid email'],
   },
   contactPhone: {
     type: String,
-    required: true,
-    trim: true
+    default: '',
+    trim: true,
   },
   defaultCurrency: {
     type: String,
@@ -131,11 +133,11 @@ const SystemSettingsSchema: Schema = new Schema({
     default: true
   },
   address: {
-    street: { type: String, required: true },
-    city: { type: String, required: true },
-    state: { type: String, required: true },
-    zipCode: { type: String, required: true },
-    country: { type: String, required: true, default: 'USA' }
+    street: { type: String, default: '' },
+    city: { type: String, default: '' },
+    state: { type: String, default: '' },
+    zipCode: { type: String, default: '' },
+    country: { type: String, default: 'Pakistan' },
   },
   operatingHours: {
     monday: {
@@ -197,21 +199,27 @@ const SystemSettingsSchema: Schema = new Schema({
     facebook: { type: String, trim: true },
     instagram: { type: String, trim: true },
     twitter: { type: String, trim: true }
-  }
+  },
+  tenantId: {
+    type: Schema.Types.ObjectId,
+    ref: 'SaasTenant',
+    index: true,
+    sparse: true,
+  },
 }, {
   timestamps: true
 });
 
-// Ensure only one settings document exists
-SystemSettingsSchema.pre('save', async function(next) {
-  if (this.isNew) {
-    const count = await mongoose.model('SystemSettings').countDocuments();
-    if (count > 0) {
-      const error = new Error('Only one system settings document is allowed');
-      return next(error);
-    }
-  }
-  next();
-});
+// One global (legacy) doc OR one doc per tenant
+SystemSettingsSchema.index({ tenantId: 1 }, { unique: true, sparse: true });
 
-export const SystemSettings = mongoose.model<ISystemSettings>('SystemSettings', SystemSettingsSchema);
+function legacyGlobalFilter() {
+  return { $or: [{ tenantId: null }, { tenantId: { $exists: false } }] };
+}
+
+/** Separate collection from legacy `SystemSetting` key/value docs in `systemsettings`. */
+export const SystemSettings = mongoose.model<ISystemSettings>(
+  'RestaurantSystemSettings',
+  SystemSettingsSchema,
+  'restaurant_system_settings'
+);

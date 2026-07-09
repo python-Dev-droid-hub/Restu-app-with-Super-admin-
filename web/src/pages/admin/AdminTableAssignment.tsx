@@ -22,7 +22,10 @@ import {
   Skeleton,
 } from '@mui/material';
 import { Add, Edit, Delete, TableRestaurant } from '@mui/icons-material';
+import { useTheme } from '@mui/material/styles';
 import { api } from '../../services/api';
+import { alphaHex } from '../../utils/tenantBranding';
+import { adminPrimaryButtonSx, useAdminPageStyles } from '../../utils/adminResponsive';
 
 interface TableItem {
   _id: string;
@@ -45,6 +48,10 @@ interface Branch {
 }
 
 const AdminTableAssignment: React.FC = () => {
+  const theme = useTheme();
+  const { page, header, headerActions, titleSx, primaryBtn } = useAdminPageStyles();
+  const primary = theme.palette.primary.main;
+  const primaryDark = theme.palette.primary.dark;
   const [tables, setTables] = useState<TableItem[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
@@ -213,9 +220,9 @@ const AdminTableAssignment: React.FC = () => {
 
   const getStatusBgColor = (status: string) => {
     switch (status) {
-      case 'AVAILABLE': return '#e8f5e9';
+      case 'AVAILABLE': return alphaHex(primary, 0.1);
       case 'OCCUPIED': return '#ffebee';
-      case 'RESERVED': return '#fff3e0';
+      case 'RESERVED': return alphaHex(primary, 0.16);
       case 'CLEANING': return '#e3f2fd';
       case 'OUT_OF_SERVICE': return '#f5f5f5';
       default: return '#ffffff';
@@ -223,17 +230,17 @@ const AdminTableAssignment: React.FC = () => {
   };
 
   return (
-    <Box sx={{ bgcolor: '#f5f5f5', minHeight: '100vh', pb: 3, pt: 0 }}>
-      <Container maxWidth="xl">
+    <Box sx={{ ...page, bgcolor: theme.palette.background.default, minHeight: '100vh' }}>
+      <Container maxWidth="xl" disableGutters>
         <Card sx={{ borderRadius: 2, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
           <CardContent>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-              <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
+            <Box sx={{ ...header, alignItems: { xs: 'stretch', sm: 'center' } }}>
+              <Typography variant="h5" sx={titleSx}>
                 Table Assignment
               </Typography>
-              <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+              <Box sx={{ ...headerActions, alignItems: 'center' }}>
                 {userRole !== 'BRANCH_MANAGER' && (
-                  <FormControl size="small" sx={{ minWidth: 200, bgcolor: 'white', borderRadius: 1 }}>
+                  <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 200 }, bgcolor: 'white', borderRadius: 1 }}>
                     <InputLabel>Branch</InputLabel>
                     <Select
                       label="Branch"
@@ -254,7 +261,7 @@ const AdminTableAssignment: React.FC = () => {
                   variant="contained"
                   startIcon={<Add />}
                   onClick={() => handleOpenDialog()}
-                  sx={{ bgcolor: '#FF6B35', '&:hover': { bgcolor: '#e55a2b' } }}
+                  sx={{ ...primaryBtn, width: { xs: '100%', sm: 'auto' } }}
                 >
                   Add Table
                 </Button>
@@ -285,7 +292,7 @@ const AdminTableAssignment: React.FC = () => {
                         flexDirection: 'column',
                       }}
                     >
-                      <TableRestaurant sx={{ fontSize: 40, color: '#FF6B35', mb: 1 }} />
+                      <TableRestaurant sx={{ fontSize: 40, color: primary, mb: 1 }} />
                       <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
                         Table {table.tableNumber}
                       </Typography>
@@ -394,7 +401,7 @@ const AdminTableAssignment: React.FC = () => {
           </DialogContent>
           <DialogActions>
             <Button onClick={handleCloseDialog}>Cancel</Button>
-            <Button onClick={handleSave} variant="contained" sx={{ bgcolor: '#FF6B35' }}>
+            <Button onClick={handleSave} variant="contained" sx={adminPrimaryButtonSx(primary, primaryDark)}>
               Save
             </Button>
           </DialogActions>

@@ -55,8 +55,10 @@ import {
 import { useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../../services/api';
 import { useSettings } from '../../context/SettingsContext';
+import { useStaffPalette } from '../../utils/adminResponsive';
 import { emitRiderDashboardGet, getRealtimeSocket } from '../../hooks/useRealtimeRefresh';
 import { fetchRiderDashboardHttp } from '../../utils/dashboardHttp';
+import { clearAuthSession } from '../../utils/authStorage';
 
 type RiderTabKey = 'home' | 'orders' | 'earnings' | 'notifications' | 'profile';
 
@@ -202,16 +204,10 @@ const normalizeOrders = (rawList: any): RiderOrder[] => {
   return list.map(normalizeOrder).filter((o) => !!o._id);
 };
 
-const PAGE_BG = '#f8f5ff';
-const ACCENT = '#FF6B35';
-const ACCENT_SOFT = '#FFF3EE';
-const ACCENT_BORDER = '#FFE0D0';
-const ACCENT_MID = '#FF8E53';
-const ACCENT_LIGHT = '#FFB74D';
 const TEXT_PRIMARY = '#1a1a2e';
 
 const STATUS_COLORS: Record<string, string> = {
-  READY: '#FF6B35',
+  READY: 'var(--primary)',
   RIDER_ASSIGNED: '#1976d2',
   OUT_FOR_DELIVERY: '#6a1b9a',
   IN_DELIVERY: '#6a1b9a',
@@ -235,7 +231,9 @@ type HomeMetricTileProps = {
   accent?: string;
 };
 
-function HomeMetricTile({ label, value, hint, icon, accent = ACCENT }: HomeMetricTileProps) {
+function HomeMetricTile({ label, value, hint, icon, accent }: HomeMetricTileProps) {
+  const { accent: brandAccent, accentBorder } = useStaffPalette();
+  const accentColor = accent ?? brandAccent;
   return (
     <Paper
       elevation={0}
@@ -244,8 +242,8 @@ function HomeMetricTile({ label, value, hint, icon, accent = ACCENT }: HomeMetri
         height: '100%',
         borderRadius: 2.5,
         bgcolor: '#fff',
-        border: `1px solid ${ACCENT_BORDER}`,
-        boxShadow: '0 6px 20px rgba(255, 107, 53, 0.07)',
+        border: `1px solid ${accentBorder}`,
+        boxShadow: `0 6px 20px ${brandAccent}12`,
       }}
     >
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1 }}>
@@ -265,8 +263,8 @@ function HomeMetricTile({ label, value, hint, icon, accent = ACCENT }: HomeMetri
             width: 44,
             height: 44,
             borderRadius: 2,
-            bgcolor: `${accent}12`,
-            color: accent,
+            bgcolor: `${accentColor}12`,
+            color: accentColor,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -342,7 +340,7 @@ function EarningsMetricTile({ label, value, hint, icon, accent, trend }: Earning
                 height: 22,
                 fontWeight: 700,
                 fontSize: 11,
-                bgcolor: ACCENT_SOFT,
+                bgcolor: `${accent}18`,
                 color: trend.positive ? '#c43e00' : '#8a4a00',
                 '& .MuiChip-icon': { color: 'inherit' },
               }}
@@ -370,6 +368,7 @@ function EarningsMetricTile({ label, value, hint, icon, accent, trend }: Earning
 }
 
 function EmptyPanel({ title, description, icon, action }: EmptyPanelProps) {
+  const { accent, accentBorder } = useStaffPalette();
   return (
     <Paper
       elevation={0}
@@ -377,11 +376,11 @@ function EmptyPanel({ title, description, icon, action }: EmptyPanelProps) {
         p: 3,
         borderRadius: 3,
         bgcolor: '#fff',
-        border: '1px dashed rgba(255, 107, 53, 0.35)',
+        border: `1px dashed ${accentBorder}`,
         textAlign: 'center',
       }}
     >
-      <Box sx={{ color: ACCENT, opacity: 0.85, mb: 1.5 }}>{icon}</Box>
+      <Box sx={{ color: accent, opacity: 0.85, mb: 1.5 }}>{icon}</Box>
       <Typography sx={{ fontWeight: 900, color: '#111', fontSize: 16 }}>{title}</Typography>
       <Typography sx={{ color: '#666', fontWeight: 600, fontSize: 13, mt: 0.75, maxWidth: 360, mx: 'auto' }}>
         {description}
@@ -397,6 +396,17 @@ export default function RiderDashboard() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { formatPrice } = useSettings();
+  const {
+    accent,
+    accentDark,
+    accentSoft,
+    accentBorder,
+    accentMid,
+    accentLight,
+    pageBg,
+    page,
+    primaryBtn,
+  } = useStaffPalette();
 
   const [activeTab, setActiveTab] = useState<RiderTabKey>('home');
   const [ordersView, setOrdersView] = useState<'available' | 'active' | 'history'>('available');
@@ -936,12 +946,8 @@ export default function RiderDashboard() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('userId');
-    localStorage.removeItem('userRole');
-    localStorage.removeItem('userData');
-    navigate('/login');
+    clearAuthSession();
+    navigate('/login', { replace: true });
   };
 
   const riderName = String(profile?.displayName || profile?.name || 'Rider').trim();
@@ -958,7 +964,7 @@ export default function RiderDashboard() {
           value={String(stats.assignedDeliveries)}
           hint={`${stats.completedDeliveries} completed`}
           icon={<DeliveryDining sx={{ fontSize: 22 }} />}
-          accent={ACCENT}
+          accent={accent}
         />
       </Grid>
       <Grid size={{ xs: 12, sm: 4 }}>
@@ -967,7 +973,7 @@ export default function RiderDashboard() {
           value={formatPrice(toNumber(stats.todayEarnings, 0))}
           hint="Delivery fees earned"
           icon={<Paid sx={{ fontSize: 22 }} />}
-          accent={ACCENT_MID}
+          accent={accentMid}
         />
       </Grid>
       <Grid size={{ xs: 12, sm: 4 }}>
@@ -976,7 +982,7 @@ export default function RiderDashboard() {
           value={formatPrice(toNumber(stats.thisWeekEarnings, 0))}
           hint="7-day total"
           icon={<Schedule sx={{ fontSize: 22 }} />}
-          accent={ACCENT_LIGHT}
+          accent={accentLight}
         />
       </Grid>
     </Grid>
@@ -1051,7 +1057,7 @@ export default function RiderDashboard() {
                   size="small"
                   sx={{ bgcolor: `${color}18`, color, fontWeight: 800, fontSize: 11, height: 24 }}
                 />
-                <Typography sx={{ fontWeight: 900, color: ACCENT, fontSize: 16, mt: 0.75 }}>
+                <Typography sx={{ fontWeight: 900, color: accent, fontSize: 16, mt: 0.75 }}>
                   {formatPrice(toNumber(order.totalAmount, 0))}
                 </Typography>
               </Box>
@@ -1059,14 +1065,14 @@ export default function RiderDashboard() {
 
             <Stack spacing={0.75} sx={{ mt: 1.25 }}>
               <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-                <Restaurant sx={{ fontSize: 16, color: ACCENT, mt: 0.15 }} />
+                <Restaurant sx={{ fontSize: 16, color: accent, mt: 0.15 }} />
                 <Typography sx={{ color: '#444', fontSize: 13, fontWeight: 600 }}>
                   {order.restaurantName || 'Pickup location'}
                   {order.pickupAddress ? ` — ${order.pickupAddress}` : ''}
                 </Typography>
               </Box>
               <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-                <LocationOn sx={{ fontSize: 16, color: ACCENT_MID, mt: 0.15 }} />
+                <LocationOn sx={{ fontSize: 16, color: accentMid, mt: 0.15 }} />
                 <Typography sx={{ color: '#444', fontSize: 13, fontWeight: 600 }}>
                   {order.deliveryAddress || 'Delivery address pending'}
                 </Typography>
@@ -1100,7 +1106,7 @@ export default function RiderDashboard() {
                   e.stopPropagation();
                   void handleAccept(order._id);
                 }}
-                sx={{ ...btnSx, bgcolor: ACCENT, '&:hover': { bgcolor: '#e55a2b' } }}
+                sx={{ ...btnSx, bgcolor: accent, '&:hover': { bgcolor: accentDark } }}
                 disabled={loading}
               >
                 Accept
@@ -1235,7 +1241,7 @@ export default function RiderDashboard() {
           mb: 2.5,
           borderRadius: 2.5,
           bgcolor: '#fff',
-          border: `1px solid ${ACCENT_BORDER}`,
+          border: `1px solid ${accentBorder}`,
           boxShadow: '0 8px 28px rgba(255, 107, 53, 0.1)',
           overflow: 'hidden',
           position: 'relative',
@@ -1248,7 +1254,7 @@ export default function RiderDashboard() {
             left: 0,
             right: 0,
             height: 4,
-            background: `linear-gradient(90deg, ${ACCENT} 0%, ${ACCENT_MID} 50%, ${ACCENT_LIGHT} 100%)`,
+            background: `linear-gradient(90deg, ${accent} 0%, ${accentMid} 50%, ${accentLight} 100%)`,
           }}
         />
         <Box
@@ -1267,8 +1273,8 @@ export default function RiderDashboard() {
               sx={{
                 width: 56,
                 height: 56,
-                bgcolor: ACCENT,
-                border: `2px solid ${ACCENT_BORDER}`,
+                bgcolor: accent,
+                border: `2px solid ${accentBorder}`,
                 fontWeight: 900,
                 color: '#fff',
               }}
@@ -1280,7 +1286,7 @@ export default function RiderDashboard() {
                 Hello, {greetingName}
               </Typography>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: 0.5 }}>
-                <TwoWheeler sx={{ fontSize: 18, color: ACCENT }} />
+                <TwoWheeler sx={{ fontSize: 18, color: accent }} />
                 <Typography sx={{ fontWeight: 600, fontSize: 13, color: '#666' }}>Delivery rider</Typography>
               </Box>
             </Box>
@@ -1290,8 +1296,8 @@ export default function RiderDashboard() {
               px: 2,
               py: 1.15,
               borderRadius: 2.5,
-              bgcolor: onDuty ? '#E8F5E9' : ACCENT_SOFT,
-              border: `1px solid ${onDuty ? '#c8e6c9' : ACCENT_BORDER}`,
+              bgcolor: onDuty ? '#E8F5E9' : accentSoft,
+              border: `1px solid ${onDuty ? '#c8e6c9' : accentBorder}`,
               display: 'flex',
               alignItems: 'center',
               gap: 1.25,
@@ -1302,7 +1308,7 @@ export default function RiderDashboard() {
                 width: 8,
                 height: 8,
                 borderRadius: '50%',
-                bgcolor: onDuty ? '#2e7d32' : ACCENT,
+                bgcolor: onDuty ? '#2e7d32' : accent,
               }}
             />
             <Typography sx={{ fontWeight: 800, fontSize: 14, color: onDuty ? '#1b5e20' : '#c43e00' }}>
@@ -1336,7 +1342,7 @@ export default function RiderDashboard() {
 
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
         <Typography sx={{ fontWeight: 900, color: TEXT_PRIMARY, fontSize: 17 }}>Active deliveries</Typography>
-        <Chip label={String(activeDeliveries.length)} size="small" sx={{ fontWeight: 800, bgcolor: ACCENT_SOFT, color: ACCENT }} />
+        <Chip label={String(activeDeliveries.length)} size="small" sx={{ fontWeight: 800, bgcolor: accentSoft, color: accent }} />
       </Box>
       {activeDeliveries.length === 0 ? (
         <EmptyPanel
@@ -1347,7 +1353,7 @@ export default function RiderDashboard() {
             <Button
               variant="contained"
               onClick={() => navigateToTab('orders')}
-              sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#e55a2b' }, fontWeight: 800, textTransform: 'none' }}
+              sx={{ bgcolor: accent, '&:hover': { bgcolor: accentDark }, fontWeight: 800, textTransform: 'none' }}
             >
               Browse orders
             </Button>
@@ -1384,8 +1390,8 @@ export default function RiderDashboard() {
             sx={{
               minHeight: 48,
               '& .MuiTab-root': { fontWeight: 800, textTransform: 'none', fontSize: 13 },
-              '& .Mui-selected': { color: ACCENT },
-              '& .MuiTabs-indicator': { bgcolor: ACCENT, height: 3 },
+              '& .Mui-selected': { color: accent },
+              '& .MuiTabs-indicator': { bgcolor: accent, height: 3 },
             }}
           >
             <Tab label={`Available (${availableOrders.length})`} value="available" />
@@ -1436,9 +1442,9 @@ export default function RiderDashboard() {
     const maxPeriod = Math.max(week, month, lastMonth, 1);
 
     const periodBars = [
-      { label: 'This week', amount: week, color: ACCENT },
-      { label: 'This month', amount: month, color: ACCENT_MID },
-      { label: 'Last month', amount: lastMonth, color: ACCENT_LIGHT },
+      { label: 'This week', amount: week, color: accent },
+      { label: 'This month', amount: month, color: accentMid },
+      { label: 'Last month', amount: lastMonth, color: accentLight },
     ];
 
     return (
@@ -1450,7 +1456,7 @@ export default function RiderDashboard() {
 
         {earningsLoading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
-            <CircularProgress size={28} sx={{ color: ACCENT }} />
+            <CircularProgress size={28} sx={{ color: accent }} />
           </Box>
         ) : null}
 
@@ -1462,9 +1468,9 @@ export default function RiderDashboard() {
             overflow: 'hidden',
             position: 'relative',
             bgcolor: '#fff',
-            border: `1px solid ${ACCENT_BORDER}`,
+            border: `1px solid ${accentBorder}`,
             boxShadow: '0 10px 32px rgba(26, 26, 46, 0.06)',
-            backgroundImage: `linear-gradient(165deg, #ffffff 0%, ${ACCENT_SOFT} 120%)`,
+            backgroundImage: `linear-gradient(165deg, #ffffff 0%, ${accentSoft} 120%)`,
           }}
         >
           <Box
@@ -1475,14 +1481,14 @@ export default function RiderDashboard() {
               width: 160,
               height: 160,
               borderRadius: '50%',
-              background: `radial-gradient(circle, ${ACCENT}18 0%, transparent 70%)`,
+              background: `radial-gradient(circle, ${accent}18 0%, transparent 70%)`,
               pointerEvents: 'none',
             }}
           />
           <Box
             sx={{
               height: 4,
-              background: `linear-gradient(90deg, ${ACCENT} 0%, ${ACCENT_MID} 55%, ${ACCENT_LIGHT} 100%)`,
+              background: `linear-gradient(90deg, ${accent} 0%, ${accentMid} 55%, ${accentLight} 100%)`,
             }}
           />
           <Box sx={{ p: { xs: 2.5, sm: 3 }, position: 'relative' }}>
@@ -1492,9 +1498,9 @@ export default function RiderDashboard() {
                   width: 40,
                   height: 40,
                   borderRadius: 2,
-                  bgcolor: ACCENT_SOFT,
-                  border: `1px solid ${ACCENT_BORDER}`,
-                  color: ACCENT,
+                  bgcolor: accentSoft,
+                  border: `1px solid ${accentBorder}`,
+                  color: accent,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -1528,7 +1534,7 @@ export default function RiderDashboard() {
                     p: 1.5,
                     borderRadius: 2,
                     bgcolor: 'rgba(255, 255, 255, 0.85)',
-                    border: `1px solid ${ACCENT_BORDER}`,
+                    border: `1px solid ${accentBorder}`,
                   }}
                 >
                   <Typography sx={{ fontSize: 10, fontWeight: 800, color: '#888', letterSpacing: 0.5 }}>TODAY</Typography>
@@ -1542,12 +1548,12 @@ export default function RiderDashboard() {
                   sx={{
                     p: 1.5,
                     borderRadius: 2,
-                    bgcolor: ACCENT_SOFT,
-                    border: `1px solid ${ACCENT}`,
+                    bgcolor: accentSoft,
+                    border: `1px solid ${accent}`,
                   }}
                 >
                   <Typography sx={{ fontSize: 10, fontWeight: 800, color: '#9a5a40', letterSpacing: 0.5 }}>THIS WEEK</Typography>
-                  <Typography sx={{ fontSize: 18, fontWeight: 900, color: ACCENT, mt: 0.35 }}>
+                  <Typography sx={{ fontSize: 18, fontWeight: 900, color: accent, mt: 0.35 }}>
                     {formatPrice(week)}
                   </Typography>
                 </Box>
@@ -1563,7 +1569,7 @@ export default function RiderDashboard() {
               value={formatPrice(week)}
               hint="Since Sunday"
               icon={<Schedule sx={{ fontSize: 22 }} />}
-              accent={ACCENT}
+              accent={accent}
             />
           </Grid>
           <Grid size={{ xs: 12, md: 4 }}>
@@ -1572,7 +1578,7 @@ export default function RiderDashboard() {
               value={formatPrice(month)}
               hint="Current calendar month"
               icon={<CalendarMonth sx={{ fontSize: 22 }} />}
-              accent={ACCENT_MID}
+              accent={accentMid}
               trend={
                 lastMonth > 0 || month > 0
                   ? {
@@ -1589,7 +1595,7 @@ export default function RiderDashboard() {
               value={formatPrice(lastMonth)}
               hint="Previous calendar month"
               icon={<History sx={{ fontSize: 22 }} />}
-              accent={ACCENT_LIGHT}
+              accent={accentLight}
             />
           </Grid>
         </Grid>
@@ -1603,16 +1609,16 @@ export default function RiderDashboard() {
                 borderRadius: 3,
                 bgcolor: '#fff',
                 height: '100%',
-                border: `1px solid ${ACCENT_BORDER}`,
+                border: `1px solid ${accentBorder}`,
                 boxShadow: '0 8px 24px rgba(255, 107, 53, 0.08)',
               }}
             >
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2.5 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <ShowChart sx={{ color: ACCENT }} />
+                  <ShowChart sx={{ color: accent }} />
                   <Typography sx={{ fontWeight: 900, color: TEXT_PRIMARY, fontSize: 16 }}>Earnings overview</Typography>
                 </Box>
-                <Chip label="Delivery fees" size="small" sx={{ fontWeight: 700, bgcolor: ACCENT_SOFT, color: ACCENT }} />
+                <Chip label="Delivery fees" size="small" sx={{ fontWeight: 700, bgcolor: accentSoft, color: accent }} />
               </Box>
 
               <Stack spacing={2.25}>
@@ -1630,7 +1636,7 @@ export default function RiderDashboard() {
                         sx={{
                           height: 10,
                           borderRadius: 5,
-                          bgcolor: ACCENT_SOFT,
+                          bgcolor: accentSoft,
                           '& .MuiLinearProgress-bar': { borderRadius: 5, bgcolor: bar.color },
                         }}
                       />
@@ -1642,7 +1648,7 @@ export default function RiderDashboard() {
               {total === 0 && completed === 0 ? (
                 <Alert
                   severity="warning"
-                  sx={{ mt: 2, borderRadius: 2, bgcolor: ACCENT_SOFT, color: TEXT_PRIMARY, '& .MuiAlert-icon': { color: ACCENT } }}
+                  sx={{ mt: 2, borderRadius: 2, bgcolor: accentSoft, color: TEXT_PRIMARY, '& .MuiAlert-icon': { color: accent } }}
                 >
                   Complete deliveries to start building your earnings history.
                 </Alert>
@@ -1658,7 +1664,7 @@ export default function RiderDashboard() {
                   p: 2.5,
                   borderRadius: 3,
                   bgcolor: '#fff',
-                  border: `1px solid ${ACCENT_BORDER}`,
+                  border: `1px solid ${accentBorder}`,
                   boxShadow: '0 8px 24px rgba(255, 107, 53, 0.08)',
                 }}
               >
@@ -1668,7 +1674,7 @@ export default function RiderDashboard() {
                       width: 52,
                       height: 52,
                       borderRadius: 2.5,
-                      bgcolor: ACCENT,
+                      bgcolor: accent,
                       color: '#fff',
                       display: 'flex',
                       alignItems: 'center',
@@ -1691,12 +1697,12 @@ export default function RiderDashboard() {
 
               <Paper
                 elevation={0}
-                sx={{ p: 2.25, borderRadius: 3, bgcolor: '#fff', border: `1px solid ${ACCENT_BORDER}` }}
+                sx={{ p: 2.25, borderRadius: 3, bgcolor: '#fff', border: `1px solid ${accentBorder}` }}
               >
                 <Typography sx={{ fontSize: 11, fontWeight: 800, color: '#888', letterSpacing: 0.5 }}>
                   AVG. PER DELIVERY
                 </Typography>
-                <Typography sx={{ fontSize: 24, fontWeight: 900, color: completed > 0 ? ACCENT : '#999', mt: 0.5 }}>
+                <Typography sx={{ fontSize: 24, fontWeight: 900, color: completed > 0 ? accent : '#999', mt: 0.5 }}>
                   {completed > 0 ? formatPrice(avgPerDelivery) : formatPrice(0)}
                 </Typography>
                 <Typography sx={{ fontSize: 12, color: '#666', mt: 0.5 }}>
@@ -1711,14 +1717,14 @@ export default function RiderDashboard() {
                 sx={{
                   p: 2,
                   borderRadius: 3,
-                  bgcolor: ACCENT_SOFT,
-                  border: `1px solid ${ACCENT_BORDER}`,
+                  bgcolor: accentSoft,
+                  border: `1px solid ${accentBorder}`,
                   display: 'flex',
                   alignItems: 'center',
                   gap: 1.5,
                 }}
               >
-                <Paid sx={{ color: ACCENT }} />
+                <Paid sx={{ color: accent }} />
                 <Typography sx={{ fontSize: 13, fontWeight: 600, color: TEXT_PRIMARY, lineHeight: 1.45 }}>
                   Payouts use each order&apos;s delivery fee when marked delivered. Stay on duty for new requests.
                 </Typography>
@@ -1752,7 +1758,7 @@ export default function RiderDashboard() {
               size="small"
               onClick={() => void markAllRead()}
               disabled={loading || unreadNotifications === 0}
-              sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#e55a2b' }, fontWeight: 800, textTransform: 'none' }}
+              sx={{ bgcolor: accent, '&:hover': { bgcolor: accentDark }, fontWeight: 800, textTransform: 'none' }}
             >
               Mark all read
             </Button>
@@ -1784,14 +1790,14 @@ export default function RiderDashboard() {
                       py: 1.75,
                       px: 2,
                       bgcolor: isRead ? '#fff' : '#FFF8F5',
-                      borderLeft: isRead ? '4px solid transparent' : `4px solid ${ACCENT}`,
+                      borderLeft: isRead ? '4px solid transparent' : `4px solid ${accent}`,
                     }}
                   >
                     <ListItemText
                       primary={
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
                           <Typography sx={{ fontWeight: 900, color: '#111' }}>{title}</Typography>
-                          {!isRead ? <Chip label="New" size="small" sx={{ bgcolor: '#FF6B35', color: '#fff', fontWeight: 900 }} /> : null}
+                          {!isRead ? <Chip label="New" size="small" sx={{ bgcolor: accent, color: '#fff', fontWeight: 900 }} /> : null}
                         </Box>
                       }
                       secondary={
@@ -1836,7 +1842,7 @@ export default function RiderDashboard() {
         <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, alignItems: { xs: 'center', sm: 'flex-start' }, gap: 2.5 }}>
           <Avatar
             src={avatarSrc ? api.getImageUrl(avatarSrc) : undefined}
-            sx={{ width: 88, height: 88, bgcolor: ACCENT, fontWeight: 900, fontSize: 32 }}
+            sx={{ width: 88, height: 88, bgcolor: accent, fontWeight: 900, fontSize: 32 }}
           >
             {riderName.slice(0, 1).toUpperCase()}
           </Avatar>
@@ -1861,7 +1867,7 @@ export default function RiderDashboard() {
           <Button
             variant="contained"
             fullWidth={isMobile}
-            sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#e55a2b' }, fontWeight: 800, textTransform: 'none' }}
+            sx={{ bgcolor: accent, '&:hover': { bgcolor: accentDark }, fontWeight: 800, textTransform: 'none' }}
             onClick={() => setEditProfileOpen(true)}
             disabled={loading}
           >
@@ -1895,7 +1901,7 @@ export default function RiderDashboard() {
   );
 
   return (
-    <Box sx={{ px: isMobile ? 2 : 3, py: 2, pb: 4, bgcolor: PAGE_BG, minHeight: '100%' }}>
+    <Box sx={{ ...page, bgcolor: pageBg, minHeight: '100%' }}>
       {activeTab === 'home' ? renderHome() : null}
       {activeTab === 'orders' ? renderOrders() : null}
       {activeTab === 'earnings' ? renderEarnings() : null}
@@ -1919,7 +1925,7 @@ export default function RiderDashboard() {
                   color: STATUS_COLORS[selectedOrder.status] || '#666',
                 }}
               />
-              <Typography sx={{ fontWeight: 900, color: ACCENT, fontSize: 22 }}>
+              <Typography sx={{ fontWeight: 900, color: accent, fontSize: 22 }}>
                 {formatPrice(toNumber(selectedOrder.totalAmount, 0))}
               </Typography>
               {selectedOrder.createdAt ? <Typography sx={{ color: '#999', mt: 0.5 }}>{formatDateTime(selectedOrder.createdAt)}</Typography> : null}
@@ -2000,7 +2006,7 @@ export default function RiderDashboard() {
           <Button onClick={() => setEditProfileOpen(false)} sx={{ fontWeight: 900 }}>
             Cancel
           </Button>
-          <Button variant="contained" onClick={() => void saveProfile()} sx={{ bgcolor: '#FF6B35', '&:hover': { bgcolor: '#FF6B35dd' }, fontWeight: 900 }} disabled={loading}>
+          <Button variant="contained" onClick={() => void saveProfile()} sx={primaryBtn} disabled={loading}>
             Save
           </Button>
         </DialogActions>
@@ -2018,7 +2024,7 @@ export default function RiderDashboard() {
           <Button onClick={() => setChangePasswordOpen(false)} sx={{ fontWeight: 900 }}>
             Cancel
           </Button>
-          <Button variant="contained" onClick={() => void savePassword()} sx={{ bgcolor: '#FF6B35', '&:hover': { bgcolor: '#FF6B35dd' }, fontWeight: 900 }} disabled={loading || !currentPassword || !newPassword}>
+          <Button variant="contained" onClick={() => void savePassword()} sx={primaryBtn} disabled={loading || !currentPassword || !newPassword}>
             Save
           </Button>
         </DialogActions>

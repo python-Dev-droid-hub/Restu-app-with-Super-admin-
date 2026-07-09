@@ -34,6 +34,7 @@ export interface IUser extends BaseDocument {
   assignedSection?: string;
   // Branch Assignment for staff members
   assignedBranch?: Types.ObjectId;
+  tenantId?: Types.ObjectId;
   fcmToken?: string;
   lastLoginAt?: Date;
   deletedAt?: Date;
@@ -178,6 +179,8 @@ export interface IOrder extends BaseDocument {
 // Auth related types
 export interface IAuthRequest extends Request {
   user?: IUser;
+  authTenantId?: string;
+  impersonating?: boolean;
 }
 
 export interface IJWTPayload {
@@ -185,6 +188,9 @@ export interface IJWTPayload {
   email: string;
   role: string;
   assignedBranch?: string;
+  impersonating?: boolean;
+  superAdminId?: string;
+  tenantId?: string;
 }
 
 // API Response types

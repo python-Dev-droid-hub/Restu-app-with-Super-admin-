@@ -16,12 +16,12 @@ import {
 import {
   Menu as MenuIcon,
   Notifications as NotificationIcon,
-  ShoppingCart,
   Search,
   Close,
   KeyboardArrowDown,
 } from '@mui/icons-material';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useTheme } from '@mui/material/styles';
 import { io, type Socket } from 'socket.io-client';
 import { getSocketIoOptions, getSocketIoUrl } from '../../utils/socketOptions';
 import {
@@ -50,6 +50,7 @@ const AdminTopBar: React.FC<{
   isMobile?: boolean;
   onMenuClick?: () => void;
 }> = ({ mode = 'admin', isMobile = false, onMenuClick }) => {
+  const theme = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
   const [profileMenuAnchor, setProfileMenuAnchor] = useState<null | HTMLElement>(null);
@@ -152,13 +153,17 @@ const AdminTopBar: React.FC<{
     };
   }, [syncUserFromStorage]);
 
-  const applyNotificationCount = useCallback((count: number) => {
-    const n = Math.max(0, count);
-    setNotificationCount(n);
-    if (mode === 'admin' || mode === 'manager') {
-      publishNotificationUnreadCount(n);
-    }
-  }, [mode]);
+  const applyNotificationCount = useCallback(
+    (count: number, options?: { broadcast?: boolean }) => {
+      const n = Math.max(0, count);
+      setNotificationCount(n);
+      const shouldBroadcast = options?.broadcast !== false;
+      if (shouldBroadcast && (mode === 'admin' || mode === 'manager')) {
+        publishNotificationUnreadCount(n);
+      }
+    },
+    [mode]
+  );
 
   useEffect(() => {
     const fetchAdminUnread = async () => {
@@ -203,7 +208,7 @@ const AdminTopBar: React.FC<{
       const onNotificationsUpdated = (event: Event) => {
         const detail = (event as CustomEvent<NotificationsUpdatedDetail>).detail;
         if (typeof detail?.unreadCount === 'number') {
-          applyNotificationCount(detail.unreadCount);
+          applyNotificationCount(detail.unreadCount, { broadcast: false });
           return;
         }
         void fetchAdminUnread();
@@ -248,7 +253,7 @@ const AdminTopBar: React.FC<{
       const onNotificationsUpdated = (event: Event) => {
         const detail = (event as CustomEvent<NotificationsUpdatedDetail>).detail;
         if (typeof detail?.unreadCount === 'number') {
-          applyNotificationCount(detail.unreadCount);
+          applyNotificationCount(detail.unreadCount, { broadcast: false });
           return;
         }
         void fetchUnread();
@@ -379,7 +384,7 @@ const AdminTopBar: React.FC<{
                   border: 'none',
                 },
                 '&.Mui-focused fieldset': {
-                  border: '1px solid #FF6B35',
+                  border: `1px solid ${theme.palette.primary.main}`,
                 },
               },
             }}
@@ -440,25 +445,6 @@ const AdminTopBar: React.FC<{
             </Badge>
           </IconButton>
 
-          {/* Cart */}
-          {mode === 'admin' && (
-            <IconButton
-              size="small"
-              sx={{
-                color: '#666',
-                width: 40,
-                height: 40,
-                '&:hover': {
-                  bgcolor: '#f5f5f5',
-                },
-              }}
-            >
-              <Badge badgeContent={0} color="error">
-                <ShoppingCart sx={{ fontSize: 20 }} />
-              </Badge>
-            </IconButton>
-          )}
-
           {/* Profile Dropdown */}
           <Box
             onClick={handleProfileMenuOpen}
@@ -487,7 +473,7 @@ const AdminTopBar: React.FC<{
                   sx={{
                     width: 32,
                     height: 32,
-                    bgcolor: '#FF6B35',
+                    bgcolor: theme.palette.primary.main,
                     fontSize: 14,
                     fontWeight: 'bold',
                     cursor: 'pointer',

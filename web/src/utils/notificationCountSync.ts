@@ -21,10 +21,19 @@ export function resolveStaffBranchId(): string {
   }
 }
 
+let lastPublished: { count: number; at: number } | null = null;
+
+/** Broadcast unread count to other UI surfaces (top bar, sidebar). */
 export function publishNotificationUnreadCount(unreadCount: number) {
+  const n = Math.max(0, unreadCount);
+  const now = Date.now();
+  if (lastPublished && lastPublished.count === n && now - lastPublished.at < 50) {
+    return;
+  }
+  lastPublished = { count: n, at: now };
   window.dispatchEvent(
     new CustomEvent<NotificationsUpdatedDetail>(NOTIFICATIONS_UPDATED_EVENT, {
-      detail: { unreadCount: Math.max(0, unreadCount) },
+      detail: { unreadCount: n },
     })
   );
 }

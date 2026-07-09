@@ -28,6 +28,7 @@ import { getSocketIoOptions, getSocketIoUrl } from '../../utils/socketOptions';
 import { fetchChefDashboardHttp } from '../../utils/dashboardHttp';
 import { enrichOrderParty } from '../../utils/orderParty';
 import { OrderCardMeta } from '../../components/orders/OrderCardMeta';
+import { useStaffPalette } from '../../utils/adminResponsive';
 
 type MainTab = 'home' | 'cooking' | 'notifications' | 'profile';
 type HomeTab = 'Active' | 'Ready' | 'Completed' | 'Cancelled';
@@ -222,6 +223,7 @@ const StatCard = ({
 
 const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home' }) => {
   const location = useLocation();
+  const { page, titleSx, primary, primaryDark, tabBtn, primaryBtn, theme, isCompact } = useStaffPalette();
   const globalQuery = useMemo(() => (new URLSearchParams(location.search).get('q') || '').trim().toLowerCase(), [location.search]);
   const [mainTab, setMainTab] = useState<MainTab>(initialTab);
   const [homeTab, setHomeTab] = useState<HomeTab>('Active');
@@ -657,7 +659,7 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
           {o?.specialInstructions ? (
             <Box sx={{ mt: 2, p: 1.5, borderRadius: 2, bgcolor: '#fff7ed', border: '1px solid rgba(255,107,53,0.25)' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Warning sx={{ fontSize: 18, color: '#FF6B35' }} />
+                <Warning sx={{ fontSize: 18, color: primary }} />
                 <Typography sx={{ fontWeight: 900, color: '#111', fontSize: 13 }}>Instructions</Typography>
               </Box>
               <Typography sx={{ color: '#444', fontSize: 13, mt: 0.5 }}>{o.specialInstructions}</Typography>
@@ -813,10 +815,10 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
   }, [currentPassword, newPassword]);
 
   return (
-    <Box sx={{ width: '100%', bgcolor: '#f8f5ff', minHeight: '100%', px: { xs: 2, md: 3 }, pb: { xs: 2, md: 3 }, pt: 0, boxSizing: 'border-box' }}>
+    <Box sx={{ ...page, bgcolor: theme.palette.background.default, minHeight: '100%', boxSizing: 'border-box' }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 2 }}>
         <Box>
-          <Typography variant="h5" sx={{ fontWeight: 900, color: '#111' }}>
+          <Typography variant="h5" sx={titleSx}>
             Chef Dashboard
           </Typography>
           <Typography sx={{ color: '#666', fontSize: 13 }}>{displayName}</Typography>
@@ -892,7 +894,7 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
               label="Delayed"
               sublabel="Over 20 min"
               loading={loading && homeOrders.length === 0}
-              bgcolor="#FF6B35"
+              bgcolor={primary}
               onClick={() => {
                 selectMainTab('home');
                 setHomeTab('Active');
@@ -904,23 +906,12 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
         <Paper sx={{ borderRadius: 4, p: 2, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
         {mainTab === 'home' ? (
           <>
-            <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+            <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap', overflowX: isCompact ? 'auto' : 'visible', pb: isCompact ? 0.5 : 0 }}>
               {(['Active', 'Ready', 'Completed', 'Cancelled'] as HomeTab[]).map(t => (
                 <Button
                   key={t}
                   onClick={() => setHomeTab(t)}
-                  sx={{
-                    bgcolor: homeTab === t ? '#FF6B35' : 'white',
-                    color: homeTab === t ? 'white' : '#666',
-                    borderRadius: 2,
-                    px: 2,
-                    py: 0.8,
-                    textTransform: 'none',
-                    fontSize: 14,
-                    fontWeight: 800,
-                    boxShadow: homeTab === t ? '0 2px 8px rgba(255,107,53,0.3)' : '0 1px 3px rgba(0,0,0,0.08)',
-                    '&:hover': { bgcolor: homeTab === t ? '#E55A24' : '#f5f5f5' },
-                  }}
+                  sx={tabBtn(homeTab === t)}
                 >
                   {t}
                   <Box
@@ -958,22 +949,16 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
 
         {mainTab === 'cooking' ? (
           <>
-            <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+            <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap', overflowX: isCompact ? 'auto' : 'visible' }}>
               {(['DINE_IN', 'DELIVERY'] as CookingOrderTypeTab[]).map(t => (
                 <Button
                   key={t}
                   onClick={() => setCookingOrderTypeTab(t)}
                   sx={{
-                    bgcolor: cookingOrderTypeTab === t ? (t === 'DINE_IN' ? '#3498DB' : '#FF6B35') : 'white',
-                    color: cookingOrderTypeTab === t ? 'white' : '#666',
-                    borderRadius: 2,
-                    px: 2,
-                    py: 0.8,
-                    textTransform: 'none',
-                    fontSize: 14,
-                    fontWeight: 900,
-                    boxShadow: cookingOrderTypeTab === t ? '0 2px 8px rgba(0,0,0,0.15)' : '0 1px 3px rgba(0,0,0,0.08)',
-                    '&:hover': { bgcolor: cookingOrderTypeTab === t ? (t === 'DINE_IN' ? '#2E86C1' : '#E55A24') : '#f5f5f5' },
+                    ...tabBtn(cookingOrderTypeTab === t),
+                    ...(cookingOrderTypeTab === t && t === 'DINE_IN'
+                      ? { bgcolor: '#3498DB', '&:hover': { bgcolor: '#2E86C1' } }
+                      : {}),
                   }}
                 >
                   {t === 'DINE_IN' ? 'DINE-IN' : 'DELIVERY'}
@@ -1043,9 +1028,9 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
           <Box sx={{ p: { xs: 2, md: 3 } }}>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 2, flexWrap: 'wrap' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Notifications sx={{ color: '#FF6B35' }} />
+                <Notifications sx={{ color: primary }} />
                 <Typography sx={{ fontWeight: 900, color: '#111' }}>Notifications</Typography>
-                <Chip size="small" label={`${notificationsUnread} unread`} sx={{ fontWeight: 900, bgcolor: '#fff1ea', color: '#FF6B35' }} />
+                <Chip size="small" label={`${notificationsUnread} unread`} sx={{ fontWeight: 900, bgcolor: `${primary}18`, color: primary }} />
               </Box>
               <Box sx={{ display: 'flex', gap: 1 }}>
                 <Button
@@ -1116,7 +1101,7 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
                       variant="outlined"
                       sx={{
                         borderRadius: 3,
-                        borderColor: read ? '#eee' : '#FF6B35',
+                        borderColor: read ? '#eee' : primary,
                         bgcolor: read ? 'white' : '#fff8f5',
                       }}
                     >
@@ -1125,7 +1110,7 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
                           <Box sx={{ minWidth: 220, flex: 1 }}>
                             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
                               <Typography sx={{ fontWeight: 900, color: '#111' }}>{title}</Typography>
-                              {!read ? <Chip size="small" label="UNREAD" sx={{ fontWeight: 900, bgcolor: '#FF6B35', color: 'white' }} /> : null}
+                              {!read ? <Chip size="small" label="UNREAD" sx={{ fontWeight: 900, bgcolor: primary, color: 'white' }} /> : null}
                               {time ? <Typography sx={{ color: '#888', fontSize: 12 }}>{time}</Typography> : null}
                             </Box>
                             {message ? <Typography sx={{ color: '#555', fontSize: 13, mt: 0.5 }}>{message}</Typography> : null}
@@ -1165,7 +1150,7 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
               <Avatar
                 src={profileImage ? api.getImageUrl(profileImage) : undefined}
                 imgProps={{ loading: 'lazy', decoding: 'async' }}
-                sx={{ width: 56, height: 56, bgcolor: '#FF6B35', fontWeight: 900 }}
+                sx={{ width: 56, height: 56, bgcolor: primary, fontWeight: 900 }}
               >
                 {String(displayName || 'C').slice(0, 1).toUpperCase()}
               </Avatar>
@@ -1323,7 +1308,7 @@ const ChefDashboard: React.FC<{ initialTab?: MainTab }> = ({ initialTab = 'home'
                   : undefined
               }
               imgProps={{ loading: 'lazy', decoding: 'async' }}
-              sx={{ width: 56, height: 56, bgcolor: '#FF6B35', fontWeight: 900 }}
+              sx={{ width: 56, height: 56, bgcolor: primary, fontWeight: 900 }}
             >
               {String(displayName || 'C').slice(0, 1).toUpperCase()}
             </Avatar>

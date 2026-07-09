@@ -35,10 +35,15 @@ const couponSchema = new Schema({
     ref: 'Branch',
     // null means applicable to all branches
   },
+  tenantId: {
+    type: Schema.Types.ObjectId,
+    ref: 'SaasTenant',
+    index: true,
+    default: null,
+  },
   code: {
     type: String,
     required: [true, 'Coupon code is required'],
-    unique: true,
     uppercase: true,
     trim: true,
     maxlength: [50, 'Coupon code cannot exceed 50 characters'],
@@ -113,6 +118,7 @@ const couponSchema = new Schema({
 });
 
 // Indexes for better performance
+couponSchema.index({ tenantId: 1, code: 1 }, { unique: true, partialFilterExpression: { deletedAt: null } });
 couponSchema.index({ branch: 1 });
 couponSchema.index({ code: 1, isActive: 1 });
 couponSchema.index({ startDate: 1, expiryDate: 1 });

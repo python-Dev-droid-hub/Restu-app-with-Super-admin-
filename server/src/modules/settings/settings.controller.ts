@@ -1,110 +1,44 @@
 import { Request, Response } from 'express';
-import { SystemSettings } from '@/models/SystemSettings';
-import { sendSuccess, sendError } from '@/utils/response';
+import { sendSuccess } from '@/utils/response';
 import { asyncHandler, IAuthRequest } from '@/utils';
+import { getTenantIdFromRequest } from '@/utils/tenantScope';
+import {
+  getScopedSettings,
+  updateScopedSettings,
+  resetScopedSettings,
+  getPublicScopedSettings,
+} from './settings.service';
 
 export class SettingsController {
-  // Get system settings
-  getSettings = asyncHandler(async (req: Request, res: Response) => {
-    let settings = await SystemSettings.findOne();
-
-    // If no settings exist, create default settings
-    if (!settings) {
-      settings = new SystemSettings({
-        restaurantName: 'Restaurant App',
-        restaurantDescription: 'Welcome to our restaurant',
-        contactEmail: 'contact@restaurant.com',
-        contactPhone: '+1-234-567-8900',
-        address: {
-          street: '123 Main Street',
-          city: 'New York',
-          state: 'NY',
-          zipCode: '10001',
-          country: 'USA'
-        }
-      });
-      await settings.save();
-    }
-
+  getSettings = asyncHandler(async (req: IAuthRequest, res: Response) => {
+    const tenantId = getTenantIdFromRequest(req);
+    const settings = await getScopedSettings(tenantId);
     sendSuccess(res, settings, 'Settings retrieved successfully');
   });
 
-  // Get public settings (for customers - no auth required)
   getPublicSettings = asyncHandler(async (req: Request, res: Response) => {
-    let settings = await SystemSettings.findOne();
-
-    // If no settings exist, create default settings
-    if (!settings) {
-      settings = new SystemSettings({
-        restaurantName: 'Restaurant App',
-        restaurantDescription: 'Welcome to our restaurant',
-        contactEmail: 'contact@restaurant.com',
-        contactPhone: '+1-234-567-8900',
-        address: {
-          street: '123 Main Street',
-          city: 'New York',
-          state: 'NY',
-          zipCode: '10001',
-          country: 'USA'
-        }
-      });
-      await settings.save();
-    }
-
-    // Return only public-safe fields
-    const publicSettings = {
-      restaurantName: settings.restaurantName,
-      restaurantDescription: settings.restaurantDescription,
-      contactEmail: settings.contactEmail,
-      contactPhone: settings.contactPhone,
-      address: settings.address,
-      businessHours: (settings as any).businessHours,
-      currency: (settings as any).currency || 'USD',
-      taxRate: (settings as any).taxRate || 5,
-    };
-
+    const tenantId = getTenantIdFromRequest(req as IAuthRequest);
+    const publicSettings = await getPublicScopedSettings(tenantId);
     sendSuccess(res, publicSettings, 'Public settings retrieved successfully');
   });
 
-  // Update system settings
   updateSettings = asyncHandler(async (req: IAuthRequest, res: Response) => {
-    const updateData = req.body;
-
-    let settings = await SystemSettings.findOne();
-
-    if (settings) {
-      // Update existing settings
-      Object.assign(settings, updateData);
-      await settings.save();
-    } else {
-      // Create new settings
-      settings = new SystemSettings(updateData);
-      await settings.save();
-    }
-
+    const tenantId = getTenantIdFromRequest(req);
+    const {
+      _id,
+      __v,
+      createdAt,
+      updatedAt,
+      tenantId: _bodyTenantId,
+      ...updateData
+    } = req.body as Record<string, unknown>;
+    const settings = await updateScopedSettings(tenantId, updateData);
     sendSuccess(res, settings, 'Settings updated successfully');
   });
 
-  // Reset settings to defaults
   resetSettings = asyncHandler(async (req: IAuthRequest, res: Response) => {
-    await SystemSettings.deleteMany({});
-
-    const defaultSettings = new SystemSettings({
-      restaurantName: 'Restaurant App',
-      restaurantDescription: 'Welcome to our restaurant',
-      contactEmail: 'contact@restaurant.com',
-      contactPhone: '+1-234-567-8900',
-      address: {
-        street: '123 Main Street',
-        city: 'New York',
-        state: 'NY',
-        zipCode: '10001',
-        country: 'USA'
-      }
-    });
-
-    await defaultSettings.save();
-
-    sendSuccess(res, defaultSettings, 'Settings reset to defaults successfully');
+    const tenantId = getTenantIdFromRequest(req);
+    const settings = await resetScopedSettings(tenantId);
+    sendSuccess(res, settings, 'Settings reset to defaults successfully');
   });
 }

@@ -33,6 +33,7 @@ import { io, type Socket } from 'socket.io-client';
 import { api } from '../../services/api';
 import { getSocketIoOptions, getSocketIoUrl } from '../../utils/socketOptions';
 import { BACKEND_UNREACHABLE_MSG } from '../../utils/backendHealth';
+import { useAdminPageStyles } from '../../utils/adminResponsive';
 
 interface CategoryItem {
   _id: string;
@@ -46,6 +47,7 @@ interface CategoryItem {
 }
 
 const AdminCategories: React.FC = () => {
+  const { page, header, primaryBtn, titleSx, theme } = useAdminPageStyles();
   const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -237,21 +239,16 @@ const AdminCategories: React.FC = () => {
   };
 
   return (
-    <Box sx={{ px: { xs: 2, md: 3 }, pb: { xs: 2, md: 3 }, pt: 0, bgcolor: '#f8f5ff', minHeight: '100vh' }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 1.5 }}>
-        <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#333' }}>
+    <Box sx={{ ...page, bgcolor: theme.palette.background.default, minHeight: '100vh' }}>
+      <Box sx={header}>
+        <Typography variant="h5" sx={titleSx}>
           Categories
         </Typography>
         <Button
           variant="contained"
           startIcon={<Add />}
           onClick={() => handleOpenDialog()}
-          sx={{
-            bgcolor: '#FF6B35',
-            '&:hover': { bgcolor: '#E55A24' },
-            borderRadius: 2,
-            textTransform: 'none',
-          }}
+          sx={{ ...primaryBtn, borderRadius: 2 }}
         >
           Add Category
         </Button>
@@ -281,7 +278,7 @@ const AdminCategories: React.FC = () => {
                 variant="contained"
                 startIcon={<Add />}
                 onClick={() => handleOpenDialog()}
-                sx={{ mt: 2, bgcolor: '#FF6B35', '&:hover': { bgcolor: '#E55A24' } }}
+                sx={{ mt: 2, ...primaryBtn, borderRadius: 2 }}
               >
                 Create First Category
               </Button>

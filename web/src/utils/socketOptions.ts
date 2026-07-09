@@ -10,6 +10,10 @@ export function getSocketIoOptions() {
     transports: ['polling', 'websocket'],
     withCredentials: true,
     auth: token ? { token } : undefined,
+    reconnectionAttempts: 8,
+    reconnectionDelay: 2000,
+    reconnectionDelayMax: 10000,
+    timeout: 15000,
   };
 }
 

@@ -14,6 +14,12 @@ const dealSchema = new Schema({
     ref: 'Branch',
     default: [],
   }],
+  tenantId: {
+    type: Schema.Types.ObjectId,
+    ref: 'SaasTenant',
+    index: true,
+    default: null,
+  },
   title: {
     type: String,
     required: [true, 'Deal title is required'],

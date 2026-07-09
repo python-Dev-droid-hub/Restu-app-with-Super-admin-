@@ -39,6 +39,15 @@ import { api } from '../../services/api';
 import { useManagerBranchScope } from '../../utils/managerBranchScope';
 import { useSettings } from '../../context/SettingsContext';
 import { useRealtimeRefresh } from '../../hooks/useRealtimeRefresh';
+import { useTheme } from '@mui/material/styles';
+import { darken, lighten, contrastTextOnBackground } from '../../utils/tenantBranding';
+import {
+  adminPageContainerSx,
+  adminPageHeaderSx,
+  adminHeaderActionsSx,
+  adminPrimaryButtonSx,
+  useAdminBreakpoints,
+} from '../../utils/adminResponsive';
 
 
 interface DealProductItem {
@@ -96,6 +105,18 @@ interface DealProductOption {
 }
 
 const AdminDealCampaigns: React.FC = () => {
+  const theme = useTheme();
+  const primary = theme.palette.primary.main;
+  const primaryDark = theme.palette.primary.dark;
+  const secondary = theme.palette.secondary.main;
+  const secondaryDark = theme.palette.secondary.dark;
+  const { isCompact } = useAdminBreakpoints();
+  const statTextOnSecondary = contrastTextOnBackground(secondary);
+  const statGradients = [
+    `linear-gradient(135deg, ${primary} 0%, ${primaryDark} 100%)`,
+    `linear-gradient(135deg, ${lighten(primary, 0.15)} 0%, ${primary} 100%)`,
+    `linear-gradient(135deg, ${secondary} 0%, ${secondaryDark} 100%)`,
+  ];
   const { currencySymbol, formatPrice } = useSettings();
   const { isBranchManager, assignedBranchId, hideBranchFilter } = useManagerBranchScope();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -658,14 +679,14 @@ const AdminDealCampaigns: React.FC = () => {
   // Campaign List View
   if (viewMode === 'list') {
     return (
-      <Box sx={{ px: 3, pb: 3, pt: 0 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-          <Typography variant="h4" sx={{ fontWeight: 'bold', color: '#1a1a2e' }}>
+      <Box sx={adminPageContainerSx}>
+        <Box sx={adminPageHeaderSx}>
+          <Typography variant="h4" sx={{ fontWeight: 'bold', color: '#1a1a2e', fontSize: { xs: 24, sm: 32 } }}>
             Deal Campaigns
           </Typography>
-          <Box sx={{ display: 'flex', gap: 2 }}>
+          <Box sx={adminHeaderActionsSx}>
             {!hideBranchFilter ? (
-              <FormControl size="small" sx={{ minWidth: 200, bgcolor: 'white' }}>
+              <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 200 }, bgcolor: 'white' }}>
                 <InputLabel>Filter by Branch</InputLabel>
                 <Select
                   value={selectedBranchFilter}
@@ -686,12 +707,8 @@ const AdminDealCampaigns: React.FC = () => {
               variant="contained"
               startIcon={<Add />}
               onClick={() => handleOpenCampaignDialog()}
-              sx={{
-                bgcolor: '#E87E35',
-                '&:hover': { bgcolor: '#d66d2a' },
-                textTransform: 'none',
-                fontWeight: 'bold',
-              }}
+              fullWidth={isCompact}
+              sx={adminPrimaryButtonSx(primary, primaryDark)}
             >
               New Campaign
             </Button>
@@ -701,7 +718,7 @@ const AdminDealCampaigns: React.FC = () => {
         {/* Stats */}
         <Grid container spacing={3} sx={{ mb: 3, width: '100%', m: 0 }}>
           <Grid size={{ xs: 12, sm: 4 }} sx={{ pl: '0 !important' }}>
-            <Paper sx={{ p: 2, bgcolor: '#E87E35', color: 'white', borderRadius: 2, height: '100%' }}>
+            <Paper sx={{ p: 2, background: statGradients[0], color: 'white', borderRadius: 2, height: '100%', boxShadow: `0 8px 20px ${primary}33` }}>
               <Typography variant="h3" sx={{ fontWeight: 'bold', color: 'white' }}>
                 {filteredCampaigns.length}
               </Typography>
@@ -711,7 +728,7 @@ const AdminDealCampaigns: React.FC = () => {
             </Paper>
           </Grid>
           <Grid size={{ xs: 12, sm: 4 }} sx={{ pl: '0 !important' }}>
-            <Paper sx={{ p: 2, bgcolor: '#4CAF50', color: 'white', borderRadius: 2, height: '100%' }}>
+            <Paper sx={{ p: 2, background: statGradients[1], color: 'white', borderRadius: 2, height: '100%', boxShadow: `0 8px 20px ${primary}33` }}>
               <Typography variant="h3" sx={{ fontWeight: 'bold', color: 'white' }}>
                 {filteredCampaigns.filter((c) => c.status === 'ACTIVE').length}
               </Typography>
@@ -721,11 +738,11 @@ const AdminDealCampaigns: React.FC = () => {
             </Paper>
           </Grid>
           <Grid size={{ xs: 12, sm: 4 }} sx={{ pl: '0 !important' }}>
-            <Paper sx={{ p: 2, bgcolor: '#9C27B0', color: 'white', borderRadius: 2, height: '100%' }}>
-              <Typography variant="h3" sx={{ fontWeight: 'bold', color: 'white' }}>
+            <Paper sx={{ p: 2, background: statGradients[2], color: statTextOnSecondary, borderRadius: 2, height: '100%', boxShadow: `0 8px 20px ${secondary}33` }}>
+              <Typography variant="h3" sx={{ fontWeight: 'bold', color: statTextOnSecondary }}>
                 {filteredCampaigns.reduce((sum, c) => sum + (c.deals?.length || 0), 0)}
               </Typography>
-              <Typography variant="body2" sx={{ opacity: 0.9, color: 'white' }}>
+              <Typography variant="body2" sx={{ opacity: 0.9, color: statTextOnSecondary }}>
                 Total Deals
               </Typography>
             </Paper>
@@ -755,7 +772,7 @@ const AdminDealCampaigns: React.FC = () => {
                 variant="contained"
                 startIcon={<Add />}
                 onClick={() => handleOpenCampaignDialog()}
-                sx={{ bgcolor: '#E87E35', '&:hover': { bgcolor: '#d66d2a' } }}
+                sx={adminPrimaryButtonSx(primary, primaryDark)}
               >
                 Create Campaign
               </Button>
@@ -1074,7 +1091,7 @@ const AdminDealCampaigns: React.FC = () => {
               variant="contained"
               onClick={handleSaveCampaign}
               disabled={savingCampaign}
-              sx={{ bgcolor: '#E87E35', '&:hover': { bgcolor: '#d66d2a' } }}
+              sx={{ bgcolor: primary, '&:hover': { bgcolor: primaryDark } }}
             >
               {savingCampaign ? 'Saving...' : editingCampaign ? 'Update' : 'Create'}
             </Button>
@@ -1105,8 +1122,8 @@ const AdminDealCampaigns: React.FC = () => {
           startIcon={<Add />}
           onClick={() => handleOpenDealDialog()}
           sx={{
-            bgcolor: '#E87E35',
-            '&:hover': { bgcolor: '#d66d2a' },
+            bgcolor: primary,
+            '&:hover': { bgcolor: primaryDark },
             textTransform: 'none',
             fontWeight: 'bold',
           }}
@@ -1166,7 +1183,7 @@ const AdminDealCampaigns: React.FC = () => {
             variant="contained"
             startIcon={<Add />}
             onClick={() => handleOpenDealDialog()}
-            sx={{ mt: 2, bgcolor: '#E87E35', '&:hover': { bgcolor: '#d66d2a' } }}
+            sx={{ mt: 2, bgcolor: primary, '&:hover': { bgcolor: primaryDark } }}
           >
             Add First Deal
           </Button>
@@ -1229,7 +1246,7 @@ const AdminDealCampaigns: React.FC = () => {
                     </Typography>
                   )}
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Typography variant="h6" sx={{ color: '#E87E35', fontWeight: 'bold' }}>
+                    <Typography variant="h6" sx={{ color: primary, fontWeight: 'bold' }}>
                       {formatPrice(deal.price)}
                     </Typography>
                     {deal.originalPrice && deal.originalPrice > deal.price && (
@@ -1496,7 +1513,7 @@ const AdminDealCampaigns: React.FC = () => {
             variant="contained"
             onClick={handleSaveDeal}
             disabled={savingDeal}
-            sx={{ bgcolor: '#E87E35', '&:hover': { bgcolor: '#d66d2a' } }}
+            sx={{ bgcolor: primary, '&:hover': { bgcolor: primaryDark } }}
           >
             {savingDeal ? 'Saving...' : editingDeal ? 'Update' : 'Add'}
           </Button>

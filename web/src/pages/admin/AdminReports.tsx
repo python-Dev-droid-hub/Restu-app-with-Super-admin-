@@ -39,6 +39,8 @@ import { ReportExportPanel } from '../../components/reports/ReportExportPanel';
 import { mapApiToAnalyticsReport, getPeriodLabel } from '../../utils/mapAnalyticsToReport';
 import type { AnalyticsReportData } from '../../types/analyticsReport';
 import { dummyAnalyticsReport } from '../../data/dummyAnalyticsReport';
+import { PlanFeatureGate } from '../../components/admin/PlanFeatureGate';
+import { useAdminPageStyles } from '../../utils/adminResponsive';
 
 interface ReportStats {
   totalRevenue: number;
@@ -84,6 +86,7 @@ const defaultCustomEnd = () => toDateInputValue(new Date());
 
 const AdminReports: React.FC = () => {
   const { defaultCurrency, appName } = useSettings();
+  const { page, header, headerActions, titleSx, primary, theme, isCompact, tableWrap } = useAdminPageStyles();
   const location = useLocation();
   const asManager =
     location.pathname.startsWith('/manager/') ||
@@ -308,7 +311,10 @@ const AdminReports: React.FC = () => {
     sublabel: string;
     themeKey: keyof typeof STAT_CARD_THEME;
   }) => {
-    const palette = STAT_CARD_THEME[themeKey];
+    const palette =
+      themeKey === 'orders'
+        ? { ...STAT_CARD_THEME.orders, bg: primary }
+        : STAT_CARD_THEME[themeKey];
     return (
       <Card
         elevation={0}
@@ -377,28 +383,13 @@ const AdminReports: React.FC = () => {
   };
 
   return (
-    <Box
-      sx={{
-        px: { xs: 2, md: 3 },
-        py: { xs: 2, md: 3 },
-        bgcolor: '#fff',
-        minHeight: '100%',
-      }}
-    >
-      <Box
-        sx={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          mb: 3,
-          flexWrap: 'wrap',
-          gap: 2,
-        }}
-      >
-        <Typography variant="h5" sx={{ fontWeight: 700, color: '#2d2d2d' }}>
+    <PlanFeatureGate feature="analytics" featureLabel="Analytics & reports">
+    <Box sx={{ ...page, bgcolor: theme.palette.background.default, minHeight: '100vh' }}>
+      <Box sx={header}>
+        <Typography variant="h5" sx={titleSx}>
           Reports & Analytics
         </Typography>
-        <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <Box sx={{ ...headerActions, alignItems: 'flex-end' }}>
           <FormControl size="small" sx={{ minWidth: 160, bgcolor: '#fff' }}>
             <InputLabel>Date Range</InputLabel>
             <Select
@@ -633,6 +624,7 @@ const AdminReports: React.FC = () => {
         </Grid>
       </Grid>
     </Box>
+    </PlanFeatureGate>
   );
 };
 

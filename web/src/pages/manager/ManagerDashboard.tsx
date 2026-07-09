@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Card, CardContent, Chip, Container, Grid, Paper, Skeleton, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography, useMediaQuery } from '@mui/material';
+import { Box, Card, CardContent, Chip, Grid, Paper, Skeleton, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography, useMediaQuery } from '@mui/material';
 import { AccountBalanceWallet, People, ReceiptLong, RestaurantMenu } from '@mui/icons-material';
 import { useLocation } from 'react-router-dom';
 import { api } from '../../services/api';
@@ -8,6 +8,7 @@ import { io, type Socket } from 'socket.io-client';
 import { resolveSocketUrl } from '../../utils/resolveSocketUrl';
 import { useTheme } from '@mui/material/styles';
 import { useSettings } from '../../context/SettingsContext';
+import { useStaffPalette } from '../../utils/adminResponsive';
 
 type ManagerStats = {
   totalOrders: number;
@@ -131,6 +132,7 @@ const ManagerDashboard: React.FC = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { formatPrice } = useSettings();
+  const { page, titleSx, primary, tableWrap } = useStaffPalette();
   const location = useLocation();
   const globalQuery = useMemo(() => (new URLSearchParams(location.search).get('q') || '').trim().toLowerCase(), [location.search]);
   const [{ branchId, branchName }, setBranch] = useState(getBranchContext());
@@ -295,9 +297,9 @@ const ManagerDashboard: React.FC = () => {
   }, [branchName]);
 
   return (
-    <Container maxWidth="lg" sx={{ pb: { xs: 2, md: 3 }, pt: 0 }}>
+    <Box sx={{ ...page, bgcolor: theme.palette.background.default, minHeight: '100vh' }}>
       <Box sx={{ mb: 2 }}>
-        <Typography sx={{ fontWeight: 900, fontSize: { xs: 22, sm: 28 }, color: '#111' }}>
+        <Typography sx={titleSx}>
           {title}
         </Typography>
         <Typography sx={{ color: '#666', mt: 0.25 }}>
@@ -323,7 +325,7 @@ const ManagerDashboard: React.FC = () => {
             label="Total Orders"
             sublabel=""
             loading={loading}
-            bgcolor="#E87E35"
+            bgcolor={primary}
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
@@ -356,7 +358,7 @@ const ManagerDashboard: React.FC = () => {
             </Typography>
           </Box>
 
-          <TableContainer component={Paper} sx={{ boxShadow: 'none', overflowX: 'auto' }}>
+          <TableContainer component={Paper} sx={{ ...tableWrap, boxShadow: 'none' }}>
             <Table size={isMobile ? 'small' : 'medium'} sx={{ minWidth: 560 }}>
               <TableHead>
                 <TableRow>
@@ -420,7 +422,7 @@ const ManagerDashboard: React.FC = () => {
             </Typography>
           </Box>
 
-          <TableContainer component={Paper} sx={{ boxShadow: 'none', overflowX: 'auto' }}>
+          <TableContainer component={Paper} sx={{ ...tableWrap, boxShadow: 'none' }}>
             <Table size={isMobile ? 'small' : 'medium'} sx={{ minWidth: 520 }}>
               <TableHead>
                 <TableRow>
@@ -482,7 +484,7 @@ const ManagerDashboard: React.FC = () => {
             </Typography>
           </Box>
 
-          <TableContainer component={Paper} sx={{ boxShadow: 'none', overflowX: 'auto' }}>
+          <TableContainer component={Paper} sx={{ ...tableWrap, boxShadow: 'none' }}>
             <Table size={isMobile ? 'small' : 'medium'} sx={{ minWidth: 520 }}>
               <TableHead>
                 <TableRow>
@@ -532,7 +534,7 @@ const ManagerDashboard: React.FC = () => {
           </TableContainer>
         </CardContent>
       </Card>
-    </Container>
+    </Box>
   );
 };
 

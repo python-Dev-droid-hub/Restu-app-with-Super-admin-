@@ -2,9 +2,11 @@ import { createServer } from 'http';
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import type { Express } from 'express';
 import { verifyAccessToken } from '@/utils/jwt';
+import { verifySuperAdminAccessToken } from '@/superadmin/utils/superAdminJwt';
+import { setSuperAdminIo } from '@/superadmin/services/superadminRealtime.service';
 import { User } from '@/models/User';
 import { Branch } from '@/models/Branch';
-import { SystemSettings } from '@/models/SystemSettings';
+import { getScopedSettings } from '@/modules/settings/settings.service';
 import { Banner } from '@/models/Banner';
 import { Deal } from '@/models/Deal';
 import { DealCampaign } from '@/models/DealCampaign';
@@ -19,6 +21,7 @@ import BranchProduct from '@/models/BranchProduct';
 import { parseCookieHeader } from '@/utils/parseCookies';
 import { buildSocketCorsOrigin } from '@/config/cors';
 import { normalizeOrderPayload } from '@/utils/normalizeOrderPayload';
+import { tenantDataFilter } from '@/utils/tenantScope';
 
 // Store connected users
 interface ConnectedUser {
@@ -97,6 +100,16 @@ export const initWebSocket = (app: Express) => {
 
   io.use(async (socket, next) => {
     try {
+      const superAdminToken = (socket.handshake.auth as any)?.superAdminToken as string | undefined;
+      if (superAdminToken) {
+        const decoded = verifySuperAdminAccessToken(superAdminToken);
+        (socket.data as any).superAdmin = {
+          superAdminId: decoded.superAdminId,
+          role: decoded.role,
+        };
+        return next();
+      }
+
       const authToken = (socket.handshake.auth as any)?.token;
       const headerToken = socket.handshake.headers?.authorization
         ?.toString()
@@ -110,7 +123,7 @@ export const initWebSocket = (app: Express) => {
       }
 
       const decoded = verifyAccessToken(token);
-      const user = await User.findById(decoded.userId).select('_id role isActive assignedBranch');
+      const user = await User.findById(decoded.userId).select('_id role isActive assignedBranch tenantId');
       if (!user || !user.isActive) {
         return next(new Error('unauthorized'));
       }
@@ -119,6 +132,7 @@ export const initWebSocket = (app: Express) => {
         userId: user._id.toString(),
         role: String(user.role || '').toUpperCase(),
         assignedBranchId: user.assignedBranch ? String((user as any).assignedBranch?._id || user.assignedBranch) : '',
+        tenantId: user.tenantId ? String(user.tenantId) : decoded.tenantId || '',
       };
 
       next();
@@ -130,10 +144,17 @@ export const initWebSocket = (app: Express) => {
   io.on('connection', (socket: Socket) => {
     console.log(`[WebSocket] User connected: ${socket.id}`);
 
-    const authed = (socket.data as any)?.user as { userId?: string; role?: string; assignedBranchId?: string } | undefined;
+    const superAdmin = (socket.data as any)?.superAdmin as { superAdminId?: string; role?: string } | undefined;
+    if (superAdmin?.superAdminId) {
+      socket.join('superadmin');
+      console.log(`[WebSocket] Super admin connected: ${socket.id}`);
+    }
+
+    const authed = (socket.data as any)?.user as { userId?: string; role?: string; assignedBranchId?: string; tenantId?: string } | undefined;
     const userId = authed?.userId;
     const role = authed?.role;
     const assignedBranchId = authed?.assignedBranchId;
+    const tenantId = authed?.tenantId;
 
     if (userId && role) {
       const user: ConnectedUser = {
@@ -189,7 +210,7 @@ export const initWebSocket = (app: Express) => {
       if (!allowed) return;
 
       try {
-        const data = await dashboardSnapshot.getAdminBranches(role, assignedBranchId || '');
+        const data = await dashboardSnapshot.getAdminBranches(role, assignedBranchId || '', tenantId || undefined);
         socket.emit('admin_branches:data', data);
       } catch (e) {
         socket.emit('admin_branches:data', { branches: [] });
@@ -217,12 +238,14 @@ export const initWebSocket = (app: Express) => {
       if (!allowed) return;
 
       try {
-        const categories = await menuRepository.findAllCategories();
+        const scope = tenantDataFilter(tenantId || undefined);
+        const categories = await menuRepository.findAllCategories(scope);
         const categoriesWithCounts = await Promise.all(
           (categories || []).map(async (category: any) => {
             const productCount = await menuRepository.countProducts({
               category: category._id,
               deletedAt: null,
+              ...scope,
             });
             return {
               ...(category?.toObject ? category.toObject() : category),
@@ -242,24 +265,7 @@ export const initWebSocket = (app: Express) => {
       if (!allowed) return;
 
       try {
-        let settings: any = await SystemSettings.findOne();
-        if (!settings) {
-          settings = new SystemSettings({
-            restaurantName: 'Restaurant App',
-            restaurantDescription: 'Welcome to our restaurant',
-            contactEmail: 'contact@restaurant.com',
-            contactPhone: '+1-234-567-8900',
-            address: {
-              street: '123 Main Street',
-              city: 'New York',
-              state: 'NY',
-              zipCode: '10001',
-              country: 'USA',
-            },
-          });
-          await settings.save();
-        }
-
+        const settings = await getScopedSettings(tenantId || undefined);
         socket.emit('admin_settings:data', { settings });
       } catch (e) {
         socket.emit('admin_settings:data', { settings: null });
@@ -335,7 +341,7 @@ export const initWebSocket = (app: Express) => {
           }
         }
 
-        const sys = await SystemSettings.findOne().select('defaultCurrency currency taxRate deliverySettings appName restaurantName');
+        const sys = await getScopedSettings(tenantId || undefined);
         const deliveryFee =
           typeof (sys as any)?.deliveryFee === 'number'
             ? (sys as any).deliveryFee
@@ -467,7 +473,7 @@ export const initWebSocket = (app: Express) => {
       if (!allowed) return;
 
       try {
-        const data = await dashboardSnapshot.getAdminDashboard(role, assignedBranchId || '', params);
+        const data = await dashboardSnapshot.getAdminDashboard(role, assignedBranchId || '', { ...params, tenantId });
         socket.emit('admin_dashboard:data', data);
       } catch (e) {
         socket.emit('admin_dashboard:error', { message: 'Failed to load dashboard data' });
@@ -485,7 +491,7 @@ export const initWebSocket = (app: Express) => {
         typeof params?.limit === 'number' && params.limit > 0 ? Math.min(params.limit, 500) : 200;
 
       try {
-        const orderFilterResult = buildAdminOrderFilter(role, assignedBranchId || '', effectiveBranchId);
+        const orderFilterResult = await buildAdminOrderFilter(role, assignedBranchId || '', effectiveBranchId, tenantId);
         if (orderFilterResult.filter === null) {
           socket.emit('admin_orders:data', { orders: [], total: 0 });
           return;
@@ -603,6 +609,8 @@ export const initWebSocket = (app: Express) => {
   const getUsersByRole = (role: string) => {
     return Array.from(connectedUsers.values()).filter((u) => u.role === role).length;
   };
+
+  setSuperAdminIo(io);
 
   return {
     io,

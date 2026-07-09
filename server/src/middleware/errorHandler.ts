@@ -66,11 +66,14 @@ export const errorHandler = (
   }
 
   // Send error response
-  const response: IApiResponse = {
+  const response: IApiResponse & { suspended?: boolean; maintenance?: boolean } = {
     success: false,
     message,
     statusCode,
   };
+
+  if ((error as any).suspended) response.suspended = true;
+  if ((error as any).maintenance) response.maintenance = true;
 
   // Include stack trace in development
   // Only include stack for 5xx errors to avoid confusing expected 401/403/400 responses.

@@ -48,6 +48,12 @@ const bannerSchema = new Schema({
     type: Schema.Types.ObjectId,
     ref: 'Branch',
     default: null
+  },
+  tenantId: {
+    type: Schema.Types.ObjectId,
+    ref: 'SaasTenant',
+    index: true,
+    default: null,
   }
 }, {
   timestamps: true

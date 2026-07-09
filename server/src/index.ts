@@ -38,6 +38,11 @@ import paymentRoutes from './modules/payment/payment.routes';
 import bannerRoutes from './modules/banner/banner.routes';
 import printerRoutes from './modules/printer/printer.routes';
 import customerRoutes from './routes/customer.routes';
+import superAdminRoutes from '@/superadmin/routes';
+import tenantSupportRoutes from '@/modules/tenant-support/tenantSupport.routes';
+import tenantBrandingRoutes from '@/modules/tenant-branding/tenantBranding.routes';
+import { checkMaintenanceMode } from '@/superadmin/middleware/maintenanceMode.middleware';
+import { resolveTenantFromHost } from '@/superadmin/middleware/tenantIsolation.middleware';
 import { initWebSocket } from '@/config/websocket';
 import { validateProductionEnv } from '@/config/validateEnv';
 import { buildCorsOptions } from '@/config/cors';
@@ -150,6 +155,9 @@ app.post(
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+app.use('/api', checkMaintenanceMode);
+app.use('/api', resolveTenantFromHost);
+
 // Serve uploaded images (public)
 // In dev mode with ts-node, __dirname is the src folder
 app.use('/uploads', (req, res, next) => {
@@ -167,16 +175,29 @@ logger.info(
     `${fs.existsSync(uploadsPathLegacy) ? `, ${uploadsPathLegacy}` : ''}`
 );
 
+/** True after DB + startup tasks finish; until then API returns 503 (port still accepts connections). */
+let serverReady = false;
+
 // Health check endpoint (minimal info in production)
 const healthHandler = (_req: Request, res: Response) => {
   res.status(200).json({
-    status: 'OK',
+    status: serverReady ? 'OK' : 'STARTING',
     timestamp: new Date().toISOString(),
-    ...(isProduction ? {} : { uptime: process.uptime(), environment: process.env.NODE_ENV }),
+    ...(isProduction ? {} : { uptime: process.uptime(), environment: process.env.NODE_ENV, ready: serverReady }),
   });
 };
 app.get('/health', healthHandler);
 app.get('/api/health', healthHandler);
+
+app.use((req, res, next) => {
+  if (serverReady) return next();
+  if (req.path === '/health' || req.path === '/api/health') return next();
+  res.status(503).json({
+    success: false,
+    message: 'Server is starting up, please retry shortly.',
+    statusCode: 503,
+  });
+});
 
 // API routes
 app.use('/api/auth', authRoutes);
@@ -199,46 +220,62 @@ app.use('/api/payments', paymentRoutes); // Payment processing routes
 app.use('/api/customer', customerRoutes); // Customer app routes
 app.use('/api/banners', bannerRoutes); // Banner management routes
 app.use('/api/printers', printerRoutes);
+app.use('/api/superadmin', superAdminRoutes);
+app.use('/api/tenant/support', tenantSupportRoutes);
+app.use('/api/tenant', tenantBrandingRoutes);
 app.use('/api', uploadRoutes); // Upload routes at /api/upload
 
 // Error handling middleware (must be last)
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-// Start server
+// Start server — bind port first so Vite proxy / sockets don't get ECONNREFUSED during DB init
 const startServer = async (): Promise<void> => {
-  try {
-    // Connect to database
-    await connectDatabase();
-    logger.info('Database connected successfully');
-
-    // Seed notifications if none exist
-    const { seedNotifications } = await import('./scripts/seedNotifications');
-    await seedNotifications();
-
-    const listenOnPort = (port: number) =>
-      new Promise<void>((resolve, reject) => {
-        const server = ws.httpServer.listen(port, '0.0.0.0', () => {
-          logger.info(`Server is running on port ${port} in ${process.env.NODE_ENV} mode`);
-          logger.info(`Health check available at http://localhost:${port}/health`);
-          logger.info(`Network access: http://0.0.0.0:${port}/health`);
-          resolve();
-        });
-        server.once('error', reject);
+  const listenOnPort = (port: number) =>
+    new Promise<void>((resolve, reject) => {
+      const server = ws.httpServer.listen(port, '0.0.0.0', () => {
+        logger.info(`Server is running on port ${port} in ${process.env.NODE_ENV} mode`);
+        logger.info(`Health check available at http://localhost:${port}/health`);
+        logger.info(`Network access: http://0.0.0.0:${port}/health`);
+        resolve();
       });
+      server.once('error', reject);
+    });
 
+  try {
     try {
       await listenOnPort(PORT);
     } catch (error: any) {
       const isDev = process.env.NODE_ENV !== 'production';
-      const fallbackPort = 3101;
-      if (isDev && error?.code === 'EADDRINUSE' && PORT !== fallbackPort) {
-        logger.warn(`Port ${PORT} is already in use. Falling back to ${fallbackPort}.`);
-        await listenOnPort(fallbackPort);
-      } else {
-        throw error;
+      if (isDev && error?.code === 'EADDRINUSE') {
+        logger.error(
+          `Port ${PORT} is already in use. Stop the other process or run:\n` +
+            `  Windows: netstat -ano | findstr :${PORT}   then   taskkill /PID <pid> /F`
+        );
       }
+      throw error;
     }
+
+    await connectDatabase();
+    logger.info('Database connected successfully');
+
+    const { seedNotifications } = await import('./scripts/seedNotifications');
+    await seedNotifications();
+
+    const { startAnnouncementScheduler } = await import('@/superadmin/services/announcementScheduler.service');
+    startAnnouncementScheduler();
+
+    const { ensureEmailTemplates } = await import('@/superadmin/services/emailTemplate.service');
+    await ensureEmailTemplates();
+
+    const { ensureDefaultPlans } = await import('@/superadmin/services/planDefaults.service');
+    await ensureDefaultPlans();
+
+    const { startTrialExpiryScheduler } = await import('@/superadmin/services/trialExpiryScheduler.service');
+    startTrialExpiryScheduler();
+
+    serverReady = true;
+    logger.info('Server ready to accept API requests');
   } catch (error) {
     logger.error('Failed to start server:', error);
     process.exit(1);
@@ -257,16 +294,17 @@ process.on('uncaughtException', (error) => {
   process.exit(1);
 });
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  logger.info('SIGTERM received, shutting down gracefully');
-  process.exit(0);
-});
+// Graceful shutdown — release port before ts-node-dev respawn
+const shutdown = (signal: string) => {
+  logger.info(`${signal} received, shutting down gracefully`);
+  serverReady = false;
+  ws.httpServer.close(() => process.exit(0));
+  setTimeout(() => process.exit(1), 5000).unref();
+};
 
-process.on('SIGINT', () => {
-  logger.info('SIGINT received, shutting down gracefully');
-  process.exit(0);
-});
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 startServer();
 

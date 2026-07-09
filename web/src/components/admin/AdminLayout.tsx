@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Box, useMediaQuery, useTheme } from '@mui/material';
+import { Box, useTheme } from '@mui/material';
 import AdminSidebar from './AdminSidebar';
 import AdminTopBar from './AdminTopBar';
+import ImpersonationBanner from '../ImpersonationBanner';
+import { useAdminBreakpoints } from '../../utils/adminResponsive';
 
 const SIDEBAR_WIDTH = 260;
 const TOPBAR_HEIGHT = 64;
@@ -25,7 +27,8 @@ interface AdminLayoutProps {
 
 const AdminLayout: React.FC<AdminLayoutProps> = ({ children, mode = 'admin' }) => {
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const { isDrawerLayout } = useAdminBreakpoints();
+  const isMobile = isDrawerLayout;
   const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
@@ -74,6 +77,7 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({ children, mode = 'admin' }) =
         <Box sx={{ height: TOPBAR_HEIGHT, zIndex: 100 }}>
           <TopBar mode={mode} isMobile={isMobile} onMenuClick={handleMenuClick} />
         </Box>
+        <ImpersonationBanner />
 
         {/* Page Content */}
         <Box
@@ -81,8 +85,9 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({ children, mode = 'admin' }) =
             flex: 1,
             overflowY: 'auto',
             overflowX: 'hidden',
-            bgcolor: '#f8f5ff',
+            bgcolor: theme.palette.primary.light,
             width: '100%',
+            maxWidth: '100%',
             boxSizing: 'border-box',
           }}
         >

@@ -5,6 +5,7 @@ import { Payment } from '@/models/Payment';
 import { Product } from '@/models/Product';
 import { Types } from 'mongoose';
 import { buildRiderOrderFilter } from '@/utils/riderOrderFilter';
+import { tenantBranchFilter, buildTenantOrderScope, tenantUserFilter } from '@/utils/tenantScope';
 
 export class DashboardService {
   // Super Admin Dashboard Stats
@@ -108,12 +109,13 @@ export class DashboardService {
     };
   }
 
-  async getAdminWaitersPerformance(params?: { period?: string; branchId?: string }) {
+  async getAdminWaitersPerformance(params?: { period?: string; branchId?: string; tenantId?: string }) {
     const period = params?.period;
     const branchIdRaw = params?.branchId && params.branchId !== 'all' ? params.branchId : undefined;
     const branchObjectId = branchIdRaw && Types.ObjectId.isValid(branchIdRaw) ? new Types.ObjectId(branchIdRaw) : undefined;
+    const tenantId = params?.tenantId;
 
-    console.log('[DEBUG Waiters] Params:', { period, branchIdRaw, branchObjectId: branchObjectId?.toString() });
+    console.log('[DEBUG Waiters] Params:', { period, branchIdRaw, branchObjectId: branchObjectId?.toString(), tenantId });
 
     const now = new Date();
     const startDate = (() => {
@@ -131,8 +133,11 @@ export class DashboardService {
       return null;
     })();
 
-    // Build simplified match - just branch and date, no status/orderType restrictions
+    // Build simplified match - branch, tenant, and date
     const match: any = {};
+    if (tenantId) {
+      Object.assign(match, await buildTenantOrderScope(tenantId));
+    }
     
     if (branchIdRaw) {
       match.$or = [
@@ -209,6 +214,7 @@ export class DashboardService {
       const staffBranchFilter: any = {
         isActive: true,
         role: 'WAITER',
+        ...tenantUserFilter(tenantId),
         ...(branchObjectId || branchIdRaw
           ? {
               assignedBranch: {
@@ -265,12 +271,13 @@ export class DashboardService {
     return { waiters: resultRows };
   }
 
-  async getAdminRidersPerformance(params?: { period?: string; branchId?: string }) {
+  async getAdminRidersPerformance(params?: { period?: string; branchId?: string; tenantId?: string }) {
     const period = params?.period;
     const branchIdRaw = params?.branchId && params.branchId !== 'all' ? params.branchId : undefined;
     const branchObjectId = branchIdRaw && Types.ObjectId.isValid(branchIdRaw) ? new Types.ObjectId(branchIdRaw) : undefined;
+    const tenantId = params?.tenantId;
 
-    console.log('[DEBUG Riders] Params:', { period, branchIdRaw, branchObjectId: branchObjectId?.toString() });
+    console.log('[DEBUG Riders] Params:', { period, branchIdRaw, branchObjectId: branchObjectId?.toString(), tenantId });
 
     const now = new Date();
     const startDate = (() => {
@@ -288,10 +295,13 @@ export class DashboardService {
       return null;
     })();
 
-    // Build simplified match - just branch, date, and rider must exist
+    // Build simplified match - tenant, branch, date, and rider must exist
     const match: any = {
       rider: { $exists: true, $ne: null },
     };
+    if (tenantId) {
+      Object.assign(match, await buildTenantOrderScope(tenantId));
+    }
     
     if (branchIdRaw) {
       match.$or = [
@@ -338,12 +348,21 @@ export class DashboardService {
     console.log('[DEBUG Riders] Final result rows count:', resultRows.length);
 
     if (!branchIdRaw) {
+      if (tenantId) {
+        const allowedRiderIds = new Set(
+          (await User.find({ role: 'RIDER', ...tenantUserFilter(tenantId) }).select('_id').lean()).map((u) =>
+            String(u._id)
+          )
+        );
+        return { riders: resultRows.filter((r) => allowedRiderIds.has(String(r.riderId))) };
+      }
       return { riders: resultRows };
     }
 
     const staffBranchFilter: any = {
       isActive: true,
       role: 'RIDER',
+      ...tenantUserFilter(tenantId),
       ...(branchObjectId || branchIdRaw
         ? {
             assignedBranch: {
@@ -397,10 +416,12 @@ export class DashboardService {
     return { riders: fullRows };
   }
 
-  async getAdminBranchesPerformance(params?: { period?: string; branchId?: string }) {
+  async getAdminBranchesPerformance(params?: { period?: string; branchId?: string; tenantId?: string }) {
     const period = params?.period;
     const branchIdRaw = params?.branchId && params.branchId !== 'all' ? params.branchId : undefined;
     const branchObjectId = branchIdRaw && Types.ObjectId.isValid(branchIdRaw) ? new Types.ObjectId(branchIdRaw) : undefined;
+    const tenantId = params?.tenantId;
+    const branchScope = tenantBranchFilter(tenantId);
 
     const now = new Date();
     const startDate = (() => {
@@ -416,7 +437,11 @@ export class DashboardService {
     })();
 
     const branches = await Branch.find(
-      branchObjectId ? { _id: branchObjectId } : branchIdRaw ? { _id: branchIdRaw as any } : {}
+      branchObjectId
+        ? { _id: branchObjectId, ...branchScope }
+        : branchIdRaw
+          ? { _id: branchIdRaw as any, ...branchScope }
+          : branchScope
     ).select('_id branchName name isActive');
     const branchList = branches.map((b: any) => ({
       branchId: b._id.toString(),
@@ -425,6 +450,9 @@ export class DashboardService {
     }));
 
     const match: any = {};
+    if (tenantId) {
+      Object.assign(match, await buildTenantOrderScope(tenantId));
+    }
     if (branchObjectId || branchIdRaw) {
       const branchIn: any[] = [];
       if (branchObjectId) branchIn.push(branchObjectId);
@@ -459,6 +487,7 @@ export class DashboardService {
           isActive: true,
           role: 'RIDER',
           assignedBranch: { $exists: true, $ne: null },
+          ...(tenantId ? tenantUserFilter(tenantId) : {}),
           ...(branchObjectId || branchIdRaw
             ? {
                 assignedBranch: {
@@ -622,10 +651,11 @@ export class DashboardService {
   }
 
   // Admin Dashboard Stats
-  async getAdminStats(params?: { period?: string; branchId?: string }) {
+  async getAdminStats(params?: { period?: string; branchId?: string; tenantId?: string }) {
     const period = params?.period;
     const branchIdRaw = params?.branchId && params.branchId !== 'all' ? params.branchId : undefined;
     const branchObjectId = branchIdRaw && Types.ObjectId.isValid(branchIdRaw) ? new Types.ObjectId(branchIdRaw) : undefined;
+    const tenantId = params?.tenantId;
 
     const now = new Date();
     const startDate = (() => {
@@ -641,6 +671,9 @@ export class DashboardService {
     })();
 
     const ordersBaseMatch: any = {};
+    if (tenantId) {
+      Object.assign(ordersBaseMatch, await buildTenantOrderScope(tenantId));
+    }
     if (branchObjectId || branchIdRaw) {
       const branchIn: any[] = [];
       if (branchObjectId) branchIn.push(branchObjectId);
@@ -678,9 +711,9 @@ export class DashboardService {
       totalOrdersToday,
       activeRiders,
     ] = await Promise.all([
-      User.countDocuments({ isActive: true }),
-      User.countDocuments({ isActive: true, role: 'CUSTOMER' }),
-      Branch.countDocuments({ isActive: true }),
+      User.countDocuments({ isActive: true, ...tenantUserFilter(tenantId) }),
+      User.countDocuments({ isActive: true, role: 'CUSTOMER', ...tenantUserFilter(tenantId) }),
+      Branch.countDocuments({ isActive: true, ...tenantBranchFilter(tenantId) }),
       Order.countDocuments(ordersBaseMatch),
       Order.countDocuments(activeOrdersMatch),
       Product.countDocuments({
@@ -703,6 +736,7 @@ export class DashboardService {
       User.countDocuments({
         isActive: true,
         role: 'RIDER',
+        ...tenantUserFilter(tenantId),
         ...(branchObjectId || branchIdRaw
           ? {
               assignedBranch: {

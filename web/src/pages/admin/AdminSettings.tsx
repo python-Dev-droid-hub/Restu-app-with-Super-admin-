@@ -15,6 +15,7 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Stack,
 } from '@mui/material';
 import {
   Save,
@@ -28,6 +29,8 @@ import { io, type Socket } from 'socket.io-client';
 import { getSocketIoOptions, getSocketIoUrl } from '../../utils/socketOptions';
 import { BACKEND_UNREACHABLE_MSG } from '../../utils/backendHealth';
 import { mapSettingsPayload } from '../../utils/applySettingsPayload';
+import { useTenantBranding } from '../../context/TenantBrandingProvider';
+import { adminPageContainerSx, timeInputFieldSx, useAdminBreakpoints } from '../../utils/adminResponsive';
 
 interface AppSettings {
   appName: string;
@@ -79,6 +82,10 @@ interface AppSettings {
 }
 
 const AdminSettings: React.FC = () => {
+  const { branding } = useTenantBranding();
+  const { isCompact } = useAdminBreakpoints();
+  const primary = branding.primaryColor || '#FF6B35';
+  const primaryHover = branding.secondaryColor || '#E55A24';
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -137,6 +144,7 @@ const AdminSettings: React.FC = () => {
   }, []);
 
   const loadSettingsHttp = useCallback(async () => {
+    setLoading(true);
     try {
       const res: any = await api.getSettings();
       if (res?.success) {
@@ -158,11 +166,10 @@ const AdminSettings: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    void loadSettingsHttp();
+
     const socket = io(getSocketIoUrl(), getSocketIoOptions());
     socketRef.current = socket;
-    setLoading(true);
-
-    let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
 
     socket.on('connect', requestSettings);
     socket.on('admin_settings:data', applySettingsData);
@@ -172,14 +179,11 @@ const AdminSettings: React.FC = () => {
 
     if (socket.connected) {
       requestSettings();
-    } else {
-      fallbackTimer = setTimeout(() => {
-        if (!socket.connected) void loadSettingsHttp();
-      }, 4000);
     }
 
     return () => {
-      if (fallbackTimer) clearTimeout(fallbackTimer);
+      socket.off('connect', requestSettings);
+      socket.off('admin_settings:data', applySettingsData);
       socket.disconnect();
       socketRef.current = null;
     };
@@ -190,12 +194,29 @@ const AdminSettings: React.FC = () => {
       setSaving(true);
       setError('');
       setSuccess('');
-      
-      const response: any = await api.updateSettings(settings);
+
+      const {
+        _id: _omitId,
+        __v: _omitV,
+        createdAt: _omitCreated,
+        updatedAt: _omitUpdated,
+        tenantId: _omitTenant,
+        ...rest
+      } = settings as AppSettings & Record<string, unknown>;
+      const { socialMedia, ...payloadRest } = rest;
+      const payload = {
+        ...payloadRest,
+        socialMedia: Object.fromEntries(
+          Object.entries(socialMedia || {}).filter(([, v]) => v != null && String(v).trim() !== '')
+        ),
+      };
+
+      const response: any = await api.updateSettings(payload);
       if (response?.success) {
+        applySettingsData(response.data);
         setSuccess('Settings saved successfully');
       } else {
-        setError(response?.message || 'Failed to save settings');
+        setError(response?.message || response?.error || 'Failed to save settings');
       }
     } catch (err: any) {
       setError(err?.message || 'Failed to save settings');
@@ -207,24 +228,38 @@ const AdminSettings: React.FC = () => {
   const handleReset = async () => {
     if (!window.confirm('Are you sure you want to reset all settings to defaults?')) return;
     try {
+      setLoading(true);
       const response: any = await api.resetSettings();
       if (response?.success) {
-        requestSettings();
+        applySettingsData(response.data);
         setSuccess('Settings reset to defaults');
+      } else {
+        setError(response?.message || 'Failed to reset settings');
+        setLoading(false);
       }
     } catch {
       setError('Failed to reset settings');
+      setLoading(false);
     }
   };
 
   return (
-    <Box sx={{ px: { xs: 2, md: 3 }, pb: { xs: 2, md: 3 }, pt: 0, bgcolor: '#f8f5ff', minHeight: '100vh' }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 1.5 }}>
+    <Box sx={{ ...adminPageContainerSx, bgcolor: '#f8f5ff', minHeight: '100vh' }}>
+      <Box
+        sx={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: { xs: 'stretch', sm: 'center' },
+          flexDirection: { xs: 'column', sm: 'row' },
+          mb: 3,
+          gap: 1.5,
+        }}
+      >
         <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#333' }}>
           Settings
         </Typography>
-        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-          <Button variant="outlined" onClick={handleReset} disabled={loading}>
+        <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', width: { xs: '100%', sm: 'auto' } }}>
+          <Button variant="outlined" onClick={handleReset} disabled={loading} fullWidth={isCompact}>
             Reset to Defaults
           </Button>
           <Button
@@ -232,7 +267,8 @@ const AdminSettings: React.FC = () => {
             startIcon={<Save />}
             onClick={handleSave}
             disabled={saving || loading}
-            sx={{ bgcolor: '#FF6B35', '&:hover': { bgcolor: '#E55A24' } }}
+            fullWidth={isCompact}
+            sx={{ bgcolor: primary, '&:hover': { bgcolor: primaryHover } }}
           >
             {saving ? 'Saving...' : 'Save Changes'}
           </Button>
@@ -250,7 +286,7 @@ const AdminSettings: React.FC = () => {
           <Grid size={{ xs: 12, md: 6 }}>
             <Paper sx={{ p: { xs: 2, md: 3 }, borderRadius: 2, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-                <SettingsIcon sx={{ color: '#FF6B35' }} />
+                <SettingsIcon sx={{ color: primary }} />
                 <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
                   General Settings
                 </Typography>
@@ -284,7 +320,7 @@ const AdminSettings: React.FC = () => {
                   onChange={(e) => setSettings({ ...settings, restaurantDescription: e.target.value })}
                 />
                 <Grid container spacing={2}>
-                  <Grid size={6}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
                     <FormControl fullWidth>
                       <InputLabel>Currency</InputLabel>
                       <Select
@@ -318,7 +354,7 @@ const AdminSettings: React.FC = () => {
                   </Grid>
                 </Grid>
                 <Grid container spacing={2}>
-                  <Grid size={6}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
                     <TextField
                       label="Tax Rate (%)"
                       type="number"
@@ -346,7 +382,7 @@ const AdminSettings: React.FC = () => {
                   </Grid>
                 </Grid>
                 <Grid container spacing={2}>
-                  <Grid size={6}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
                     <TextField
                       label="Service Charge (%)"
                       type="number"
@@ -434,7 +470,7 @@ const AdminSettings: React.FC = () => {
                   onChange={(e) => setSettings({ ...settings, address: { ...settings.address, street: e.target.value } })}
                 />
                 <Grid container spacing={2}>
-                  <Grid size={6}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
                     <TextField
                       label="City"
                       fullWidth
@@ -452,7 +488,7 @@ const AdminSettings: React.FC = () => {
                   </Grid>
                 </Grid>
                 <Grid container spacing={2}>
-                  <Grid size={6}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
                     <TextField
                       label="Zip Code"
                       fullWidth
@@ -548,9 +584,9 @@ const AdminSettings: React.FC = () => {
 
           {/* Business Hours */}
           <Grid size={{ xs: 12 }}>
-            <Paper sx={{ p: 3, borderRadius: 2, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
+            <Paper sx={{ p: { xs: 2, md: 3 }, borderRadius: 2, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
-                <SettingsIcon sx={{ color: '#FF6B35' }} />
+                <SettingsIcon sx={{ color: primary }} />
                 <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
                   Business Hours
                 </Typography>
@@ -558,92 +594,104 @@ const AdminSettings: React.FC = () => {
               <Divider sx={{ mb: 3 }} />
               <Grid container spacing={2}>
                 {Object.entries(settings.operatingHours).map(([day, hours]) => (
-                  <Grid size={{ xs: 12, sm: 6, md: 3 }} key={day}>
-                    <Paper 
-                      variant="outlined" 
-                      sx={{ 
-                        p: 2, 
+                  <Grid size={{ xs: 12, sm: 6, lg: 4, xl: 3 }} key={day}>
+                    <Paper
+                      variant="outlined"
+                      sx={{
+                        p: { xs: 1.5, sm: 2 },
                         borderRadius: 2,
-                        borderColor: hours.closed ? '#e0e0e0' : '#FF6B35',
+                        borderColor: hours.closed ? '#e0e0e0' : primary,
                         bgcolor: hours.closed ? '#fafafa' : 'white',
+                        height: '100%',
                       }}
                     >
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                        <Typography variant="subtitle1" sx={{ textTransform: 'capitalize', fontWeight: 600 }}>
+                      <Box
+                        sx={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: 1,
+                          mb: hours.closed ? 0 : 2,
+                          flexWrap: 'wrap',
+                        }}
+                      >
+                        <Typography
+                          variant="subtitle1"
+                          sx={{ textTransform: 'capitalize', fontWeight: 600, minWidth: 0 }}
+                        >
                           {day}
                         </Typography>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Typography variant="body2" sx={{ color: hours.closed ? '#999' : '#4CAF50', fontWeight: 500 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
+                          <Typography
+                            variant="body2"
+                            sx={{
+                              display: { xs: 'none', sm: 'block' },
+                              color: hours.closed ? '#999' : '#4CAF50',
+                              fontWeight: 500,
+                            }}
+                          >
                             {hours.closed ? 'Closed' : 'Open'}
                           </Typography>
                           <Switch
                             size="small"
                             checked={!hours.closed}
-                            onChange={(e) => setSettings({
-                              ...settings,
-                              operatingHours: {
-                                ...settings.operatingHours,
-                                [day]: { ...hours, closed: !e.target.checked }
-                              }
-                            })}
+                            onChange={(e) =>
+                              setSettings({
+                                ...settings,
+                                operatingHours: {
+                                  ...settings.operatingHours,
+                                  [day]: { ...hours, closed: !e.target.checked },
+                                },
+                              })
+                            }
                             sx={{
-                              '& .MuiSwitch-switchBase.Mui-checked': {
-                                color: '#FF6B35',
-                              },
+                              '& .MuiSwitch-switchBase.Mui-checked': { color: primary },
                               '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                                backgroundColor: '#FF6B35',
+                                backgroundColor: primary,
                               },
                             }}
                           />
                         </Box>
                       </Box>
                       {!hours.closed ? (
-                        <Grid container spacing={1}>
-                          <Grid size={6}>
-                            <TextField
-                              label="Open"
-                              type="time"
-                              size="small"
-                              fullWidth
-                              value={hours.open}
-                              onChange={(e) => setSettings({
+                        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+                          <TextField
+                            label="Open"
+                            type="time"
+                            size="small"
+                            fullWidth
+                            value={hours.open}
+                            onChange={(e) =>
+                              setSettings({
                                 ...settings,
                                 operatingHours: {
                                   ...settings.operatingHours,
-                                  [day]: { ...hours, open: e.target.value }
-                                }
-                              })}
-                              InputLabelProps={{ shrink: true }}
-                              sx={{
-                                '& .MuiOutlinedInput-root': {
-                                  borderRadius: 1.5,
-                                }
-                              }}
-                            />
-                          </Grid>
-                          <Grid size={6}>
-                            <TextField
-                              label="Close"
-                              type="time"
-                              size="small"
-                              fullWidth
-                              value={hours.close}
-                              onChange={(e) => setSettings({
+                                  [day]: { ...hours, open: e.target.value },
+                                },
+                              })
+                            }
+                            InputLabelProps={{ shrink: true }}
+                            sx={timeInputFieldSx}
+                          />
+                          <TextField
+                            label="Close"
+                            type="time"
+                            size="small"
+                            fullWidth
+                            value={hours.close}
+                            onChange={(e) =>
+                              setSettings({
                                 ...settings,
                                 operatingHours: {
                                   ...settings.operatingHours,
-                                  [day]: { ...hours, close: e.target.value }
-                                }
-                              })}
-                              InputLabelProps={{ shrink: true }}
-                              sx={{
-                                '& .MuiOutlinedInput-root': {
-                                  borderRadius: 1.5,
-                                }
-                              }}
-                            />
-                          </Grid>
-                        </Grid>
+                                  [day]: { ...hours, close: e.target.value },
+                                },
+                              })
+                            }
+                            InputLabelProps={{ shrink: true }}
+                            sx={timeInputFieldSx}
+                          />
+                        </Stack>
                       ) : (
                         <Typography variant="body2" color="error" sx={{ textAlign: 'center', py: 1 }}>
                           Closed

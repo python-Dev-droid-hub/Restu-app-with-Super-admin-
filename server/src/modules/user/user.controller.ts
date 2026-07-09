@@ -5,6 +5,11 @@ import { createError } from '@/middleware/errorHandler';
 import { Types } from 'mongoose';
 import { updateRiderLocation as storeRiderLocation } from '@/services/locationService';
 import { normalizeUserRole } from '@/utils/roles';
+import { getTenantIdFromRequest, tenantAdminUserFilter } from '@/utils/tenantScope';
+import {
+  assertPlanCanCreateStaff,
+  assertRoleAllowedForPlan,
+} from '@/superadmin/services/planEnforcement.service';
 
 export class UserController {
   private userRepository: UserRepository;
@@ -91,6 +96,11 @@ export class UserController {
 
     let filter: any = {};
 
+    const tenantId = getTenantIdFromRequest(req);
+    if (tenantId) {
+      Object.assign(filter, tenantAdminUserFilter(tenantId));
+    }
+
     // Management dashboards list active + inactive; use ?activeOnly=true to hide deactivated
     if (activeOnly || (!showInactive && !canManageUsers)) {
       filter.isActive = true;
@@ -105,8 +115,8 @@ export class UserController {
       filter.role = { $ne: 'SUPER_ADMIN' };
     }
 
-    // SUPER_ADMIN sees all users, no branch filtering
-    if (userRole === 'SUPER_ADMIN') {
+    // Platform SUPER_ADMIN (not impersonating) sees all users
+    if (userRole === 'SUPER_ADMIN' && !tenantId) {
       // No additional filters for SUPER_ADMIN
       console.log('[USERS] SUPER_ADMIN - showing all users');
     }
@@ -196,6 +206,15 @@ export class UserController {
       throw createError('User not found', 404);
     }
 
+    const tenantId = getTenantIdFromRequest(req) || (existing.tenantId ? String(existing.tenantId) : undefined);
+    const newRole = role ? String(role).toUpperCase() : String(existing.role || '').toUpperCase();
+    const roleChanged = role && newRole !== String(existing.role || '').toUpperCase();
+
+    if (tenantId && roleChanged) {
+      await assertRoleAllowedForPlan(tenantId, newRole);
+      await assertPlanCanCreateStaff(tenantId, newRole);
+    }
+
     const updateData: Record<string, unknown> = {};
     if (name) updateData.displayName = name;
     if (email) updateData.email = email;
@@ -212,13 +231,12 @@ export class UserController {
 
     const actorRole = String(req.user?.role || '').toUpperCase();
     const previousRole = String(existing.role || '');
-    const newRole = role ? String(role) : previousRole;
-    const roleChanged = role && newRole !== previousRole;
+    const roleChangedNotify = role && newRole !== previousRole;
     const branchId =
       (user.assignedBranch as any)?._id?.toString?.() ||
       (user.assignedBranch ? String(user.assignedBranch) : undefined);
 
-    if (roleChanged) {
+    if (roleChangedNotify) {
       const {
         notifyRoleAssignedByAdmin,
         notifyRoleChangedByManager,

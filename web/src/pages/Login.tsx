@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
-import { setAuthSession } from '../utils/authStorage';
+import { setAuthSession, setUserProfile, getStoredRole } from '../utils/authStorage';
 import { requestBrowserNotificationPermission } from '../services/browserNotifications';
 import './Login.css';
 
@@ -52,48 +52,48 @@ export function Login() {
         return;
       }
 
-      setAuthSession(accessToken, tokens?.refreshToken);
-      void requestBrowserNotificationPermission();
-
       const user = result?.data?.user || result?.user;
       if (user && typeof user === 'object') {
         const role = String(user.role || '').trim().toUpperCase();
         const normalizedUser = { ...user, role };
-        localStorage.setItem('userData', JSON.stringify(normalizedUser));
+        const persistSession = role !== 'RIDER';
+        setAuthSession(accessToken, tokens?.refreshToken, { persist: persistSession });
+        setUserProfile(normalizedUser, { persist: persistSession });
+        void requestBrowserNotificationPermission();
         const ab = user.assignedBranch;
         const branchId = ab?._id || ab?.id || (typeof ab === 'string' ? ab : '');
         if (branchId) localStorage.setItem('selectedBranchId', String(branchId));
-        if (user._id || user.id) {
-          localStorage.setItem('userId', String(user._id || user.id));
-        }
         if (role) {
-          localStorage.setItem('userRole', role);
           window.dispatchEvent(new Event('profileUpdated'));
           window.dispatchEvent(new Event('userDataUpdated'));
+          window.dispatchEvent(new Event('tenant-branding-refresh'));
           redirectByRole(role);
           return;
         }
       }
 
+      setAuthSession(accessToken, tokens?.refreshToken);
+      void requestBrowserNotificationPermission();
+
       const meRes: any = await api.get('/auth/me');
       if (meRes?.success && meRes?.data) {
-        localStorage.setItem('userData', JSON.stringify(meRes.data));
+        const role = String(meRes.data.role || '').trim().toUpperCase();
+        const persistSession = role !== 'RIDER';
+        setAuthSession(accessToken, tokens?.refreshToken, { persist: persistSession });
+        setUserProfile({ ...meRes.data, role }, { persist: persistSession });
         const ab = meRes.data.assignedBranch;
         const branchId = ab?._id || ab?.id || (typeof ab === 'string' ? ab : '');
         if (branchId) localStorage.setItem('selectedBranchId', String(branchId));
-        if (meRes.data._id || meRes.data.id) {
-          localStorage.setItem('userId', String(meRes.data._id || meRes.data.id));
-        }
-        if (meRes.data.role) {
-          localStorage.setItem('userRole', String(meRes.data.role));
+        if (role) {
           window.dispatchEvent(new Event('profileUpdated'));
           window.dispatchEvent(new Event('userDataUpdated'));
-          redirectByRole(meRes.data.role);
+          window.dispatchEvent(new Event('tenant-branding-refresh'));
+          redirectByRole(role);
           return;
         }
       }
 
-      const role = localStorage.getItem('userRole') || '';
+      const role = getStoredRole();
       if (role) {
         redirectByRole(role);
       } else {
@@ -155,6 +155,8 @@ export function Login() {
           <a href="/forgot-password">Forgot password?</a>
           <span> | </span>
           <a href="/register">Create account</a>
+          <span> | </span>
+          <a href="/superadmin/login">Platform super admin</a>
         </div>
       </div>
     </div>

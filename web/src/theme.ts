@@ -1,24 +1,7 @@
-import { createTheme } from '@mui/material/styles';
+import { createTheme, type Theme } from '@mui/material/styles';
+import { darken, lighten } from './utils/tenantBranding';
 
-// Create a theme that matches your CSS variables
-export const appTheme = createTheme({
-  palette: {
-    primary: {
-      main: '#FA4A0C', // --primary
-      light: '#FFF5F2', // --primary-light
-      dark: '#D43F0A', // --primary-dark
-      contrastText: '#FFFFFF',
-    },
-    background: {
-      default: '#F9F9F9', // --bg-body
-      paper: '#FFFFFF', // --bg-card
-    },
-    text: {
-      primary: '#2D2D2D', // --text-primary
-      secondary: '#5C5C5C', // --text-secondary
-    },
-    divider: '#E8E8E8', // --border-color
-  },
+const baseThemeConfig = {
   typography: {
     fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
     h6: {
@@ -26,9 +9,18 @@ export const appTheme = createTheme({
     },
   },
   shape: {
-    borderRadius: 12, // --radius-md
+    borderRadius: 12,
   },
   components: {
+    MuiButton: {
+      styleOverrides: {
+        root: {
+          textTransform: 'none' as const,
+          fontWeight: 600,
+          borderRadius: 10,
+        },
+      },
+    },
     MuiChip: {
       styleOverrides: {
         root: {
@@ -50,7 +42,53 @@ export const appTheme = createTheme({
         },
       },
     },
+    MuiTableContainer: {
+      styleOverrides: {
+        root: {
+          overflowX: 'auto',
+          WebkitOverflowScrolling: 'touch',
+        },
+      },
+    },
+    MuiTabs: {
+      styleOverrides: {
+        root: {
+          maxWidth: '100%',
+        },
+      },
+    },
   },
-});
+};
+
+export function createAppTheme(primaryColor = '#FA4A0C', secondaryColor = '#2D2D2D'): Theme {
+  return createTheme({
+    ...baseThemeConfig,
+    palette: {
+      primary: {
+        main: primaryColor,
+        light: lighten(primaryColor, 0.92),
+        dark: darken(primaryColor, 0.12),
+        contrastText: '#FFFFFF',
+      },
+      secondary: {
+        main: secondaryColor,
+        light: lighten(secondaryColor, 0.85),
+        dark: darken(secondaryColor, 0.1),
+        contrastText: '#FFFFFF',
+      },
+      background: {
+        default: '#F9F9F9',
+        paper: '#FFFFFF',
+      },
+      text: {
+        primary: '#2D2D2D',
+        secondary: '#5C5C5C',
+      },
+      divider: '#E8E8E8',
+    },
+  });
+}
+
+export const appTheme = createAppTheme();
 
 export default appTheme;

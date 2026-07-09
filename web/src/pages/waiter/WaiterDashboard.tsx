@@ -68,6 +68,7 @@ import {
 } from '../../utils/notificationCountSync';
 import { api } from '../../services/api';
 import { useSettings } from '../../context/SettingsContext';
+import { useStaffPalette } from '../../utils/adminResponsive';
 import './WaiterDashboard.css';
 
 // Types
@@ -323,6 +324,13 @@ export default function WaiterDashboard() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { formatPrice } = useSettings();
+  const staff = useStaffPalette();
+  Object.assign(COLORS, {
+    primary: staff.primary,
+    primaryLight: staff.theme.palette.primary.light,
+    bgLight: staff.pageBg,
+  });
+  const { page, primaryBtn, isCompact } = staff;
 
   const toNumber = (value: unknown, fallback = 0): number => {
     const n = typeof value === 'number' ? value : Number(value);
@@ -2153,7 +2161,7 @@ export default function WaiterDashboard() {
   }
 
   return (
-    <Box className="waiter-dashboard" sx={{ width: '100%', boxSizing: 'border-box', px: { xs: 2, md: 3 }, pb: { xs: 2, md: 3 }, pt: 0 }}>
+    <Box className="waiter-dashboard" sx={{ ...page, width: '100%', boxSizing: 'border-box', bgcolor: staff.pageBg, minHeight: '100%' }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 1.5 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
           <Avatar sx={{ bgcolor: COLORS.primary }}>
@@ -2185,7 +2193,7 @@ export default function WaiterDashboard() {
               variant="contained"
               onClick={() => void createOrder()}
               disabled={creatingOrder || cartItems.length === 0 || !createTableId}
-              sx={{ bgcolor: COLORS.primary, '&:hover': { bgcolor: COLORS.primaryLight } }}
+              sx={primaryBtn}
             >
               {creatingOrder ? 'Creating...' : 'Create Order'}
             </Button>
@@ -2197,7 +2205,7 @@ export default function WaiterDashboard() {
                 variant="contained"
                 startIcon={<AddIcon />}
                 onClick={openCreateOrder}
-                sx={{ bgcolor: COLORS.primary, '&:hover': { bgcolor: COLORS.primaryLight } }}
+                sx={primaryBtn}
               >
                 Add Order
               </Button>
@@ -2216,7 +2224,7 @@ export default function WaiterDashboard() {
                   variant="contained"
                   onClick={() => void handleMarkAllNotificationsRead()}
                   disabled={unreadCount === 0}
-                  sx={{ bgcolor: COLORS.primary, '&:hover': { bgcolor: COLORS.primaryLight } }}
+                  sx={primaryBtn}
                 >
                   Mark All Read
                 </Button>

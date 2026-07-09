@@ -9,6 +9,10 @@
   --primary-light: #FFF5F2;
   --primary-dark: #D43F0A;
 
+  /* SECONDARY BRAND COLOR */
+  --secondary: #2D2D2D;
+  --secondary-hover: #1F1F1F;
+
   /* BACKGROUNDS - ALL LIGHT */
   --bg-body: #F9F9F9;
   --bg-card: #FFFFFF;

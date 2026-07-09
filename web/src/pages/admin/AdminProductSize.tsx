@@ -25,6 +25,7 @@ import {
 import { useTheme } from '@mui/material/styles';
 import { Add, Edit, Delete } from '@mui/icons-material';
 import { api } from '../../services/api';
+import { useAdminPageStyles } from '../../utils/adminResponsive';
 
 interface ProductSize {
   _id: string;
@@ -37,6 +38,7 @@ interface ProductSize {
 const AdminProductSize: React.FC = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const { page, header, primaryBtn, titleSx } = useAdminPageStyles();
   const [sizes, setSizes] = useState<ProductSize[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -115,19 +117,19 @@ const AdminProductSize: React.FC = () => {
   };
 
   return (
-    <Box sx={{ bgcolor: '#f5f5f5', minHeight: '100vh', pb: 3, pt: 0 }}>
-      <Container maxWidth="xl">
+    <Box sx={{ ...page, bgcolor: theme.palette.background.default, minHeight: '100vh' }}>
+      <Container maxWidth="xl" disableGutters>
         <Card sx={{ borderRadius: 2, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
           <CardContent>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-              <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
+            <Box sx={header}>
+              <Typography variant="h5" sx={titleSx}>
                 Product Sizes
               </Typography>
               <Button
                 variant="contained"
                 startIcon={<Add />}
                 onClick={() => handleOpenDialog()}
-                sx={{ bgcolor: '#FF6B35', '&:hover': { bgcolor: '#e55a2b' } }}
+                sx={primaryBtn}
               >
                 Add Size
               </Button>
@@ -204,7 +206,7 @@ const AdminProductSize: React.FC = () => {
           </DialogContent>
           <DialogActions>
             <Button onClick={handleCloseDialog}>Cancel</Button>
-            <Button onClick={handleSave} variant="contained" sx={{ bgcolor: '#FF6B35' }}>
+            <Button onClick={handleSave} variant="contained" sx={{ bgcolor: theme.palette.primary.main, '&:hover': { bgcolor: theme.palette.primary.dark } }}>
               Save
             </Button>
           </DialogActions>

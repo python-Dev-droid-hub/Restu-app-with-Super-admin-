@@ -6,6 +6,8 @@ import { asyncHandler, IAuthRequest } from '@/utils';
 import { logger } from '@/utils/logger';
 import { OrderRepository } from '@/modules/order/order.repository';
 import { normalizeOrderPayload } from '@/utils/normalizeOrderPayload';
+import { getTenantIdFromRequest } from '@/utils/tenantScope';
+import { assertRoleAllowedForPlan, assertPlanFeature, isFeatureEnabled, loadTenantWithPlan } from '@/superadmin/services/planEnforcement.service';
 
 function resolveAssignedBranchId(req: IAuthRequest): string {
   const fromQuery = String((req.query as { branchId?: string; branch?: string })?.branchId || (req.query as { branch?: string })?.branch || '').trim();
@@ -35,12 +37,14 @@ export class DashboardController {
 
   getAdminBranchesOverview = asyncHandler(async (req: IAuthRequest, res: Response) => {
     const role = String(req.user?.role || '').toUpperCase();
-    const data = await this.dashboardSnapshot.getAdminBranches(role, resolveAssignedBranchId(req));
+    const tenantId = getTenantIdFromRequest(req);
+    const data = await this.dashboardSnapshot.getAdminBranches(role, resolveAssignedBranchId(req), tenantId);
     sendSuccess(res, data, 'Admin branches retrieved successfully');
   });
 
   getAdminDashboardOverview = asyncHandler(async (req: IAuthRequest, res: Response) => {
     const role = String(req.user?.role || '').toUpperCase();
+    const tenantId = getTenantIdFromRequest(req);
     const { period, branchId, limit } = req.query as {
       period?: string;
       branchId?: string;
@@ -50,11 +54,22 @@ export class DashboardController {
       period,
       branchId,
       limit: limit ? parseInt(limit, 10) : undefined,
+      tenantId,
     });
+
+    if (tenantId) {
+      const tenant = await loadTenantWithPlan(tenantId);
+      if (tenant && !isFeatureEnabled(tenant, 'rider_app')) {
+        (data as any).ridersPerformance = { riders: [] };
+      }
+    }
+
     sendSuccess(res, data, 'Admin dashboard retrieved successfully');
   });
 
   getChefDashboardOverview = asyncHandler(async (req: IAuthRequest, res: Response) => {
+    const tenantId = getTenantIdFromRequest(req);
+    if (tenantId) await assertRoleAllowedForPlan(tenantId, 'CHEF');
     const role = String(req.user?.role || '').toUpperCase();
     const userId = String(req.user?._id || '');
     const data = await this.dashboardSnapshot.getChefDashboard(userId, role, resolveAssignedBranchId(req));
@@ -62,12 +77,16 @@ export class DashboardController {
   });
 
   getWaiterDashboardOverview = asyncHandler(async (req: IAuthRequest, res: Response) => {
+    const tenantId = getTenantIdFromRequest(req);
+    if (tenantId) await assertPlanFeature(tenantId, 'dine_in');
     const userId = String(req.user?._id || '');
     const data = await this.dashboardSnapshot.getWaiterDashboard(userId, resolveAssignedBranchId(req));
     sendSuccess(res, data, 'Waiter dashboard retrieved successfully');
   });
 
   getRiderDashboardOverview = asyncHandler(async (req: IAuthRequest, res: Response) => {
+    const tenantId = getTenantIdFromRequest(req);
+    if (tenantId) await assertRoleAllowedForPlan(tenantId, 'RIDER');
     const userId = String(req.user?._id || '');
     const data = await this.dashboardSnapshot.getRiderDashboard(userId);
     sendSuccess(res, data, 'Rider dashboard retrieved successfully');
@@ -149,6 +168,7 @@ export class DashboardController {
     const stats = await this.dashboardService.getAdminStats({
       period,
       branchId,
+      tenantId: getTenantIdFromRequest(req),
     });
 
     logger.info('📊 [ADMIN STATS] Stats retrieved successfully', {
@@ -167,6 +187,7 @@ export class DashboardController {
     const data = await this.dashboardService.getAdminWaitersPerformance({
       period,
       branchId,
+      tenantId: getTenantIdFromRequest(req),
     });
 
     sendSuccess(res, data, 'Admin waiters performance retrieved successfully');
@@ -178,6 +199,7 @@ export class DashboardController {
     const data = await this.dashboardService.getAdminRidersPerformance({
       period,
       branchId,
+      tenantId: getTenantIdFromRequest(req),
     });
 
     sendSuccess(res, data, 'Admin riders performance retrieved successfully');
@@ -188,6 +210,7 @@ export class DashboardController {
 
     const data = await this.dashboardService.getAdminBranchesPerformance({
       period,
+      tenantId: getTenantIdFromRequest(req),
     });
 
     sendSuccess(res, data, 'Admin branches performance retrieved successfully');
@@ -241,6 +264,8 @@ export class DashboardController {
 
   // Admin Analytics with time range filtering
   getAdminAnalytics = asyncHandler(async (req: IAuthRequest, res: Response) => {
+    const tenantId = getTenantIdFromRequest(req);
+    if (tenantId) await assertPlanFeature(tenantId, 'analytics');
     const { range = '30d', branchId, startDate, endDate } = req.query;
     const { assertBranchAccess } = await import('@/middleware/branchAccess');
     if (branchId && branchId !== 'all') {
@@ -278,6 +303,8 @@ export class DashboardController {
   });
 
   getAdminAnalyticsExport = asyncHandler(async (req: IAuthRequest, res: Response) => {
+    const tenantId = getTenantIdFromRequest(req);
+    if (tenantId) await assertPlanFeature(tenantId, 'analytics');
     const { range = '30d', branchId, startDate, endDate } = req.query;
     const customRange =
       startDate && endDate

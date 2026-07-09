@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { CouponController } from './coupon.controller';
-import { authenticate, authorize } from '@/middleware/auth';
+import { authenticate, authorize, optionalAuth } from '@/middleware/auth';
 import { validate } from '@/middleware/validation';
 import Joi from 'joi';
 
@@ -45,8 +45,8 @@ const validateCouponSchema = Joi.object({
   branch: Joi.string().optional(),
 });
 
-// Public routes
-router.get('/', couponController.getAllCoupons);
+// Public routes (optionalAuth scopes tenant admins to their data)
+router.get('/', optionalAuth, couponController.getAllCoupons);
 router.get('/active', couponController.getActiveCoupons);
 router.get('/:id', couponController.getCouponById);
 

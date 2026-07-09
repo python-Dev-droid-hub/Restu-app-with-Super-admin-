@@ -25,7 +25,7 @@ const userSchema = new Schema({
   phoneNumber: {
     type: String,
     trim: true,
-    match: [/^[\+]?[1-9][\d]{0,15}$/, 'Please enter a valid phone number'],
+    match: [/^\+[1-9]\d{7,14}$/, 'Please enter a valid phone number'],
   },
   role: {
     type: String,
@@ -98,6 +98,12 @@ const userSchema = new Schema({
     type: Schema.Types.ObjectId,
     ref: 'Branch',
   },
+  /** SaaS tenant scope (optional — set when user belongs to a restaurant tenant) */
+  tenantId: {
+    type: Schema.Types.ObjectId,
+    ref: 'SaasTenant',
+    index: true,
+  },
   fcmToken: {
     type: String,
     trim: true,
@@ -163,6 +169,7 @@ userSchema.methods.getPublicProfile = function() {
     lastLoginAt: this.lastLoginAt,
     createdAt: this.createdAt,
     isActive: this.isActive,
+    tenantId: this.tenantId?.toString?.() || this.tenantId || undefined,
   };
 };
 
@@ -170,7 +177,8 @@ userSchema.methods.getPublicProfile = function() {
 userSchema.index({ role: 1 });
 userSchema.index({ isActive: 1, deletedAt: 1 });
 userSchema.index({ assignedBranch: 1 });
-userSchema.index({ currentLocation: '2dsphere' }); // For geospatial queries
+userSchema.index({ tenantId: 1 });
+userSchema.index({ currentLocation: '2dsphere' });
 
 // Pre-find middleware to exclude deleted records
 userSchema.pre(/^find/, function(this: any, next: any) {

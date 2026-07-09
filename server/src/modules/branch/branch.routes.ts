@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { RestaurantController } from '@/modules/restaurant/restaurant.controller';
-import { authenticate, authorize } from '@/middleware/auth';
+import { authenticate, authorize, optionalAuth } from '@/middleware/auth';
 import { validate, validateQuery } from '@/middleware/validation';
 import Joi from 'joi';
 import { logger } from '@/utils/logger';
@@ -71,8 +71,8 @@ const logBranchRequest = (req: any, res: any, next: any) => {
   next();
 };
 
-// Public routes
-router.get('/', validateQuery(querySchema), logBranchRequest, restaurantController.getAllRestaurants);
+// Public route — optionalAuth scopes results for logged-in tenant admins
+router.get('/', optionalAuth, validateQuery(querySchema), logBranchRequest, restaurantController.getAllRestaurants);
 
 // Protected routes - SUPER_ADMIN and ADMIN can manage branches
 router.post('/', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), logBranchRequest, validate(createBranchSchema), restaurantController.createRestaurant);

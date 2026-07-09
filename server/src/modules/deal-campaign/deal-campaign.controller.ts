@@ -1,6 +1,12 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { DealCampaign } from '@/models/DealCampaign';
+import { IAuthRequest } from '@/types';
+import {
+  assertBranchBelongsToTenant,
+  getTenantBranchIds,
+  getTenantIdFromRequest,
+} from '@/utils/tenantScope';
 
 const STAFF_ROLES = ['ADMIN', 'SUPER_ADMIN', 'BRANCH_MANAGER'];
 
@@ -75,6 +81,41 @@ function sortCampaignsByDisplayOrder<T extends { displayOrder?: number; name?: s
     });
 }
 
+async function getTenantCampaignBranchFilter(req: Request): Promise<Record<string, unknown> | null> {
+  const tenantId = getTenantIdFromRequest(req as IAuthRequest);
+  if (!tenantId) return {};
+  const branchIds = await getTenantBranchIds(tenantId);
+  if (!branchIds.length) return { branch: { $in: [] } };
+  return { branch: { $in: branchIds } };
+}
+
+async function assertCampaignTenantAccess(req: Request, campaign: any): Promise<boolean> {
+  const tenantId = getTenantIdFromRequest(req as IAuthRequest);
+  if (!tenantId) return true;
+  const branches = Array.isArray(campaign?.branch) ? campaign.branch : [];
+  if (!branches.length) return false;
+  for (const branch of branches) {
+    const branchId = String(branch?._id || branch);
+    if (await assertBranchBelongsToTenant(tenantId, branchId)) return true;
+  }
+  return false;
+}
+
+async function normalizeCampaignBranchesForTenant(
+  req: Request,
+  branch: mongoose.Types.ObjectId[]
+): Promise<mongoose.Types.ObjectId[]> {
+  const tenantId = getTenantIdFromRequest(req as IAuthRequest);
+  if (!tenantId) return branch;
+  const allowed: mongoose.Types.ObjectId[] = [];
+  for (const branchId of branch) {
+    if (await assertBranchBelongsToTenant(tenantId, String(branchId))) {
+      allowed.push(branchId);
+    }
+  }
+  return allowed;
+}
+
 export class DealCampaignController {
   async createCampaign(req: Request, res: Response) {
     try {
@@ -93,6 +134,11 @@ export class DealCampaignController {
         branch = [new mongoose.Types.ObjectId(userBranchId)];
       } else {
         branch = normalizeBranchIds(req.body?.branch);
+      }
+
+      branch = await normalizeCampaignBranchesForTenant(req, branch);
+      if (getTenantIdFromRequest(req as IAuthRequest) && !branch.length) {
+        return res.status(403).json({ success: false, message: 'Branch must belong to your restaurant.' });
       }
 
       const categories = Array.isArray(req.body?.categories)
@@ -132,6 +178,8 @@ export class DealCampaignController {
       const queryBranchId = req.query.branchId as string;
 
       const filter: any = { deletedAt: null };
+      const tenantBranchFilter = await getTenantCampaignBranchFilter(req);
+      Object.assign(filter, tenantBranchFilter);
 
       // Branch scoping:
       // - BRANCH_MANAGER sees only their branch campaigns
@@ -150,6 +198,13 @@ export class DealCampaignController {
         if (queryBranchId === 'global') {
           filter.branch = { $size: 0 };
         } else if (queryBranchId !== 'all') {
+          const tenantId = getTenantIdFromRequest(req as IAuthRequest);
+          if (tenantId) {
+            const allowed = await assertBranchBelongsToTenant(tenantId, queryBranchId);
+            if (!allowed) {
+              return res.status(200).json({ success: true, data: { campaigns: [] } });
+            }
+          }
           filter.branch = { $in: [new mongoose.Types.ObjectId(queryBranchId)] };
         }
       }
@@ -217,6 +272,9 @@ export class DealCampaignController {
       if (!campaign) {
         return res.status(404).json({ success: false, message: 'Campaign not found' });
       }
+      if (!(await assertCampaignTenantAccess(req, campaign))) {
+        return res.status(404).json({ success: false, message: 'Campaign not found' });
+      }
       return res.status(200).json({ success: true, data: { campaign } });
     } catch (error: any) {
       return res.status(500).json({ success: false, message: 'Failed to fetch campaign', error: error.message });
@@ -231,6 +289,9 @@ export class DealCampaignController {
 
       const existing: any = await DealCampaign.findById(req.params.id);
       if (!existing) {
+        return res.status(404).json({ success: false, message: 'Campaign not found' });
+      }
+      if (!(await assertCampaignTenantAccess(req, existing))) {
         return res.status(404).json({ success: false, message: 'Campaign not found' });
       }
 
@@ -283,6 +344,9 @@ export class DealCampaignController {
       if (!existing) {
         return res.status(404).json({ success: false, message: 'Campaign not found' });
       }
+      if (!(await assertCampaignTenantAccess(req, existing))) {
+        return res.status(404).json({ success: false, message: 'Campaign not found' });
+      }
 
       if (role === 'BRANCH_MANAGER') {
         if (!userBranchId) {
@@ -314,6 +378,9 @@ export class DealCampaignController {
 
       const campaign: any = await DealCampaign.findById(req.params.id);
       if (!campaign) {
+        return res.status(404).json({ success: false, message: 'Campaign not found' });
+      }
+      if (!(await assertCampaignTenantAccess(req, campaign))) {
         return res.status(404).json({ success: false, message: 'Campaign not found' });
       }
 
@@ -379,6 +446,9 @@ export class DealCampaignController {
       if (!campaign) {
         return res.status(404).json({ success: false, message: 'Campaign not found' });
       }
+      if (!(await assertCampaignTenantAccess(req, campaign))) {
+        return res.status(404).json({ success: false, message: 'Campaign not found' });
+      }
 
       if (role === 'BRANCH_MANAGER') {
         if (!userBranchId) {
@@ -434,6 +504,9 @@ export class DealCampaignController {
       if (!campaign) {
         return res.status(404).json({ success: false, message: 'Campaign not found' });
       }
+      if (!(await assertCampaignTenantAccess(req, campaign))) {
+        return res.status(404).json({ success: false, message: 'Campaign not found' });
+      }
 
       if (role === 'BRANCH_MANAGER') {
         if (!userBranchId) {
@@ -468,6 +541,9 @@ export class DealCampaignController {
 
       const campaign: any = await DealCampaign.findById(req.params.id);
       if (!campaign) {
+        return res.status(404).json({ success: false, message: 'Campaign not found' });
+      }
+      if (!(await assertCampaignTenantAccess(req, campaign))) {
         return res.status(404).json({ success: false, message: 'Campaign not found' });
       }
 

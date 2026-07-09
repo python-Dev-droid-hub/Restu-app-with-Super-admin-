@@ -167,7 +167,18 @@ const branchSchema = new Schema({
     type: Date,
     default: null,
     index: true
-  }
+  },
+  /** SaaS tenant that owns this branch (null = legacy single-tenant data) */
+  tenantId: {
+    type: Schema.Types.ObjectId,
+    ref: 'SaasTenant',
+    index: true,
+  },
+  saasTenantBranchId: {
+    type: Schema.Types.ObjectId,
+    ref: 'SaasTenantBranch',
+    sparse: true,
+  },
 }, {
   timestamps: true,
   toJSON: { virtuals: true },
@@ -177,6 +188,7 @@ const branchSchema = new Schema({
 // Indexes for better performance
 branchSchema.index({ branchCode: 1 });
 branchSchema.index({ city: 1 });
+branchSchema.index({ tenantId: 1, isActive: 1 });
 branchSchema.index({ isActive: 1, deletedAt: 1 });
 branchSchema.index({ branchManager: 1 });
 branchSchema.index({ location: '2dsphere' });

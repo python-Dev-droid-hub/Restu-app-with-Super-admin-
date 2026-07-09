@@ -1,10 +1,15 @@
 import mongoose, { Schema } from 'mongoose';
 
 const sizeSchema = new Schema({
+  tenantId: {
+    type: Schema.Types.ObjectId,
+    ref: 'SaasTenant',
+    default: null,
+    index: true,
+  },
   size_name: {
     type: String,
     required: [true, 'Size name is required'],
-    unique: true,
     trim: true,
     maxlength: [50, 'Size name cannot exceed 50 characters']
   },
@@ -26,7 +31,7 @@ const sizeSchema = new Schema({
 });
 
 // Indexes for better performance
-sizeSchema.index({ size_name: 1 });
+sizeSchema.index({ tenantId: 1, size_name: 1 }, { unique: true, partialFilterExpression: { deletedAt: null } });
 sizeSchema.index({ display_order: 1 });
 sizeSchema.index({ is_active: 1, deletedAt: 1 });
 

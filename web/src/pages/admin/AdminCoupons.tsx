@@ -38,6 +38,7 @@ import {
   AttachMoney,
 } from '@mui/icons-material';
 import { api } from '../../services/api';
+import { useAdminPageStyles } from '../../utils/adminResponsive';
 
 interface CouponItem {
   _id: string;
@@ -58,6 +59,7 @@ interface CouponItem {
 const AdminCoupons: React.FC = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const { page, header, primaryBtn, titleSx, tableWrap, primary } = useAdminPageStyles();
   const [coupons, setCoupons] = useState<CouponItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -199,21 +201,16 @@ const AdminCoupons: React.FC = () => {
   const isExpired = (expiryDate: string) => new Date(expiryDate) < new Date();
 
   return (
-    <Box sx={{ px: { xs: 2, md: 3 }, pb: { xs: 2, md: 3 }, pt: 0, bgcolor: '#f8f5ff', minHeight: '100vh' }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 1.5 }}>
-        <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#333' }}>
+    <Box sx={{ ...page, bgcolor: theme.palette.background.default, minHeight: '100vh' }}>
+      <Box sx={header}>
+        <Typography variant="h5" sx={titleSx}>
           Coupons
         </Typography>
         <Button
           variant="contained"
           startIcon={<Add />}
           onClick={() => handleOpenDialog()}
-          sx={{
-            bgcolor: '#FF6B35',
-            '&:hover': { bgcolor: '#E55A24' },
-            borderRadius: 2,
-            textTransform: 'none',
-          }}
+          sx={{ ...primaryBtn, borderRadius: 2 }}
         >
           Add Coupon
         </Button>
@@ -223,7 +220,7 @@ const AdminCoupons: React.FC = () => {
 
       <TableContainer
         component={Paper}
-        sx={{ borderRadius: 2, boxShadow: '0 2px 12px rgba(0,0,0,0.08)', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}
+        sx={{ ...tableWrap, borderRadius: 2, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}
       >
         <Table size={isMobile ? 'small' : 'medium'} sx={{ minWidth: 860 }}>
           <TableHead>
@@ -259,7 +256,7 @@ const AdminCoupons: React.FC = () => {
                     variant="contained"
                     startIcon={<Add />}
                     onClick={() => handleOpenDialog()}
-                    sx={{ mt: 2, bgcolor: '#FF6B35', '&:hover': { bgcolor: '#E55A24' } }}
+                    sx={{ mt: 2, ...primaryBtn, borderRadius: 2 }}
                   >
                     Create First Coupon
                   </Button>
@@ -270,7 +267,7 @@ const AdminCoupons: React.FC = () => {
                 <TableRow key={coupon._id} hover>
                   <TableCell>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <LocalOffer sx={{ color: '#FF6B35' }} />
+                      <LocalOffer sx={{ color: primary }} />
                       <Typography sx={{ fontWeight: 600, fontFamily: 'monospace' }}>
                         {coupon.code}
                       </Typography>

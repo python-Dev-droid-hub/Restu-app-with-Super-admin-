@@ -41,6 +41,10 @@ const resetPasswordSchema = Joi.object({
   newPassword: Joi.string().min(6).required(),
 });
 
+const impersonateSchema = Joi.object({
+  token: Joi.string().required(),
+});
+
 // Public routes
 router.post('/register', validate(registerSchema), authController.register);
 router.post('/login', validate(loginSchema), authController.login);
@@ -57,9 +61,11 @@ router.post('/request-password-reset', validate(requestPasswordResetSchema), aut
 router.post('/reset-password', validate(resetPasswordSchema), authController.resetPassword);
 router.get('/verify-email/:token', authController.verifyEmail);
 router.post('/resend-verification', validate(requestPasswordResetSchema), authController.resendVerificationEmail);
+router.post('/impersonate', validate(impersonateSchema), authController.impersonate);
 
 // Protected routes
 router.post('/logout', authenticate, authController.logout);
 router.get('/me', authenticate, authController.getMe);
+router.post('/exit-impersonate', authenticate, authController.exitImpersonate);
 
 export default router;

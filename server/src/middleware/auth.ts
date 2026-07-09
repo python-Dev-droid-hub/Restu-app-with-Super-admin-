@@ -36,8 +36,14 @@ export const authenticate = async (
       throw createError('Account is deactivated.', 401);
     }
 
+    if (!user.tenantId && decoded.tenantId) {
+      (user as any).tenantId = decoded.tenantId;
+    }
+
     (user as any).role = normalizeUserRole(user.role);
     req.user = user;
+    req.authTenantId = decoded.tenantId || user.tenantId?.toString?.();
+    req.impersonating = Boolean(decoded.impersonating);
     next();
   } catch (error) {
     if (!isProd) {
@@ -84,7 +90,12 @@ export const optionalAuth = async (
         .populate('assignedBranch', '_id name branchName branchCode code');
 
       if (user && user.isActive) {
+        if (!user.tenantId && decoded.tenantId) {
+          (user as any).tenantId = decoded.tenantId;
+        }
         req.user = user;
+        req.authTenantId = decoded.tenantId || user.tenantId?.toString?.();
+        req.impersonating = Boolean(decoded.impersonating);
       }
     }
 

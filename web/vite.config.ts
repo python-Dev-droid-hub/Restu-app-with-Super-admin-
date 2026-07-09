@@ -1,20 +1,51 @@
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
+import type { ProxyOptions } from 'vite'
+
+const API_HOST = '127.0.0.1'
+const API_PORT = '3101'
+
+function proxyWithFallback(target: string, label: string): ProxyOptions {
+  let lastErrorLog = 0
+  return {
+    target,
+    changeOrigin: true,
+    secure: false,
+    configure: (proxy) => {
+      proxy.on('error', (err, _req, res) => {
+        const now = Date.now()
+        if (now - lastErrorLog > 8000) {
+          console.warn(
+            `\n[vite] ${label} proxy error — backend not reachable at ${target}\n` +
+              `       Start API: npm run dev --prefix server  (or from repo root: npm run dev)\n` +
+              `       Detail: ${(err as NodeJS.ErrnoException).code || err.message}\n`
+          )
+          lastErrorLog = now
+        }
+        if (res && !(res as any).headersSent) {
+          ;(res as any).writeHead?.(503, { 'Content-Type': 'application/json' })
+          ;(res as any).end?.(
+            JSON.stringify({
+              success: false,
+              message: 'API server unavailable. Start the backend on port 3101.',
+              statusCode: 503,
+            })
+          )
+        }
+      })
+    },
+  }
+}
 
 // https://vite.dev/config/
 const apiProxy = (proxyTarget: string) => ({
-  '/api': {
-    target: proxyTarget,
-    changeOrigin: true,
-    secure: false,
-  },
+  '/api': proxyWithFallback(proxyTarget, 'API'),
   '/uploads': {
     target: proxyTarget,
     changeOrigin: true,
   },
   '/socket.io': {
-    target: proxyTarget,
-    changeOrigin: true,
+    ...proxyWithFallback(proxyTarget, 'Socket.IO'),
     ws: true,
   },
 })
@@ -24,7 +55,7 @@ export default defineConfig(({ mode }) => {
   const proxyTarget =
     env.VITE_PROXY_TARGET ||
     env.VITE_API_URL?.replace(/\/?api\/?$/, '') ||
-    'http://127.0.0.1:3101'
+    `http://${API_HOST}:${API_PORT}`
 
   return {
     plugins: [react()],
@@ -33,6 +64,9 @@ export default defineConfig(({ mode }) => {
       'import.meta.env.VITE_API_DIRECT': JSON.stringify(env.VITE_API_DIRECT ?? ''),
     },
     server: {
+      host: '0.0.0.0',
+      port: 5175,
+      strictPort: true,
       proxy: apiProxy(proxyTarget),
     },
     preview: {

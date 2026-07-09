@@ -31,6 +31,12 @@ class ApiClient {
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
         }
+        if (typeof window !== 'undefined') {
+          const impersonationTenantId = localStorage.getItem('impersonationTenantId');
+          if (impersonationTenantId) {
+            config.headers['X-Tenant-Id'] = impersonationTenantId;
+          }
+        }
         return config;
       },
       (error: AxiosError) => Promise.reject(error)
@@ -66,6 +72,20 @@ class ApiClient {
             }
           }
         }
+
+        if (typeof window !== 'undefined' && error.response) {
+          const data = error.response.data as { maintenance?: boolean; suspended?: boolean; message?: string };
+          const path = window.location.pathname || '';
+          if (error.response.status === 503 && data?.maintenance && !path.startsWith('/maintenance')) {
+            window.location.replace('/maintenance');
+          } else if (
+            error.response.status === 403 &&
+            (data?.suspended || data?.message?.toLowerCase().includes('suspended')) &&
+            !path.startsWith('/account-suspended')
+          ) {
+            window.location.replace('/account-suspended');
+          }
+        }
         return Promise.reject(error);
       }
     );
@@ -94,11 +114,14 @@ class ApiClient {
         return {
           success: false,
           error: backendMessage,
+          message: responseData?.message || backendMessage,
+          statusCode: error.response.status,
         };
       }
       return {
         success: false,
         error: error.message || 'Network error - please check if server is running',
+        message: error.message || 'Network error - please check if server is running',
       };
     }
   }

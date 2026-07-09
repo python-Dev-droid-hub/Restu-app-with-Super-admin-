@@ -270,12 +270,8 @@ export class MenuRepository {
     return await MenuItem.countDocuments(filter);
   }
 
-  async findAllCategories(): Promise<any[]> {
-    console.log('🔍 findAllCategories: Starting query');
-    const categories = await Category.find()
-      .sort({ displayOrder: 1, name: 1 });
-    console.log('🔍 findAllCategories: Found', categories.length, 'categories');
-    console.log('🔍 findAllCategories: Sample:', categories.slice(0, 2).map(c => ({ name: c.name, id: c._id })));
+  async findAllCategories(filter: Record<string, unknown> = {}): Promise<any[]> {
+    const categories = await Category.find(filter).sort({ displayOrder: 1, name: 1 });
     return categories;
   }
 
